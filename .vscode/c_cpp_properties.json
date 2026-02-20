@@ -11,7 +11,7 @@
         "${workspaceFolder}",
         "${workspaceFolder}/imgui",
         "${workspaceFolder}/imgui/backends",
-        "${workspaceFolder}/imgui/examples/libs/glfw/include"
+        "/opt/homebrew/include"
       ]
     }
   ]

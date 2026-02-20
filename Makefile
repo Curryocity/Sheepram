@@ -1,5 +1,6 @@
 CXX := clang++
 TARGET := main
+BUILD_DIR := build
 
 SRC := \
 	main.cpp \
@@ -13,7 +14,7 @@ SRC := \
 	imgui/backends/imgui_impl_opengl3.cpp \
 	imgui/misc/cpp/imgui_stdlib.cpp
 
-OBJ := $(SRC:.cpp=.o)
+OBJ := $(addprefix $(BUILD_DIR)/,$(SRC:.cpp=.o))
 DEP := $(OBJ:.o=.d)
 
 CPPFLAGS := -Iimgui -Iimgui/backends -I/opt/homebrew/include -DGL_SILENCE_DEPRECATION
@@ -30,18 +31,19 @@ LDLIBS := -lglfw
 all: debug
 
 debug: CXXFLAGS += -O1 -g
-debug: $(TARGET)
+debug: $(BUILD_DIR)/$(TARGET)
 
 release: CXXFLAGS += -O3
-release: $(TARGET)
+release: $(BUILD_DIR)/$(TARGET)
 
-$(TARGET): $(OBJ)
+$(BUILD_DIR)/$(TARGET): $(OBJ)
 	$(CXX) $(OBJ) $(LDFLAGS) $(LDLIBS) -o $@
 
-%.o: %.cpp
+$(BUILD_DIR)/%.o: %.cpp
+	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(TARGET) $(OBJ) $(DEP)
+	rm -f $(BUILD_DIR)/$(TARGET) $(OBJ) $(DEP)
 
 -include $(DEP)
