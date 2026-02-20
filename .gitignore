@@ -28,6 +28,5 @@
 /main
 /imgui.ini
 
-# Editor/OS noise
-.vscode/
+# OS noise
 .DS_Store

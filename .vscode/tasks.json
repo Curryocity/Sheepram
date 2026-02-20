@@ -1,0 +1,39 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build (debug, incremental)",
+            "type": "shell",
+            "command": "make",
+            "args": ["-j8", "debug"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "build (release, incremental)",
+            "type": "shell",
+            "command": "make",
+            "args": ["-j8", "release"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "group": "build",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "clean",
+            "type": "shell",
+            "command": "make",
+            "args": ["clean"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "build",
+            "dependsOn": "build (debug, incremental)",
+            "problemMatcher": []
+        }
+    ]
+}
