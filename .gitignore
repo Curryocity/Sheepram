@@ -1,0 +1,33 @@
+# Build directories
+/build/
+/bin/
+/obj/
+/out/
+/dist/
+
+# Compiled objects and dependency files
+*.o
+*.obj
+*.d
+
+# Linked binaries and libraries
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+
+# Debug/profiling artifacts
+*.dSYM/
+*.profraw
+*.profdata
+
+# Project-local runtime output
+/main
+/imgui.ini
+
+# Editor/OS noise
+.vscode/
+.DS_Store
