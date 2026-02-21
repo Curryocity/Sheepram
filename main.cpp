@@ -1,6 +1,5 @@
 #include "parser.hpp"
 #include <cmath>
-#include <format>
 #include <stdexcept>
 #include <stdio.h>
 #include <algorithm>
@@ -16,6 +15,8 @@
 #include "backends/imgui_impl_opengl3.h"
 #include "misc/cpp/imgui_stdlib.h"
 #include "optimizer.hpp"
+#include <sstream>
+#include <iomanip>
 
 
 const static char* title = "Mom, can we have wolfram at home?";
@@ -628,11 +629,18 @@ static void outputPanel(Environment& state){
         facings[t] = wrapped;
     }
 
+    // small helper to format doubles (replacement for std::format)
+    auto fmt_double = [](double v, int prec) -> std::string {
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(prec) << v;
+        return oss.str();
+    };
+
     // ----- Turns -----
     std::vector<std::string> turns(T, "-");
     for (int t = 0; t + 1 < T; t++) {
         double d = facings[t + 1] - facings[t];
-        turns[t] = std::format("{:.3f}", d);
+        turns[t] = fmt_double(d, 3);
     }
 
     // ----- Positions -----
@@ -647,8 +655,8 @@ static void outputPanel(Environment& state){
         double vx = xvals[t + 1] - xvals[t];
         double vz = zvals[t + 1] - zvals[t];
 
-        vxvals[t] = std::format("{:.6f}", vx);
-        vzvals[t] = std::format("{:.6f}", vz);
+        vxvals[t] = fmt_double(vx, 6);
+        vzvals[t] = fmt_double(vz, 6);
     }
 
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(10.0f, 3.0f));
@@ -692,10 +700,10 @@ static void outputPanel(Environment& state){
         for (int t = 0; t < T; t++) {
             ImGui::TableNextRow(0, minRowHeight);
 
-            const std::string tick = std::to_string(t);
-            const std::string angle = std::format("{:.3f}", facings[t]);
-            const std::string x = std::format("{:.6f}", xvals[t]);
-            const std::string z = std::format("{:.6f}", zvals[t]);
+                const std::string tick = std::to_string(t);
+                const std::string angle = fmt_double(facings[t], 3);
+                const std::string x = fmt_double(xvals[t], 6);
+                const std::string z = fmt_double(zvals[t], 6);
 
             ImGui::TableSetColumnIndex(0);
             centerColumnText(tick.c_str());
@@ -731,7 +739,7 @@ static void outputPanel(Environment& state){
         std::string s = "{";
         for (int i = 0; i < state.n; i++) {
             if (i) s += ", ";
-            s += std::format("{:.3f}", Fs[i]);
+            s += fmt_double(Fs[i], 3);
         }
         s += "}";
         return s;
@@ -742,7 +750,7 @@ static void outputPanel(Environment& state){
         std::string s = "{";
         for (int i = 0; i + 1 < state.n; i++) {
             if (i) s += ", ";
-            s += std::format("{:.3f}", Fs[i + 1] - Fs[i]);
+            s += fmt_double(Fs[i + 1] - Fs[i], 3);
         }
         s += "}";
         return s;
