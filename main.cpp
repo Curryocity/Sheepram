@@ -48,8 +48,17 @@ struct Environment {
                             "X[m2] - X[0] > 7/16\n"
                             "Z[m2] - Z[m-1] > 1 + 0.6000000238418579\n";
 
+    struct Post {
+        std::string xTick = "0"; 
+        std::string xAdd = "0"; 
+        std::string zTick = "m-1";
+        std::string zAdd = "0";
+    } post;
 
-    std::string output = "Press 'Optimize!!'";
+    std::optional<optimizer::Solution> lastSol;
+    int xIndex, zIndex;
+    double xAdd, zAdd;
+    std::string lastError;
 };
 
 
@@ -141,7 +150,7 @@ static void initGlobals(Environment& state){
 }
 
 
-static std::string runOptimizer(Environment& state) {
+static void runOptimizer(Environment& state) {
     try {
         // 1. Define the internal n
         int n = state.n + 1;
@@ -190,35 +199,28 @@ static std::string runOptimizer(Environment& state) {
         // 8. Optimize
         auto sol = optimizer::optimize(model, prob);
         if (state.maximize)
-            sol.bestValue *= -1; // Invert solution again when maximizing
+            sol.optimum *= -1; // Invert solution again when maximizing
 
-        // 9. Format output
-        std::ostringstream out;
-        out << std::setprecision(10);
+        // 9. PostProcessor settings
+        try{
+            state.xIndex = (int) std::round(p.parseConstant(state.post.xTick));
+            state.xAdd = p.parseConstant(state.post.xAdd);
+            state.zIndex = (int) std::round(p.parseConstant(state.post.zTick));
+            state.zAdd = p.parseConstant(state.post.zAdd);
 
-        out << "\n=== Best Objective ===\n";
-        out << sol.bestValue << "\n";
-
-        out << "\n=== Angles (deg) ===\n";
-        for (int i = 0; i < static_cast<int>(sol.thetas.size()) - 1; i++) {
-            float deg = static_cast<float>(sol.thetas[i] * 180.0 / 3.14159265358979323846);
-            float wrapped = std::fmod(deg + 180.0f, 360.0f);
-            if (wrapped < 0) wrapped += 360.0f;
-            wrapped -= 180.0f;
-            out << "F[" << i << "] = " << wrapped << "\n";
+            if(state.xIndex < 0 || state.xIndex >= n || state.zIndex < 0 || state.zIndex >= n)
+                throw std::runtime_error{"Out of bound access"};
+        }catch(const std::exception& e){
+            throw std::runtime_error(
+                std::string("Postprocessor:\n") + e.what()
+            );
         }
 
-        out << "\n=== Trajectory (t, X[t], Z[t]) ===\n";
-        for (int t = 0; t < static_cast<int>(sol.Xs.size()); t++) {
-            out << t << "  "
-                << sol.Xs[t] << "  "
-                << sol.Zs[t] - sol.Zs[1] << "\n";
-        }
+        state.lastError = "";
+        state.lastSol = sol;
 
-        return out.str();
-    }
-    catch (const std::exception& e) {
-        return std::string("Error:\n") + e.what();
+    }catch (const std::exception& e) {
+        state.lastError = std::string("Error:\n") + e.what();
     }
 
 }
@@ -235,6 +237,37 @@ static void centerColumnText(const char* text){
 static void centerColumnInt(int value){
     std::string s = std::to_string(value);
     centerColumnText(s.c_str());
+}
+
+static void InputTextAutoWidth(const char* id, std::string& str, float minW = 10.0f){
+    float textW = ImGui::CalcTextSize(str.c_str()).x;
+    float padding = ImGui::GetStyle().FramePadding.x * 2.0f;
+    float width = std::max(minW, textW + padding);
+
+    ImGui::SetNextItemWidth(width);
+    ImGui::InputText(id, &str);
+}
+
+static void ShowReadOnlyBlock(const char* label, const std::string& text, float height = 70.0f){
+    ImGui::TextUnformatted(label);
+
+    ImGui::PushFont(codeFont);
+
+    // InputTextMultiline needs a mutable buffer.
+    // Keep a persistent copy so it doesn't reallocate every frame.
+    static std::string buf;
+    buf = text;
+
+    ImGui::PushID(label);
+    ImGui::InputTextMultiline(
+        "##readonly",
+        &buf,
+        ImVec2(-1.0f, height),
+        ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_NoUndoRedo
+    );
+    ImGui::PopID();
+
+    ImGui::PopFont();
 }
 
 inline static void modelTable(Environment& state){
@@ -430,7 +463,7 @@ static void inputPanel(Environment& state){
     ImGui::BeginChild("InputPanel", ImVec2(0, 0), true);
     ImGui::PopStyleVar();
 
-    const char* themes[] = {"Obsidian", "Curry", "Glow Squid", "Cherry Blossom"};
+    const char* themes[] = {"Obsidian", "Curry", "Luminous Abyss", "Cherry Blossom"};
     ImGui::Spacing();
     ImGui::AlignTextToFramePadding();
     ImGui::Text("Theme:");
@@ -441,6 +474,7 @@ static void inputPanel(Environment& state){
     }
     ImGui::Spacing();
 
+    // === Model ===
     ImGui::SeparatorText("Model");
 
     ImGui::AlignTextToFramePadding();
@@ -461,8 +495,9 @@ static void inputPanel(Environment& state){
 
     ImGui::Spacing();
     modelTable(state);
-
     ImGui::Spacing();
+
+    // === Core ===
     ImGui::SeparatorText("Core");
 
     ImGui::AlignTextToFramePadding();
@@ -499,6 +534,7 @@ static void inputPanel(Environment& state){
 
     globalVarTable(state);
 
+    // === Constraints ===
     ImGui::SeparatorText("Constraints");
 
     ImGui::PushFont(codeFont);
@@ -506,9 +542,40 @@ static void inputPanel(Environment& state){
     ImGui::PopFont();
 
 
-    if (ImGui::Button("Optimize!!", ImVec2(-1, 35))) {
-        state.output = runOptimizer(state);
-    }
+    // === Postprocessing ===
+    ImGui::SeparatorText("Postprocessor");
+
+    ImGui::PushFont(codeFont);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4,2));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("X Origin: X[");
+    ImGui::SameLine(0.0f, 0.0f);
+
+    InputTextAutoWidth("##xTick", state.post.xTick);
+    ImGui::SameLine(0.0f, 0.0f);
+    ImGui::Text("] + ");
+    ImGui::SameLine(0.0f, 0.0f);
+    InputTextAutoWidth("##xAdd", state.post.xAdd);
+
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Z Origin: Z[");
+    ImGui::SameLine(0.0f, 0.0f);
+    InputTextAutoWidth("##zTick", state.post.zTick);
+    ImGui::SameLine(0.0f, 0.0f);
+    ImGui::Text("] + ");
+    ImGui::SameLine(0.0f, 0.0f);
+    InputTextAutoWidth("##zAdd", state.post.zAdd);
+
+
+    ImGui::PopStyleVar(3);
+    ImGui::PopFont();
+
+    if (ImGui::Button("Optimize!!", ImVec2(-1, 35)))
+        runOptimizer(state);
 
     ImGui::EndChild();
 }
@@ -521,7 +588,176 @@ static void outputPanel(Environment& state){
     ImGui::BeginChild("OutputScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
 
     ImGui::PushFont(codeFont);
-    ImGui::TextUnformatted(state.output.c_str());
+    
+    if (!state.lastError.empty()) {
+        ImGui::TextColored(ImVec4(1,0.4f,0.4f,1), "%s", state.lastError.c_str());
+        ImGui::PopFont();
+        ImGui::EndChild();
+        ImGui::EndChild();
+        return;
+    }
+
+    if (!state.lastSol.has_value()) {
+        ImGui::TextDisabled("Press Optimize!!");
+        ImGui::PopFont();
+        ImGui::EndChild();
+        ImGui::EndChild();
+        return;
+    }
+
+    const auto& sol = *state.lastSol;
+
+    ImGui::Text("=== Optimal Objective ===");
+    ImGui::Text("%.16f", sol.optimum);
+
+    ImGui::Spacing();
+    ImGui::Text("=== LOG ===");
+
+    int T = (int)sol.Xs.size();
+
+    // ----- Facing -----
+    std::vector<double> facings(T, 0.0);
+    for (int t = 0; t < (int)sol.thetas.size(); t++) {
+        double deg = sol.thetas[t] * 180.0 / M_PI;
+        double wrapped = std::fmod(deg + 180.0, 360.0);
+        if (wrapped < 0) wrapped += 360.0;
+        wrapped -= 180.0;
+
+        // mimic Wolfram rounding
+        wrapped = std::round(200.0 * wrapped) * 0.005;
+
+        facings[t] = wrapped;
+    }
+
+    // ----- Turns -----
+    std::vector<std::string> turns(T, "-");
+    for (int t = 0; t + 1 < T; t++) {
+        double d = facings[t + 1] - facings[t];
+        turns[t] = std::format("{:.3f}", d);
+    }
+
+    // ----- Positions -----
+    const auto& xvals = sol.Xs;
+    const auto& zvals = sol.Zs;
+
+    // ----- Velocities -----
+    std::vector<std::string> vxvals(T, "-");
+    std::vector<std::string> vzvals(T, "-");
+
+    for (int t = 0; t + 1 < T; t++) {
+        double vx = xvals[t + 1] - xvals[t];
+        double vz = zvals[t + 1] - zvals[t];
+
+        vxvals[t] = std::format("{:.6f}", vx);
+        vzvals[t] = std::format("{:.6f}", vz);
+    }
+
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(10.0f, 3.0f));
+    constexpr float tableContentWidth = 900.0f;
+    constexpr float estimateRowHeight = 34.0f;
+    constexpr float minRowHeight = 20.0f;
+    constexpr int maxVisibleRows = 13;
+
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float tableOuterWidth = std::min(tableContentWidth, avail.x);
+    const int visibleRows = std::min(T, maxVisibleRows);
+    const float tableContentHeight =  visibleRows * estimateRowHeight + 50.0f;
+    const float tableOuterHeight = std::min(tableContentHeight, avail.y);
+
+    if (ImGui::BeginTable("ResultTable", 7,
+        ImGuiTableFlags_RowBg |
+        ImGuiTableFlags_BordersOuter |
+        ImGuiTableFlags_BordersV |
+        ImGuiTableFlags_ScrollY |
+        ImGuiTableFlags_ScrollX |
+        ImGuiTableFlags_SizingFixedFit |
+        ImGuiTableFlags_NoHostExtendX,
+        ImVec2(tableOuterWidth, tableOuterHeight))) {
+
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Tick",       ImGuiTableColumnFlags_WidthFixed,  50.0f);
+        ImGui::TableSetupColumn("Facing", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::TableSetupColumn("Turn", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::TableSetupColumn("X",          ImGuiTableColumnFlags_WidthFixed, 120.0f);
+        ImGui::TableSetupColumn("Z",          ImGuiTableColumnFlags_WidthFixed, 120.0f);
+        ImGui::TableSetupColumn("vx",         ImGuiTableColumnFlags_WidthFixed, 120.0f);
+        ImGui::TableSetupColumn("vz",         ImGuiTableColumnFlags_WidthFixed, 120.0f);
+
+        ImGui::TableNextRow(ImGuiTableRowFlags_Headers, minRowHeight);
+        static const char* headers[] = {"Tick", "Facing", "Turn", "X", "Z", "Vx", "Vz"};
+        for (int c = 0; c < 7; c++) {
+            ImGui::TableSetColumnIndex(c);
+            centerColumnText(headers[c]);
+        }
+
+        for (int t = 0; t < T; t++) {
+            ImGui::TableNextRow(0, minRowHeight);
+
+            const std::string tick = std::to_string(t);
+            const std::string angle = std::format("{:.3f}", facings[t]);
+            const std::string x = std::format("{:.6f}", xvals[t]);
+            const std::string z = std::format("{:.6f}", zvals[t]);
+
+            ImGui::TableSetColumnIndex(0);
+            centerColumnText(tick.c_str());
+
+            ImGui::TableSetColumnIndex(1);
+            centerColumnText(angle.c_str());
+
+            ImGui::TableSetColumnIndex(2);
+            centerColumnText(turns[t].c_str());
+
+            ImGui::TableSetColumnIndex(3);
+            centerColumnText(x.c_str());
+
+            ImGui::TableSetColumnIndex(4);
+            centerColumnText(z.c_str());
+
+            ImGui::TableSetColumnIndex(5);
+            centerColumnText(vxvals[t].c_str());
+
+            ImGui::TableSetColumnIndex(6);
+            centerColumnText(vzvals[t].c_str());
+        }
+
+        ImGui::EndTable();
+    }
+    ImGui::PopStyleVar();
+
+    ImGui::Spacing();
+    ImGui::Text("=== Facing/Turn Copying ===");
+
+    auto formatFacingList = [&](const std::vector<double>& Fs)
+    {
+        std::string s = "{";
+        for (int i = 0; i < state.n; i++) {
+            if (i) s += ", ";
+            s += std::format("{:.3f}", Fs[i]);
+        }
+        s += "}";
+        return s;
+    };
+
+    auto formatTurnList = [&](const std::vector<double>& Fs)
+    {
+        std::string s = "{";
+        for (int i = 0; i + 1 < state.n; i++) {
+            if (i) s += ", ";
+            s += std::format("{:.3f}", Fs[i + 1] - Fs[i]);
+        }
+        s += "}";
+        return s;
+    };
+
+    std::string facingList = formatFacingList(facings);
+    std::string turnList = formatTurnList(facings);
+
+
+    ShowReadOnlyBlock("Facing:", facingList, 30.0f);
+    ImGui::Spacing();
+    ShowReadOnlyBlock("Turn:", turnList, 30.0f);
+
+
     ImGui::PopFont();
 
     ImGui::EndChild();
@@ -737,8 +973,8 @@ static void applyTheme(int themeIndex) {
     // Should I make a enum?
     switch (themeIndex){
         case 0: applyAccent({0.45f, 0.39f, 0.60f}); break; // Obsidian
-        case 1: applyAccent({0.92f, 0.69f, 0.22f}); break; // Curry (Colorblind Variation)
-        case 2: applyAccent({0.38f, 0.74f, 0.80f}); break; // Glow Squid
+        case 1: applyAccent({0.92f, 0.69f, 0.22f}); break; // Curry (Literally honey)
+        case 2: applyAccent({0.38f, 0.74f, 0.80f}); break; // Luminous Abyss
         case 3: applyAccent({0.86f, 0.57f, 0.75f}); break; // Cherry Blossom
     }
 }

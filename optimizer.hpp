@@ -76,7 +76,7 @@ struct optimizer {
     };
 
     struct Solution {
-        double bestValue = 0.0;
+        double optimum = 0.0;
         std::vector<double> thetas;
         std::vector<double> Xs;
         std::vector<double> Zs;

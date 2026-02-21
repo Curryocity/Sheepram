@@ -199,7 +199,7 @@ optimizer::Solution optimizer::optimize(const Model& model, const Problem& prob)
     Solution sol;
     sol.thetas = thetas;
     updateTrigCache(thetas);
-    sol.bestValue = eval(prob.objective, thetas);
+    sol.optimum = eval(prob.objective, thetas);
     sol.Xs.assign(n, 0.0);
     sol.Zs.assign(n, 0.0);
     for (int i = 0; i < n; i++) {
