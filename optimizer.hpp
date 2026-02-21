@@ -1,8 +1,11 @@
 #pragma once
 
 #include <vector>
+#include <cmath>
+#include <cstddef>
 
 struct optimizer {
+
     struct CompiledExpr {
         CompiledExpr(){}
         CompiledExpr(int n){
@@ -32,28 +35,18 @@ struct optimizer {
         }
     };
 
-    struct Term {
-        enum Type { F, X, Z };
-        Type type;
-        int tick;
-        double coeff = 1.0;
-    };
-
-    struct LinearExpr {
-        std::vector<Term> terms;
-        double constant = 0.0;
-    };
-
-    struct Constraint {
-        enum Cmp { Equal, Less, Greater };
-        Cmp type;
-        LinearExpr expr;
+    struct Constraint{
+        // Enforce lhs < 0 or lhs = 0
+        enum Cmp {Equal, Less};
+        CompiledExpr lhs; 
+        Cmp cmp;
+        Constraint(const CompiledExpr& e, Cmp c) : lhs(e), cmp(c) {}
     };
 
     struct Model {
         // Require initialization
         int n = 0;
-        double initV = 0.0;
+        double initV = 0.0; // This makes accel[0] not used
         std::vector<double> dragX;
         std::vector<double> dragZ;
         std::vector<double> accel;
@@ -66,8 +59,16 @@ struct optimizer {
     };
 
     struct Problem {
+        
+        explicit Problem(int n_, const CompiledExpr& obj)
+            : n(n_), objective(obj)
+        {
+            if ((int)objective.thetaCoeff.size() != n) // or objective.size() helper
+                throw std::runtime_error("Problem objective dimension mismatch");
+        }
+
         int n = 0;
-        // Assuming minimize, TODO: support maximize
+        // Assuming minimize
         CompiledExpr objective;
         // Constraints
         std::vector<CompiledExpr> ineqCons;
@@ -82,7 +83,7 @@ struct optimizer {
     };
 
     static void compileModel(Model& model);
-    static Problem buildProblem(const Model& model, const LinearExpr& objectiveMinimize, const std::vector<Constraint>& constraints);
+    static Problem buildProblem(const Model& model, const CompiledExpr& objMin, const std::vector<Constraint>& constraints);
     static Solution optimize(const Model& model, const Problem& prob);
 
 private:
@@ -90,7 +91,6 @@ private:
     static std::vector<double> sin_cache;
     static std::vector<double> cos_cache;
 
-    static void initCompExpr(CompiledExpr& expr, int n);
     static void addScaled(CompiledExpr& out, const CompiledExpr& in, double s);
     static void scale(std::vector<double>& vec, double s);
     static void setScaled(std::vector<double>& out, const std::vector<double>& in, double s);
@@ -99,7 +99,6 @@ private:
     static void updateTrigCache(const std::vector<double>& thetas);
     static double eval(const CompiledExpr& expr, const std::vector<double>& thetas);
     static void grad(const CompiledExpr& e, const std::vector<double>& thetas, std::vector<double>& g);
-    static CompiledExpr compile(const LinearExpr& expr, const Model& model);
     static void BFGS(std::vector<double>& thetas, const Problem& prob, const std::vector<double>& lamb, const std::vector<double>& nu, double pen);
     static double computeAugL(std::vector<double>& gOut, const std::vector<double>& thetas, const Problem& prob, const std::vector<double>& lamb, const std::vector<double>& nu, double pen);
     static double lineSearch(const std::vector<double>& thetas, const Problem& prob, const std::vector<double>& lamb, const std::vector<double>& nu, double pen, const std::vector<double>& step, double val, double deri);

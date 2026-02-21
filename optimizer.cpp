@@ -45,6 +45,13 @@ struct Matrix {
     std::vector<double> data;
 };
 
+void optimizer::updateTrigCache(const std::vector<double>& thetas) {
+    const int n = static_cast<int>(thetas.size());
+    for (int i = 0; i < n; i++) {
+        sin_cache[i] = std::sin(thetas[i]);
+        cos_cache[i] = std::cos(thetas[i]);
+    }
+}
 
 void optimizer::addScaled(CompiledExpr& out, const CompiledExpr& in, double s) {
     // out += s * in
@@ -78,14 +85,6 @@ double optimizer::dot(const std::vector<double>& a, const std::vector<double>& b
     return sum;
 }
 
-void optimizer::updateTrigCache(const std::vector<double>& thetas) {
-    const int n = static_cast<int>(thetas.size());
-    for (int i = 0; i < n; i++) {
-        sin_cache[i] = std::sin(thetas[i]);
-        cos_cache[i] = std::cos(thetas[i]);
-    }
-}
-
 double optimizer::eval(const CompiledExpr& expr, const std::vector<double>& thetas) {
     const int n = static_cast<int>(thetas.size());
     double val = expr.constant;
@@ -101,8 +100,7 @@ void optimizer::grad(const CompiledExpr& e, const std::vector<double>& thetas, s
     const int n = static_cast<int>(thetas.size());
     g.assign(n, 0.0);
     for (int i = 0; i < n; i++) {
-        g[i] =
-            e.thetaCoeff[i] +
+        g[i] = e.thetaCoeff[i] +
             e.sinCoeff[i] * cos_cache[i] -
             e.cosCoeff[i] * sin_cache[i];
     }
@@ -114,13 +112,6 @@ void optimizer::compileModel(Model& model) {
     model.Vz.assign(n, CompiledExpr(n));
     model.X.assign(n, CompiledExpr(n));
     model.Z.assign(n, CompiledExpr(n));
-
-    for (int t = 0; t < n; ++t) {
-        initCompExpr(model.Vx[t], n);
-        initCompExpr(model.Vz[t], n);
-        initCompExpr(model.X[t], n);
-        initCompExpr(model.Z[t], n);
-    }
 
     // Generate Vx, Vz
     // InitVx = initV * sin(F[0]), initVz = initV * cos(F[0])
@@ -144,48 +135,13 @@ void optimizer::compileModel(Model& model) {
     }
 }
 
-optimizer::CompiledExpr optimizer::compile(const LinearExpr& expr, const Model& model) {
-    // Compile expression into linear function of F, sin F, cos F
-    const int n = model.n;
-    CompiledExpr out(n);
-    out.constant = expr.constant;
 
-    for (const auto& term : expr.terms) {
-        const int t = term.tick;
-        const double c = term.coeff;
-
-        if (term.type == Term::F) {
-            out.thetaCoeff[t] += c;
-        } else if (term.type == Term::X) {
-            addScaled(out, model.X[t], c);
-        } else if (term.type == Term::Z) {
-            addScaled(out, model.Z[t], c);
-        }
-    }
-
-    return out;
-}
-
-optimizer::Problem optimizer::buildProblem(const Model& model, const LinearExpr& objectiveMinimize, const std::vector<Constraint>& constraints) {
-    Problem p;
-    p.n = model.n;
-    p.objective = compile(objectiveMinimize, model);
+optimizer::Problem optimizer::buildProblem(const Model& model, const CompiledExpr& objMin, const std::vector<Constraint>& constraints) {
+    Problem p(model.n, objMin);
 
     for (const auto& c : constraints) {
-        CompiledExpr ce = compile(c.expr, model);
-        if (c.type == Constraint::Equal) {
-            p.eqCons.push_back(ce);
-        } else if (c.type == Constraint::Less) {
-            p.ineqCons.push_back(ce);
-        } else {
-            // Convert expr >= 0 to -expr <= 0
-            for (double& x : ce.thetaCoeff) x = -x;
-            for (double& x : ce.sinCoeff) x = -x;
-            for (double& x : ce.cosCoeff) x = -x;
-            
-            ce.constant = -ce.constant;
-            p.ineqCons.push_back(ce);
-        }
+        if (c.cmp == Constraint::Equal) p.eqCons.push_back(c.lhs);
+        else p.ineqCons.push_back(c.lhs);
     }
 
     return p;

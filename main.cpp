@@ -1,3 +1,4 @@
+#include "parser.hpp"
 #include <cmath>
 #include <stdio.h>
 #include <algorithm>
@@ -16,7 +17,7 @@
 #include "misc/cpp/imgui_stdlib.h"
 #include "optimizer.hpp"
 
-// TODO: Make all input text, and eval() them.
+
 const static char* title = "Mom, can we have wolfram at home?";
 
 struct Environment {
@@ -25,19 +26,19 @@ struct Environment {
     int themeIndex = 0;
     bool maximize = false;
 
-    enum objectiveType{X = 0, Z = 1, direction = 2, custom = 3};
+    enum objectiveType{X = 0, Z = 1, custom = 2};
     objectiveType currObj = X;
-    double dirX = 0, dirZ = 0;
-    std::string objectiveScript = "X[n]";
+    std::string dirX = "0", dirZ = "0";
+    std::string objScript = "Optimize along vec(a, b) := a * (X[t1] - X[t0]) + b * (Z[t1] - Z[t0])";
 
     int n = 12;
-    double initV = 0.3169516131491288;
-    std::vector<double> dragX, dragZ, accel;
+    std::string initV = "0.3169516131491288";
+    std::vector<std::string> dragX, dragZ, accel;
 
-    int varCapacity = 3;
+    int varCapacity = 9;
 
     std::vector<std::string> globalNames;
-    std::vector<double> globalValues;
+    std::vector<std::string> globalValues;
 
     std::string constraintScript = "// c4.5 p2p\n"
                             "X[m] - X[0] > 7/16\n"
@@ -75,108 +76,148 @@ static void initModel(Environment& state){
 
     for (int i = 0; i < state.n; i++){
         if (i < 2){
-            state.dragX[i] = 0.546;
-            state.dragZ[i] = 0.546;
+            state.dragX[i] = "ground";
+            state.dragZ[i] = "ground";
         }else{
-            state.dragX[i] = 0.91;
-            state.dragZ[i] = 0.91;
+            state.dragX[i] = "air";
+            state.dragZ[i] = "air";
         }
 
         if (i == 0)
-            state.accel[i] = state.initV;
+            state.accel[i] = "initV";
         else if (i == 1)
-            state.accel[i] = 0.3274;
+            state.accel[i] = "WAD";
         else
-            state.accel[i] = 0.026;
+            state.accel[i] = "sa45";
     }
 }
 
 static void initGlobals(Environment& state){
-    // varCapacity defaults to 3
+    // varCapacity defaults to 9
     state.globalNames.resize(state.varCapacity);
     state.globalValues.resize(state.varCapacity);
 
     int idx = 0;
 
+    state.globalNames[idx] = "ground";
+    state.globalValues[idx] = "0.546";
+    idx ++;
+
+    state.globalNames[idx] = "air";
+    state.globalValues[idx] = "0.91";
+    idx ++;
+
+    state.globalNames[idx] = "s45";
+    state.globalValues[idx] = "0.13";
+    idx ++;
+
+    state.globalNames[idx] = "sa45";
+    state.globalValues[idx] = "0.026";
+    idx ++;
+
+    state.globalNames[idx] = "WAD";
+    state.globalValues[idx] = "0.3274";
+    idx ++;
+
+    state.globalNames[idx] = "WAWD";
+    state.globalValues[idx] = "0.3060547988254277";
+    idx ++;
+
     state.globalNames[idx] = "m";
-    state.globalValues[idx] = 2;
+    state.globalValues[idx] = "2";
     idx ++;
 
     state.globalNames[idx] = "m2";
-    state.globalValues[idx] = 8;
+    state.globalValues[idx] = "8";
     idx ++;
 
     for (; idx < state.varCapacity; idx++){
         state.globalNames[idx] = "";
-        state.globalValues[idx] = 0.0;
+        state.globalValues[idx] = "";
     }
 }
 
-// TODO: Switch this
-static std::string runOptimizer() {
-    const int n = 12;
-    const int m = 2;
-    const int m2 = 8;
 
-    optimizer::Model model;
-    model.n = n + 1;
-    model.initV = 0.31695;
+static std::string runOptimizer(Environment& state) {
+    try {
+        // 1. Define the internal n
+        int n = state.n + 1;
+        optimizer::Model model;
+        model.n = n;
 
-    model.dragX = {0.546, 0.546, 0.91, 0.91, 0.91, 0.91,0.91, 0.91, 0.91, 0.91, 0.91};
-    model.dragZ = model.dragX;
+        // 2. Initialize parser(varTables, Expr sizes) 
+        Parser p(model, state.globalNames, state.globalValues);
 
-    model.accel = {0.31695, 0.3274, 0.026, 0.026, 0.026, 0.026, 0.026, 0.026, 0.026, 0.026,0.026, 0.026};
+        // 3. Evaluate drag/accel scripts to constants
+        model.dragX.resize(n);
+        model.dragZ.resize(n);
+        model.accel.resize(n);
 
-    optimizer::compileModel(model);
+        model.initV = p.parseConstant(state.initV); // accel[0] is not used in the optimizer
+        for (int i = 0; i < model.n - 1; i++) {
+            model.dragX[i] = p.parseConstant(state.dragX[i]);
+            model.dragZ[i] = p.parseConstant(state.dragZ[i]);
+        }
+        for (int i = 1; i < model.n; i++) { 
+            model.accel[i] = p.parseConstant(state.accel[i]);
+        }
 
-    optimizer::LinearExpr objective;
-    objective.terms.push_back({optimizer::Term::X, n, 1.0});
+        // 4. Compile movement formulas
+        optimizer::compileModel(model);
 
-    optimizer::Constraint h1;
-    h1.type = optimizer::Constraint::Less;
-    h1.expr.constant = 7.0 / 16.0;
-    h1.expr.terms.push_back({optimizer::Term::X, m, -1.0});
-    h1.expr.terms.push_back({optimizer::Term::X, 0, 1.0});
+        // 5. Parse objective
+        optimizer::CompiledExpr objective(model.n);
+        if (state.currObj == Environment::X)
+            objective = p.parseExpr("X[n]");
+        else if (state.currObj == Environment::Z)
+            objective = p.parseExpr("Z[n]");
+        else if (state.currObj == Environment::custom)
+            objective = p.parseExpr(state.objScript);
 
-    optimizer::Constraint h2;
-    h2.type = optimizer::Constraint::Less;
-    h2.expr.constant = 7.0 / 16.0;
-    h2.expr.terms.push_back({optimizer::Term::X, m2, -1.0});
-    h2.expr.terms.push_back({optimizer::Term::X, 0, 1.0});
+        // Invert objective when maximizing
+        if (state.maximize)
+            objective = p.scaleExpr(objective, -1);
 
-    optimizer::Constraint h3;
-    h3.type = optimizer::Constraint::Less;
-    h3.expr.constant = 1.6;
-    h3.expr.terms.push_back({optimizer::Term::Z, m2, -1.0});
-    h3.expr.terms.push_back({optimizer::Term::Z, m - 1, 1.0});
+        // 6. Parse constraints
+        auto constraints = p.parseMultiConstraints(state.constraintScript);
 
-    const std::vector<optimizer::Constraint> constraints = {h1, h2, h3};
-    const optimizer::Problem prob = optimizer::buildProblem(model, objective, constraints);
-    const optimizer::Solution sol = optimizer::optimize(model, prob);
+        // 7. Build problem
+        auto prob = optimizer::buildProblem(model, objective, constraints);
 
-    std::ostringstream out;
-    out << std::setprecision(10);
+        // 8. Optimize
+        auto sol = optimizer::optimize(model, prob);
+        if (state.maximize)
+            sol.bestValue *= -1; // Invert solution again when maximizing
 
-    out << "\n=== Best Objective ===\n";
-    out << sol.bestValue << "\n";
+        // 9. Format output
+        std::ostringstream out;
+        out << std::setprecision(10);
 
-    out << "\n=== Angles (deg) ===\n";
-    for (int i = 0; i < static_cast<int>(sol.thetas.size()) - 1; i++) {
-        float deg = static_cast<float>(sol.thetas[i] * 180.0 / 3.14159265358979323846);
-        float wrapped = std::fmod(deg + 180.0f, 360.0f);
-        if (wrapped < 0) wrapped += 360.0f;
-        wrapped -= 180.0f;
-        out << "F[" << i << "] = " << wrapped << "\n";
+        out << "\n=== Best Objective ===\n";
+        out << sol.bestValue << "\n";
+
+        out << "\n=== Angles (deg) ===\n";
+        for (int i = 0; i < static_cast<int>(sol.thetas.size()) - 1; i++) {
+            float deg = static_cast<float>(sol.thetas[i] * 180.0 / 3.14159265358979323846);
+            float wrapped = std::fmod(deg + 180.0f, 360.0f);
+            if (wrapped < 0) wrapped += 360.0f;
+            wrapped -= 180.0f;
+            out << "F[" << i << "] = " << wrapped << "\n";
+        }
+
+        out << "\n=== Trajectory (t, X[t], Z[t]) ===\n";
+        for (int t = 0; t < static_cast<int>(sol.Xs.size()); t++) {
+            out << t << "  "
+                << sol.Xs[t] << "  "
+                << sol.Zs[t] - sol.Zs[1] << "\n";
+        }
+
+        return out.str();
+    }
+    catch (const std::exception& e) {
+        return std::string("Error:\n") + e.what();
     }
 
-    out << "\n=== Trajectory (t, X[t], Z[t]) ===\n";
-    for (int t = 0; t < static_cast<int>(sol.Xs.size()); t++) {
-        out << t << "  "
-            << sol.Xs[t] << "  "
-            << sol.Zs[t] - sol.Zs[1] << "\n";
-    }
-
-    return out.str();
 }
 
 static void centerColumnText(const char* text){
@@ -237,7 +278,7 @@ inline static void modelTable(Environment& state){
             ImGui::TableSetColumnIndex(t + 1);
             ImGui::PushID(t);
             ImGui::SetNextItemWidth(70);
-            ImGui::InputDouble("##dragX", &state.dragX[t], 0.0, 0.0, "%.4f");
+            ImGui::InputText("##dragX", &state.dragX[t]);
             ImGui::PopID();
         }
 
@@ -249,7 +290,7 @@ inline static void modelTable(Environment& state){
             ImGui::TableSetColumnIndex(t + 1);
             ImGui::PushID(1000 + t);
             ImGui::SetNextItemWidth(70);
-            ImGui::InputDouble("##dragZ", &state.dragZ[t], 0.0, 0.0, "%.4f");
+            ImGui::InputText("##dragZ", &state.dragZ[t]);
             ImGui::PopID();
         }
 
@@ -265,7 +306,7 @@ inline static void modelTable(Environment& state){
             }else{
                 ImGui::PushID(2000 + t);
                 ImGui::SetNextItemWidth(70);
-                ImGui::InputDouble("##accel", &state.accel[t], 0.0, 0.0, "%.4f");
+                ImGui::InputText("##accel", &state.accel[t]);
                 ImGui::PopID();
             }
         }
@@ -281,7 +322,7 @@ inline static void globalVarTable(Environment& state){
     if (static_cast<int>(state.globalNames.size()) < state.varCapacity)
         state.globalNames.resize(state.varCapacity, "");
     if (static_cast<int>(state.globalValues.size()) < state.varCapacity)
-        state.globalValues.resize(state.varCapacity, 0.0);
+        state.globalValues.resize(state.varCapacity, "");
 
     ImGui::SeparatorText("Global Variables");
     ImGui::BeginChild("var_region", ImVec2(0, 80), false);
@@ -292,7 +333,7 @@ inline static void globalVarTable(Environment& state){
     if (ImGui::Button("+", ImVec2(buttonWidth, buttonHeight))) {
         ++state.varCapacity;
         state.globalNames.push_back("");
-        state.globalValues.push_back(0.0);
+        state.globalValues.push_back("");
     }
     if (ImGui::Button("-", ImVec2(buttonWidth, buttonHeight)) && state.varCapacity > 1) {
         --state.varCapacity;
@@ -346,7 +387,7 @@ inline static void globalVarTable(Environment& state){
             ImGui::PushID(1000 + i);
 
             ImGui::SetNextItemWidth(columnWidth);
-            ImGui::InputDouble("##value",&state.globalValues[i], 0.0, 0.0, "%.6f");
+            ImGui::InputText("##value",&state.globalValues[i]);
 
             ImGui::PopID();
         }
@@ -362,7 +403,7 @@ static void inputPanel(Environment& state){
     ImGui::BeginChild("InputPanel", ImVec2(0, 0), true);
     ImGui::PopStyleVar();
 
-    const char* themes[] = {"Obsidian", "Gilded Blackstone", "Glow Squid", "Cherry Blossom"};
+    const char* themes[] = {"Obsidian", "Curry", "Glow Squid", "Cherry Blossom"};
     ImGui::Spacing();
     ImGui::AlignTextToFramePadding();
     ImGui::Text("Theme:");
@@ -385,7 +426,7 @@ static void inputPanel(Environment& state){
     ImGui::Text("initV =");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(160);
-    ImGui::InputDouble("##model_initV", &state.initV, 0.0, 0.0, "%.16f");
+    ImGui::InputText("##model_initV", &state.initV);
 
     ImGui::Spacing();
     modelTable(state);
@@ -398,7 +439,7 @@ static void inputPanel(Environment& state){
     ImGui::SameLine();
     ImGui::SetNextItemWidth(120);
 
-    const char* modes[] = {"X[n]","Z[n]","Direction[n]", "Custom"};
+    const char* modes[] = {"X[n]","Z[n]", "Custom"};
 
     if (ImGui::BeginCombo("##obj", modes[state.currObj])){
         for (int i = 0; i < IM_ARRAYSIZE(modes); i++){
@@ -417,28 +458,12 @@ static void inputPanel(Environment& state){
     if(ImGui::Button(state.maximize ? "Maximize" : "Minimize"))
         state.maximize = !state.maximize;
 
-    if (state.currObj == Environment::direction){
-        ImGui::AlignTextToFramePadding();
-        ImGui::Text("   > Set Direction Vector >");
-        ImGui::SameLine();
-        ImGui::PushItemWidth(120);
 
-        ImGui::AlignTextToFramePadding();
-        ImGui::Text("X:");
-        ImGui::SameLine();
-        ImGui::InputDouble("##dirx", &state.dirX);
-
-        
-        ImGui::SameLine();
-        ImGui::AlignTextToFramePadding();
-        ImGui::Text("Z:");
-        ImGui::SameLine();
-        ImGui::InputDouble("##dirz", &state.dirZ);
-
-        ImGui::PopItemWidth();
-    } else if (state.currObj == Environment::custom){
+    if (state.currObj == Environment::custom){
         ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputText("##custom_objective_script", &state.objectiveScript);
+        ImGui::PushFont(codeFont);
+        ImGui::InputText("##custom_objective_script", &state.objScript);
+        ImGui::PopFont();
     }
 
     globalVarTable(state);
@@ -451,7 +476,7 @@ static void inputPanel(Environment& state){
 
 
     if (ImGui::Button("Optimize!!", ImVec2(-1, 35))) {
-        state.output = runOptimizer();
+        state.output = runOptimizer(state);
     }
 
     ImGui::EndChild();
@@ -677,10 +702,10 @@ static void applyTheme(int themeIndex) {
     c[ImGuiCol_TitleBg]       = {0.1f, 0.1f, 0.1f, 1.0f};
     c[ImGuiCol_TitleBgActive] = {0.15f, 0.15f, 0.15f, 1.0f};
 
-    // Should make a enum?
+    // Should I make a enum?
     switch (themeIndex){
         case 0: applyAccent({0.45f, 0.39f, 0.60f}); break; // Obsidian
-        case 1: applyAccent({0.92f, 0.69f, 0.22f}); break; // Gilded Blackstone
+        case 1: applyAccent({0.92f, 0.69f, 0.22f}); break; // Curry (Colorblind Variation)
         case 2: applyAccent({0.38f, 0.74f, 0.80f}); break; // Glow Squid
         case 3: applyAccent({0.86f, 0.57f, 0.75f}); break; // Cherry Blossom
     }

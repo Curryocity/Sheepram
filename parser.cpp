@@ -8,6 +8,7 @@
 #include <cctype>
 #include <string>
 
+using Cons = optimizer::Constraint;
 using Expr = optimizer::CompiledExpr;
 
 struct Parser::Lexer{
@@ -101,7 +102,6 @@ struct Parser::Lexer{
 
         // Scientic Notation
         if (pos < input.size() && (input[pos] == 'e' || input[pos] == 'E')) {
-            size_t expPos = pos;
             pos++;
 
             if (pos < input.size() && (input[pos] == '+' || input[pos] == '-')) 
@@ -134,8 +134,8 @@ struct Parser::Lexer{
     
 };
 
-std::vector<Parser::Constraint> Parser::parseMultiline(const std::string& input){
-    std::vector<Constraint> constraints;
+std::vector<Cons> Parser::parseMultiConstraints(const std::string& input){
+    std::vector<Cons> constraints;
 
     size_t start = 0;
 
@@ -167,7 +167,7 @@ std::vector<Parser::Constraint> Parser::parseMultiline(const std::string& input)
         trim(line);
 
         if (!line.empty()) {
-            constraints.push_back(parse(line));
+            constraints.push_back(parseConstraint(line));
         }
 
         start = end + 1;
@@ -176,16 +176,21 @@ std::vector<Parser::Constraint> Parser::parseMultiline(const std::string& input)
     return constraints;
 }
 
-void Parser::buildVarMap(const std::vector<std::string>& names, const std::vector<std::string>& values){
+void Parser::buildVarMap(int globalN, double initV, const std::vector<std::string>& names, const std::vector<std::string>& values){
     varMap.clear();
+    varMap["N"] = globalN;
+    varMap["n"] = globalN;
+    varMap["initV"] = initV;
     int m = names.size();
     for(int i = 0; i < m; i++){
         const std::string& value = values[i];
         const std::string& name = names[i];
         if (name.empty())
             continue;
+        if(name == "N" || name == "n" || name == "initV")
+            throw std::runtime_error{name + " is a reserved keyword"};
         if(value.empty()) 
-            throw std::runtime_error{names[i] + " has no definition"};
+            throw std::runtime_error{name + " has no definition"};
 
         Lexer lex(value);
         Expr e = parseExpr(lex, 0);
@@ -212,7 +217,7 @@ Expr Parser::resolveIndexed(char c, int index){
     throw std::runtime_error{"Bug: This shouldn't happen cuz I checked the identifier name already."};
 }
 
-Parser::Constraint Parser::parse(const std::string& s){
+Cons Parser::parseConstraint(const std::string& s){
     Lexer lex(s);
     Expr lhs = parseExpr(lex, 0);
 
@@ -222,7 +227,10 @@ Parser::Constraint Parser::parse(const std::string& s){
             "Expected comparison operator, got '" + cmpTok.text + "'"
         );
 
-    Constraint::Cmp cmp = convertCmp(cmpTok);
+    char cmpChar = cmpTok.text[0];
+
+    if(cmpTok.text.size() != 1 || (cmpChar != '<' && cmpChar != '=' && cmpChar != '>')) 
+        throw std::runtime_error("Unknown Cmp Token: " + cmpTok.text);
 
     Expr rhs = parseExpr(lex, 0);
 
@@ -232,43 +240,41 @@ Parser::Constraint Parser::parse(const std::string& s){
     Token minusTok{TokenType::Operator, "-"};
 
     Expr stdForm;
-    Constraint::Cmp stdType;
+    Cons::Cmp cmpType;
 
-    switch (cmp) {
-        case Constraint::Less:
-            // lhs < rhs  ->  lhs - rhs <= 0
+    switch (cmpChar) {
+        case '<':
             stdForm = combineExpr(lhs, rhs, minusTok);
-            stdType = Constraint::Less;
+            cmpType = Cons::Less;
             break;
 
-        case Constraint::Greater:
-            // lhs > rhs  -> rhs - lhs <= 0
+        case '>':
             stdForm = combineExpr(rhs, lhs, minusTok);
-            stdType = Constraint::Less;
+            cmpType = Cons::Less;
             break;
 
-        case Constraint::Equal:
-            // lhs = rhs -> lhs - rhs == 0
+        case '=':
             stdForm = combineExpr(lhs, rhs, minusTok);
-            stdType = Constraint::Equal;
+            cmpType = Cons::Equal;
             break;
     }
 
-    return Constraint{stdForm, stdType};
+    return Cons{stdForm, cmpType};
 }
 
-Parser::Constraint::Cmp Parser::convertCmp(const Token& cmpTok){
-    if(cmpTok.text.size() != 1) throw std::runtime_error("Unknown Cmp Token: " + cmpTok.text);
-    switch (cmpTok.text[0]) {
-        case '<':
-            return Constraint::Less;
-        case '=':
-            return Constraint::Equal;
-        case '>':
-            return Constraint::Greater;
-        default:
-            throw std::runtime_error("Unknown Cmp Token: " + cmpTok.text);
-    }
+Expr Parser::parseExpr(const std::string& s){
+    Lexer lex(s);
+    Expr expr = parseExpr(lex, 0);
+    if (lex.peek().type != TokenType::End)
+        throw std::runtime_error("Unexpected trailing tokens from: " + s);
+    return expr;
+}
+
+double Parser::parseConstant(const std::string& s){
+    Expr e = parseExpr(s);
+    if(!e.isConstant())
+        throw std::runtime_error("Cannot reduce expression to constant: " + s);
+    return e.constant;
 }
 
 // Pratt Parser IS THE BEST
