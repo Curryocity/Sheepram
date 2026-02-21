@@ -6,7 +6,10 @@
 #include <string>
 #include <vector>
 
+#if !defined(GL_SILENCE_DEPRECATION)
 #define GL_SILENCE_DEPRECATION
+#endif
+
 #include <OpenGL/gl3.h>
 #include <GLFW/glfw3.h>
 
@@ -53,6 +56,7 @@ struct Environment {
         std::string xAdd = "0"; 
         std::string zTick = "m-1";
         std::string zAdd = "0";
+        int positionPrecision = 6;
     } post;
 
     std::optional<optimizer::Solution> lastSol;
@@ -570,6 +574,13 @@ static void inputPanel(Environment& state){
     ImGui::SameLine(0.0f, 0.0f);
     InputTextAutoWidth("##zAdd", state.post.zAdd);
 
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("X/Z precision:");
+    ImGui::SameLine(0.0f, 8.0f);
+    ImGui::SetNextItemWidth(80.0f);
+    ImGui::InputInt("##positionPrecision", &state.post.positionPrecision);
+    state.post.positionPrecision = std::clamp(state.post.positionPrecision, 3, 10);
+
 
     ImGui::PopStyleVar(3);
     ImGui::PopFont();
@@ -606,6 +617,8 @@ static void outputPanel(Environment& state){
     }
 
     const auto& sol = *state.lastSol;
+    constexpr int anglePrecision = 3;
+    const int positionPrecision = std::clamp(state.post.positionPrecision, 3, 10);
 
     ImGui::Text("=== Optimal Objective ===");
     ImGui::Text("%.16f", sol.optimum);
@@ -623,13 +636,12 @@ static void outputPanel(Environment& state){
         if (wrapped < 0) wrapped += 360.0;
         wrapped -= 180.0;
 
-        // mimic Wolfram rounding
         wrapped = std::round(200.0 * wrapped) * 0.005;
 
         facings[t] = wrapped;
     }
 
-    // small helper to format doubles (replacement for std::format)
+    // small helper to format doubles
     auto fmt_double = [](double v, int prec) -> std::string {
         std::ostringstream oss;
         oss << std::fixed << std::setprecision(prec) << v;
@@ -638,14 +650,18 @@ static void outputPanel(Environment& state){
 
     // ----- Turns -----
     std::vector<std::string> turns(T, "-");
-    for (int t = 0; t + 1 < T; t++) {
+    for (int t = 0; t < T - 2; t++) {
         double d = facings[t + 1] - facings[t];
-        turns[t] = fmt_double(d, 3);
+        turns[t] = fmt_double(d, anglePrecision);
     }
 
     // ----- Positions -----
-    const auto& xvals = sol.Xs;
-    const auto& zvals = sol.Zs;
+    std::vector<double> xvals(T);
+    std::vector<double> zvals(T);
+    for (int t = 0; t < T; t++) {
+        xvals[t] = sol.Xs[t] - sol.Xs[state.xIndex] - state.xAdd;
+        zvals[t] = sol.Zs[t] - sol.Zs[state.zIndex] - state.zAdd;
+    }
 
     // ----- Velocities -----
     std::vector<std::string> vxvals(T, "-");
@@ -655,8 +671,8 @@ static void outputPanel(Environment& state){
         double vx = xvals[t + 1] - xvals[t];
         double vz = zvals[t + 1] - zvals[t];
 
-        vxvals[t] = fmt_double(vx, 6);
-        vzvals[t] = fmt_double(vz, 6);
+        vxvals[t] = fmt_double(vx, positionPrecision);
+        vzvals[t] = fmt_double(vz, positionPrecision);
     }
 
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(10.0f, 3.0f));
@@ -700,10 +716,10 @@ static void outputPanel(Environment& state){
         for (int t = 0; t < T; t++) {
             ImGui::TableNextRow(0, minRowHeight);
 
-                const std::string tick = std::to_string(t);
-                const std::string angle = fmt_double(facings[t], 3);
-                const std::string x = fmt_double(xvals[t], 6);
-                const std::string z = fmt_double(zvals[t], 6);
+            const std::string tick = std::to_string(t);
+            const std::string angle = (t < T-1)? fmt_double(facings[t], anglePrecision) : "-";
+            const std::string x = fmt_double(xvals[t], positionPrecision);
+            const std::string z = fmt_double(zvals[t], positionPrecision);
 
             ImGui::TableSetColumnIndex(0);
             centerColumnText(tick.c_str());
@@ -739,7 +755,7 @@ static void outputPanel(Environment& state){
         std::string s = "{";
         for (int i = 0; i < state.n; i++) {
             if (i) s += ", ";
-            s += fmt_double(Fs[i], 3);
+            s += fmt_double(Fs[i], anglePrecision);
         }
         s += "}";
         return s;
@@ -750,7 +766,7 @@ static void outputPanel(Environment& state){
         std::string s = "{";
         for (int i = 0; i + 1 < state.n; i++) {
             if (i) s += ", ";
-            s += fmt_double(Fs[i + 1] - Fs[i], 3);
+            s += fmt_double(Fs[i + 1] - Fs[i], anglePrecision);
         }
         s += "}";
         return s;
