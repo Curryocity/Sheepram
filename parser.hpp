@@ -58,8 +58,10 @@ class Parser{
     Expr parseNumber(const Token& tok);
     Expr parseIdentifier(Lexer& lex, const Token& tok);
 
-    Expr combineExpr(const Expr& lhs, const Expr& rhs, const Token& op);
+    Expr combineExpr(const Expr& lhs, const Expr& rhs, const Token& op, const Lexer& lex);
     
     BP getBP(const Token& op);
+
+    std::runtime_error error(const std::string& msg, const Lexer& lex);
 
 };

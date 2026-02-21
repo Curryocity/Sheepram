@@ -28,6 +28,10 @@ struct Parser::Lexer{
         return *nextCache;
     }
 
+    size_t getPos() const { return pos; }
+
+    std::string getContent() const { return input;}
+
     private:
 
     std::string input;
@@ -134,10 +138,22 @@ struct Parser::Lexer{
     
 };
 
+// Trim whitespace
+static void trim(std::string& s){
+    size_t l = 0;
+    while (l < s.size() && std::isspace((unsigned char)s[l])) l++;
+
+    size_t r = s.size();
+    while (r > l && std::isspace((unsigned char)s[r - 1])) r--;
+
+    s = s.substr(l, r - l);
+}
+
 std::vector<Cons> Parser::parseMultiConstraints(const std::string& input){
     std::vector<Cons> constraints;
 
     size_t start = 0;
+    int lineCount = 1;
 
     while (start < input.size()) {
 
@@ -147,30 +163,28 @@ std::vector<Cons> Parser::parseMultiConstraints(const std::string& input){
             end = input.size();
 
         std::string line = input.substr(start, end - start);
+        std::string rawLine = line;
 
         // Strip comment
         size_t commentPos = line.find("//");
         if (commentPos != std::string::npos)
             line = line.substr(0, commentPos);
 
-        // Trim whitespace
-        auto trim = [](std::string& s) {
-            size_t l = 0;
-            while (l < s.size() && std::isspace((unsigned char)s[l])) l++;
-
-            size_t r = s.size();
-            while (r > l && std::isspace((unsigned char)s[r - 1])) r--;
-
-            s = s.substr(l, r - l);
-        };
-
         trim(line);
 
         if (!line.empty()) {
-            constraints.push_back(parseConstraint(line));
+            try {
+                constraints.push_back(parseConstraint(line));
+            } catch (const std::exception& e) {
+                throw std::runtime_error(
+                    "At constraint line " + std::to_string(lineCount) + ":\n  " +
+                    "Reason: " + std::string(e.what())
+                );
+            }
         }
 
         start = end + 1;
+        lineCount ++;
     }
 
     return constraints;
@@ -184,10 +198,15 @@ void Parser::buildVarMap(int globalN, double initV, const std::vector<std::strin
     int m = names.size();
     for(int i = 0; i < m; i++){
         const std::string& value = values[i];
-        const std::string& name = names[i];
+        std::string name = names[i];
+        trim(name);
+
         if (name.empty())
             continue;
-        if(name == "N" || name == "n" || name == "initV")
+
+        if(!std::isalpha(name[0]) && name[0] != '_')
+            throw std::runtime_error{name + " is an illegal name"};
+        if(name == "N" || name == "n" || name == "initV" || name == "X" || name == "Z" || name == "F")
             throw std::runtime_error{name + " is a reserved keyword"};
         if(value.empty()) 
             throw std::runtime_error{name + " has no definition"};
@@ -195,7 +214,7 @@ void Parser::buildVarMap(int globalN, double initV, const std::vector<std::strin
         Lexer lex(value);
         Expr e = parseExpr(lex, 0);
         if (lex.peek().type != TokenType::End)
-            throw std::runtime_error{"Invalid expression in definition of " + name};
+            throw error("Invalid expression in definition of " + name, lex);
         if(!e.isConstant()) throw std::runtime_error{"Unable to reduce '" + name + "' to a constant."};
 
         double v = e.constant;
@@ -223,19 +242,17 @@ Cons Parser::parseConstraint(const std::string& s){
 
     Token cmpTok = lex.next();
     if(cmpTok.type != TokenType::Cmp)
-        throw std::runtime_error(
-            "Expected comparison operator, got '" + cmpTok.text + "'"
-        );
+        throw error("Expected comparison operator, got '" + cmpTok.text + "'", lex);
 
     char cmpChar = cmpTok.text[0];
 
     if(cmpTok.text.size() != 1 || (cmpChar != '<' && cmpChar != '=' && cmpChar != '>')) 
-        throw std::runtime_error("Unknown Cmp Token: " + cmpTok.text);
+        throw error("Unknown Cmp Token: " + cmpTok.text, lex);
 
     Expr rhs = parseExpr(lex, 0);
 
     if (lex.peek().type != TokenType::End)
-        throw std::runtime_error("Unexpected trailing tokens");
+        throw error("Unexpected trailing tokens", lex);
 
     Token minusTok{TokenType::Operator, "-"};
 
@@ -244,17 +261,17 @@ Cons Parser::parseConstraint(const std::string& s){
 
     switch (cmpChar) {
         case '<':
-            stdForm = combineExpr(lhs, rhs, minusTok);
+            stdForm = combineExpr(lhs, rhs, minusTok, lex);
             cmpType = Cons::Less;
             break;
 
         case '>':
-            stdForm = combineExpr(rhs, lhs, minusTok);
+            stdForm = combineExpr(rhs, lhs, minusTok, lex);
             cmpType = Cons::Less;
             break;
 
         case '=':
-            stdForm = combineExpr(lhs, rhs, minusTok);
+            stdForm = combineExpr(lhs, rhs, minusTok, lex);
             cmpType = Cons::Equal;
             break;
     }
@@ -266,7 +283,7 @@ Expr Parser::parseExpr(const std::string& s){
     Lexer lex(s);
     Expr expr = parseExpr(lex, 0);
     if (lex.peek().type != TokenType::End)
-        throw std::runtime_error("Unexpected trailing tokens from: " + s);
+        throw error("Unexpected trailing tokens", lex);
     return expr;
 }
 
@@ -299,16 +316,16 @@ Expr Parser::parseExpr(Lexer& lex, int minBP){
                 lhs = scaleExpr(rhs, -1);
                 break;
             }
-            throw std::runtime_error("Invalid prefix operator");
+            throw error("Invalid prefix operator '" + prefix.text + "'", lex);
 
         case TokenType::LParen:
             lhs = parseExpr(lex, 0);
             if (lex.next().type != TokenType::RParen)
-                throw std::runtime_error("Missing ')'");
+                throw error("Missing ')'", lex);
             break;
 
         default:
-            throw std::runtime_error("Invalid prefix token: " + prefix.text);
+            throw error("Invalid prefix token: " + prefix.text, lex);
     }
 
 
@@ -324,7 +341,7 @@ Expr Parser::parseExpr(Lexer& lex, int minBP){
 
         Expr rhs = parseExpr(lex, baseBP.right);
 
-        lhs = combineExpr(lhs, rhs, op);
+        lhs = combineExpr(lhs, rhs, op, lex);
     }
 
     return lhs;
@@ -340,20 +357,20 @@ Expr Parser::parseIdentifier(Lexer& lex, const Token& tok){
     if(tok.text == "X" || tok.text == "Z" || tok.text == "F"){
         
         if(lex.next().type != TokenType::LBracket)
-            throw std::runtime_error("Expected '[' after " + tok.text);
+            throw error("Expected '[' after " + tok.text, lex);
 
         Expr index = parseExpr(lex, 0);
 
         if(lex.next().type != TokenType::RBracket)
-            throw std::runtime_error("Missing ']'");
+            throw error("Missing ']'", lex);
 
         if(!index.isConstant())
-            throw std::runtime_error("Index must be constant");
+            throw error("Index must be constant", lex);
 
         int idx = (int) std::round(index.constant);
 
         if (idx < 0 || idx >= model.n)
-            throw std::runtime_error("Index out of range");
+            throw error("Index out of range", lex);
 
         return resolveIndexed(tok.text[0], idx);
     }else{ // Variables
@@ -363,12 +380,12 @@ Expr Parser::parseIdentifier(Lexer& lex, const Token& tok){
             e.constant = v;
             return e;
         }else{
-            throw std::runtime_error{"Identifier " + tok.text + " is undefined."};
+            throw error("Identifier " + tok.text + " is undefined.", lex);
         }
     }
 }
 
-Expr Parser::combineExpr(const Expr& lhs, const Expr& rhs, const Token& op) {
+Expr Parser::combineExpr(const Expr& lhs, const Expr& rhs, const Token& op, const Lexer& lex) {
     const std::string& s = op.text;
 
     auto add = [&](double signRhs) {
@@ -404,17 +421,17 @@ Expr Parser::combineExpr(const Expr& lhs, const Expr& rhs, const Token& op) {
         if (lc) return scaleExpr(rhs, lhs.constant);
         if (rc) return scaleExpr(lhs, rhs.constant);
 
-        throw std::runtime_error("Nonlinear multiplication is not allowed");
+        throw error("Nonlinear multiplication is not allowed", lex);
     }
 
     if (s == "/") {
         const bool rc = rhs.isConstant();
-        if (!rc) throw std::runtime_error("Division by non-constant is not allowed");
-        if (rhs.constant == 0.0) throw std::runtime_error("Division by zero");
+        if (!rc) throw error("Division by non-constant is not allowed", lex);
+        if (rhs.constant == 0.0) throw error("Division by zero", lex);
         return scaleExpr(lhs, 1.0 / rhs.constant);
     }
 
-    throw std::runtime_error("Unknown operator: " + op.text);
+    throw error("Unknown operator: " + op.text, lex);
 }
 
 Expr Parser::scaleExpr(const Expr& e, double s) {
@@ -439,3 +456,17 @@ Parser::BP Parser::getBP(const Token& op){
     throw std::runtime_error("Unknown operator");
 }
 
+std::runtime_error Parser::error(const std::string& msg, const Lexer& lex) {
+    size_t p = lex.getPos();
+    if (p > 0) --p;
+    const std::string& src = lex.getContent();
+
+    std::string indicator(p, ' ');
+    indicator += '^';
+
+    return std::runtime_error(
+        msg +
+        "\n\n" + src +
+        "\n" + indicator
+    );
+}

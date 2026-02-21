@@ -1,5 +1,6 @@
 #include "parser.hpp"
 #include <cmath>
+#include <stdexcept>
 #include <stdio.h>
 #include <algorithm>
 #include <iomanip>
@@ -32,6 +33,8 @@ struct Environment {
     std::string objScript = "Optimize along vec(a, b) := a * (X[t1] - X[t0]) + b * (Z[t1] - Z[t0])";
 
     int n = 12;
+    int tempN = 12;   // Editing buffer
+
     std::string initV = "0.3169516131491288";
     std::vector<std::string> dragX, dragZ, accel;
 
@@ -76,8 +79,8 @@ static void initModel(Environment& state){
 
     for (int i = 0; i < state.n; i++){
         if (i < 2){
-            state.dragX[i] = "ground";
-            state.dragZ[i] = "ground";
+            state.dragX[i] = "gnd";
+            state.dragZ[i] = "gnd";
         }else{
             state.dragX[i] = "air";
             state.dragZ[i] = "air";
@@ -99,7 +102,7 @@ static void initGlobals(Environment& state){
 
     int idx = 0;
 
-    state.globalNames[idx] = "ground";
+    state.globalNames[idx] = "gnd";
     state.globalValues[idx] = "0.546";
     idx ++;
 
@@ -158,7 +161,7 @@ static std::string runOptimizer(Environment& state) {
             model.dragX[i] = p.parseConstant(state.dragX[i]);
             model.dragZ[i] = p.parseConstant(state.dragZ[i]);
         }
-        for (int i = 1; i < model.n; i++) { 
+        for (int i = 1; i < model.n - 1; i++) { 
             model.accel[i] = p.parseConstant(state.accel[i]);
         }
 
@@ -242,6 +245,28 @@ inline static void modelTable(Environment& state){
         return;
     }
 
+    static int prevN = state.n;
+    if (state.n != prevN) {
+        prevN = state.n;
+
+        // Preserve existing entries, fill new ones with defaults
+        state.dragX.resize(state.n, "air");
+        state.dragZ.resize(state.n, "air");
+        state.accel.resize(state.n, "sa45");
+
+        // Re-apply special defaults
+        for (int i = 0; i < std::min(2, state.n); ++i) {
+            state.dragX[i] = "gnd";
+            state.dragZ[i] = "gnd";
+        }
+
+        if (state.n > 0)
+            state.accel[0] = "initV";
+
+        if (state.n > 1)
+            state.accel[1] = "WAD";
+    }
+
     ImGui::BeginChild("model_region", ImVec2(0, 145), false);
 
     if (ImGui::BeginTable("model_table",
@@ -254,9 +279,11 @@ inline static void modelTable(Environment& state){
 
         ImGui::TableSetupScrollFreeze(1, 0);
 
+        const float columnWidth = 65.0f;
+
         for (int col = 0; col < state.n + 1; col++) {
             ImGui::PushID(col);
-            ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, 70.0f);
+            ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, columnWidth);
             ImGui::PopID();
         }
 
@@ -277,7 +304,7 @@ inline static void modelTable(Environment& state){
         for (int t = 0; t < state.n; t++){
             ImGui::TableSetColumnIndex(t + 1);
             ImGui::PushID(t);
-            ImGui::SetNextItemWidth(70);
+            ImGui::SetNextItemWidth(columnWidth);
             ImGui::InputText("##dragX", &state.dragX[t]);
             ImGui::PopID();
         }
@@ -289,7 +316,7 @@ inline static void modelTable(Environment& state){
         for (int t = 0; t < state.n; t++){
             ImGui::TableSetColumnIndex(t + 1);
             ImGui::PushID(1000 + t);
-            ImGui::SetNextItemWidth(70);
+            ImGui::SetNextItemWidth(columnWidth);
             ImGui::InputText("##dragZ", &state.dragZ[t]);
             ImGui::PopID();
         }
@@ -305,7 +332,7 @@ inline static void modelTable(Environment& state){
                 centerColumnText("initV");
             }else{
                 ImGui::PushID(2000 + t);
-                ImGui::SetNextItemWidth(70);
+                ImGui::SetNextItemWidth(columnWidth);
                 ImGui::InputText("##accel", &state.accel[t]);
                 ImGui::PopID();
             }
@@ -344,7 +371,7 @@ inline static void globalVarTable(Environment& state){
 
     ImGui::SameLine();
 
-    const float columnWidth = 90.0f;
+    const float columnWidth = 70.0f;
 
     if (ImGui::BeginTable("var_table",
                           state.varCapacity + 1,
@@ -357,7 +384,7 @@ inline static void globalVarTable(Environment& state){
 
         ImGui::TableSetupColumn("##label",
                                 ImGuiTableColumnFlags_WidthFixed,
-                                70.0f);
+                                60.0f);
 
         for (int i = 0; i < state.varCapacity; i++)
             ImGui::TableSetupColumn(("##col" + std::to_string(i)).c_str(),
@@ -419,8 +446,12 @@ static void inputPanel(Environment& state){
     ImGui::AlignTextToFramePadding();
     ImGui::Text("n =");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(40);
-    ImGui::InputInt("##model_n", &state.n, 0, 0);
+
+    ImGui::SetNextItemWidth(120.0f);
+
+    ImGui::InputInt("##n", &state.tempN);
+    bool commit = ImGui::IsItemDeactivatedAfterEdit();  // Commit when lost focus (press enter unfocus)
+    if (commit) state.n = state.tempN;
 
     ImGui::AlignTextToFramePadding();
     ImGui::Text("initV =");
@@ -489,7 +520,9 @@ static void outputPanel(Environment& state){
 
     ImGui::BeginChild("OutputScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
 
+    ImGui::PushFont(codeFont);
     ImGui::TextUnformatted(state.output.c_str());
+    ImGui::PopFont();
 
     ImGui::EndChild();
     ImGui::EndChild();
@@ -668,8 +701,6 @@ static void applyAccent(const RGB& accent){
     c[ImGuiCol_TableBorderStrong] = rgba(mid,  0.85f);
     c[ImGuiCol_TableRowBg]    = rgba(soft, 0.60f);
     c[ImGuiCol_TableRowBgAlt] = rgba(mid,  0.60f);
-
-    c[ImGuiCol_TextSelectedBg] = scale(accent, 0.85f, 0.30f);
 }
 
 static void applyTheme(int themeIndex) {
@@ -690,6 +721,7 @@ static void applyTheme(int themeIndex) {
 
     c[ImGuiCol_Text]         = {0.95f, 0.95f, 0.95f, 1.0f};
     c[ImGuiCol_TextDisabled] = {0.6f,  0.6f,  0.6f,  1.0f};
+    c[ImGuiCol_TextSelectedBg] = {0.8f, 0.8f, 0.8f, 0.30f};
 
     c[ImGuiCol_WindowBg] = {0.04f, 0.04f, 0.04f, 1.0f};
     c[ImGuiCol_ChildBg]  = {0.06f, 0.06f, 0.06f, 1.0f};
