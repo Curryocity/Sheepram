@@ -45,12 +45,6 @@ struct Matrix {
     std::vector<double> data;
 };
 
-void optimizer::initCompExpr(CompiledExpr& expr, int n) {
-    expr.constant = 0.0;
-    expr.thetaCoeff.assign(n, 0.0);
-    expr.sinCoeff.assign(n, 0.0);
-    expr.cosCoeff.assign(n, 0.0);
-}
 
 void optimizer::addScaled(CompiledExpr& out, const CompiledExpr& in, double s) {
     // out += s * in
@@ -116,10 +110,10 @@ void optimizer::grad(const CompiledExpr& e, const std::vector<double>& thetas, s
 
 void optimizer::compileModel(Model& model) {
     const int n = model.n;
-    model.Vx.assign(n, CompiledExpr{});
-    model.Vz.assign(n, CompiledExpr{});
-    model.X.assign(n, CompiledExpr{});
-    model.Z.assign(n, CompiledExpr{});
+    model.Vx.assign(n, CompiledExpr(n));
+    model.Vz.assign(n, CompiledExpr(n));
+    model.X.assign(n, CompiledExpr(n));
+    model.Z.assign(n, CompiledExpr(n));
 
     for (int t = 0; t < n; ++t) {
         initCompExpr(model.Vx[t], n);
@@ -153,11 +147,8 @@ void optimizer::compileModel(Model& model) {
 optimizer::CompiledExpr optimizer::compile(const LinearExpr& expr, const Model& model) {
     // Compile expression into linear function of F, sin F, cos F
     const int n = model.n;
-    CompiledExpr out;
+    CompiledExpr out(n);
     out.constant = expr.constant;
-    out.thetaCoeff.assign(n, 0.0);
-    out.sinCoeff.assign(n, 0.0);
-    out.cosCoeff.assign(n, 0.0);
 
     for (const auto& term : expr.terms) {
         const int t = term.tick;

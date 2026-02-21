@@ -4,10 +4,32 @@
 
 struct optimizer {
     struct CompiledExpr {
+        CompiledExpr(){}
+        CompiledExpr(int n){
+            zero(n);
+        }
         double constant = 0.0;
         std::vector<double> thetaCoeff;
         std::vector<double> sinCoeff;
         std::vector<double> cosCoeff;
+
+        void zero(int n){
+            constant = 0.0;
+            thetaCoeff.assign(n, 0.0);
+            sinCoeff.assign(n, 0.0);
+            cosCoeff.assign(n, 0.0);
+        }
+
+        static constexpr double EPS = 1e-12;
+
+        bool isConstant() const {
+            for (size_t i = 0; i < thetaCoeff.size(); ++i) {
+                if (std::abs(thetaCoeff[i]) > EPS) return false;
+                if (std::abs(sinCoeff[i])   > EPS) return false;
+                if (std::abs(cosCoeff[i])   > EPS) return false;
+            }
+            return true;
+        }
     };
 
     struct Term {
