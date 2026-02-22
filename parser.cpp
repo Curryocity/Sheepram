@@ -2,6 +2,7 @@
 #include "optimizer.hpp"
 
 #include <cmath>
+#include <numbers>
 #include <stdexcept>
 #include <cstddef>
 #include <optional>
@@ -230,7 +231,7 @@ Expr Parser::resolveIndexed(char c, int index){
             return model.Z[index];
         case 'F':
             Expr e(model.n);
-            e.thetaCoeff[index] =  180.0 / M_PI; 
+            e.thetaCoeff[index] =  180.0 / std::numbers::pi_v<double>; 
             // so when F[t] = 180 deg, it thinks 180 / PI * theta[t] = 180 -> theta[t] = PI radians
             return e;
     }
