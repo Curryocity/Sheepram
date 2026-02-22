@@ -12,6 +12,8 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Install deps
         run: brew install glfw
       - name: Package
@@ -24,9 +26,11 @@ jobs:
 
   macos-x86_64:
     name: macOS x86_64
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Install deps
         run: brew install glfw
       - name: Package
@@ -42,6 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Install deps
         run: |
           sudo apt-get update
@@ -62,6 +68,8 @@ jobs:
         shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
