@@ -1,6 +1,7 @@
 #include "parser.hpp"
 
 #include <cmath>
+#include <numbers>
 #include <stdexcept>
 #include <stdio.h>
 #include <algorithm>
@@ -1012,7 +1013,7 @@ static void outputPanel(TabState& tab){
 
     std::vector<double> facings(T, 0.0);
     for (int t = 0; t < (int)sol.thetas.size(); t++) {
-        double deg = sol.thetas[t] * 180.0 / M_PI;
+        double deg = sol.thetas[t] * 180.0 / std::numbers::pi_v<double>;
         double wrapped = std::fmod(deg + 180.0, 360.0);
         if (wrapped < 0) wrapped += 360.0;
         wrapped -= 180.0;
