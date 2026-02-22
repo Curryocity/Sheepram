@@ -21,13 +21,10 @@
 #include <sstream>
 #include <iomanip>
 
-
 const static char* title = "Mom, can we have wolfram at home?";
 
 struct Environment {
 
-    // Default to c4.5 p2p template, the classic
-    int themeIndex = 0;
     bool maximize = false;
 
     enum objectiveType{X = 0, Z = 1, custom = 2};
@@ -36,7 +33,7 @@ struct Environment {
     std::string objScript = "Optimize along vec(a, b) := a * (X[t1] - X[t0]) + b * (Z[t1] - Z[t0])";
 
     int n = 12;
-    int tempN = 12;   // Editing buffer
+    int editN = 12;
 
     std::string initV = "0.3169516131491288";
     std::vector<std::string> dragX, dragZ, accel;
@@ -65,6 +62,21 @@ struct Environment {
     std::string lastError;
 };
 
+struct TabState {
+    int id = 0;
+    std::string name = "Untitled";
+    std::string nameDraft;
+    Environment env;
+    float leftWidth = 0.0f;
+    int prevN = -1; // Exist to prevent table resize on every frame.
+};
+
+struct AppState {
+    int themeIndex = 0;
+    std::vector<TabState> tabs;
+    int activeTab = 0;
+    int nextTabId = 1;
+};
 
 static void glfw_error_callback(int error, const char* description) {
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
@@ -75,6 +87,7 @@ static ImFont* codeFont = nullptr;
 static ImFont* uiFont = nullptr;
 static constexpr int nMin = 1;
 static constexpr int nMax = 256;
+static constexpr int maxTabs = 16;
 
 static void initFont() {
     ImGuiIO& io = ImGui::GetIO();
@@ -153,8 +166,26 @@ static void initGlobals(Environment& state){
     }
 }
 
+static TabState makeDefaultTab(int tabId) {
+    TabState tab;
+    tab.id = tabId;
+    tab.name = "Untitled " + std::to_string(tabId);
+    tab.nameDraft = tab.name;
+    initModel(tab.env);
+    initGlobals(tab.env);
+    tab.prevN = tab.env.n;
+    return tab;
+}
+
 
 static void runOptimizer(Environment& state) {
+    if (state.n < nMin || state.n > nMax) {
+        state.lastSol.reset();
+        state.lastError = "Error:\nInvalid n: " + std::to_string(state.n) +
+                          " (expected range: " + std::to_string(nMin) + " to " + std::to_string(nMax) + ")";
+        return;
+    }
+
     try {
         // 1. Define the internal n
         int n = state.n + 1;
@@ -243,6 +274,17 @@ static void centerColumnInt(int value){
     centerColumnText(s.c_str());
 }
 
+static void trim(std::string& s) {
+    const size_t start = s.find_first_not_of(" \t\n\r\f\v");
+    if (start == std::string::npos) {
+        s.clear();
+        return;
+    }
+    const size_t end = s.find_last_not_of(" \t\n\r\f\v");
+    s.erase(end + 1);
+    s.erase(0, start);
+}
+
 static void InputTextAutoWidth(const char* id, std::string& str, float minW = 10.0f){
     float textW = ImGui::CalcTextSize(str.c_str()).x;
     float padding = ImGui::GetStyle().FramePadding.x * 2.0f;
@@ -258,8 +300,7 @@ static void ShowReadOnlyBlock(const char* label, const std::string& text, float 
     ImGui::PushFont(codeFont);
 
     // InputTextMultiline needs a mutable buffer.
-    // Keep a persistent copy so it doesn't reallocate every frame.
-    static std::string buf;
+    std::string buf;
     buf = text;
 
     ImGui::PushID(label);
@@ -274,7 +315,8 @@ static void ShowReadOnlyBlock(const char* label, const std::string& text, float 
     ImGui::PopFont();
 }
 
-inline static void modelTable(Environment& state){
+inline static void modelTable(TabState& tab){
+    Environment& state = tab.env;
     if (state.n < nMin || state.n > nMax) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.35f, 0.35f, 1.0f));
         ImGui::Text("Refused to render the table: n must be in range [%d, %d].", nMin, nMax);
@@ -282,9 +324,8 @@ inline static void modelTable(Environment& state){
         return;
     }
 
-    static int prevN = state.n;
-    if (state.n != prevN) {
-        prevN = state.n;
+    if (state.n != tab.prevN) {
+        tab.prevN = state.n;
 
         // Preserve existing entries, fill new ones with defaults
         state.dragX.resize(state.n, "air");
@@ -462,7 +503,8 @@ inline static void globalVarTable(Environment& state){
     ImGui::EndChild();
 }
 
-static void inputPanel(Environment& state){
+static void inputPanel(AppState& app, TabState& tab){
+    Environment& state = tab.env;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24.0f, 10.0f));
     ImGui::BeginChild("InputPanel", ImVec2(0, 0), true);
     ImGui::PopStyleVar();
@@ -473,8 +515,21 @@ static void inputPanel(Environment& state){
     ImGui::Text("Theme:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(180.0f);
-    if (ImGui::Combo("##theme_bottom", &state.themeIndex, themes, IM_ARRAYSIZE(themes))) {
-        applyTheme(state.themeIndex);
+    if (ImGui::Combo("##theme_bottom", &app.themeIndex, themes, IM_ARRAYSIZE(themes))) {
+        applyTheme(app.themeIndex);
+    }
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Title:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(220.0f);
+    const bool pressedEnter = ImGui::InputText("##tab_name",&tab.nameDraft,ImGuiInputTextFlags_EnterReturnsTrue);
+    const bool commitName = pressedEnter || ImGui::IsItemDeactivatedAfterEdit();
+    if (commitName) {
+        trim(tab.nameDraft);
+        if (tab.nameDraft.empty()) 
+            tab.nameDraft = "Untitled " + std::to_string(tab.id);
+        tab.name = tab.nameDraft;
     }
     ImGui::Spacing();
 
@@ -487,9 +542,9 @@ static void inputPanel(Environment& state){
 
     ImGui::SetNextItemWidth(120.0f);
 
-    ImGui::InputInt("##n", &state.tempN);
+    ImGui::InputInt("##n", &state.editN);
     bool commit = ImGui::IsItemDeactivatedAfterEdit();  // Commit when lost focus (press enter unfocus)
-    if (commit) state.n = state.tempN;
+    if (commit) state.n = state.editN;
 
     ImGui::AlignTextToFramePadding();
     ImGui::Text("initV =");
@@ -498,7 +553,7 @@ static void inputPanel(Environment& state){
     ImGui::InputText("##model_initV", &state.initV);
 
     ImGui::Spacing();
-    modelTable(state);
+    modelTable(tab);
     ImGui::Spacing();
 
     // === Core ===
@@ -591,7 +646,8 @@ static void inputPanel(Environment& state){
     ImGui::EndChild();
 }
 
-static void outputPanel(Environment& state){
+static void outputPanel(TabState& tab){
+    Environment& state = tab.env;
     ImGui::BeginChild("OutputPanel", ImVec2(0, 0), true);
 
     ImGui::SeparatorText("Result");
@@ -787,8 +843,9 @@ static void outputPanel(Environment& state){
     ImGui::EndChild();
 }
 
-static float leftWidth = 0.0f;
-static void optimizerMenu(Environment& state) {
+static void optimizerMenu(AppState& app) {
+    app.activeTab = std::clamp(app.activeTab, 0, static_cast<int>(app.tabs.size()) - 1);
+
     // Fullscreen
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->Pos);
@@ -802,19 +859,59 @@ static void optimizerMenu(Environment& state) {
 
     ImGui::Begin("optimizerMenu", nullptr, flags);
 
+    int closedIndex = -1;
+    int activeIndex = app.activeTab;
+    if (ImGui::BeginTabBar("optimizer_tabs")) {
+        int justCreatedTabIndex = -1;
+        const bool canAddTab = app.tabs.size() < maxTabs;
+        if (!canAddTab) ImGui::BeginDisabled();
+        if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing) && canAddTab) {
+            app.tabs.push_back(makeDefaultTab(app.nextTabId++));
+            justCreatedTabIndex = static_cast<int>(app.tabs.size()) - 1;
+            activeIndex = justCreatedTabIndex;
+            app.activeTab = justCreatedTabIndex;
+        }
+        if (!canAddTab) ImGui::EndDisabled();
+
+        const int tabCount = static_cast<int>(app.tabs.size());
+        for (int i = 0; i < tabCount; i++) {
+            bool open = true;
+            ImGuiTabItemFlags tabFlags = 0;
+            if (i == justCreatedTabIndex) tabFlags |= ImGuiTabItemFlags_SetSelected;
+            const std::string tabLabel = app.tabs[i].name + "###tab_" + std::to_string(app.tabs[i].id);
+
+            if (ImGui::BeginTabItem(tabLabel.c_str(), &open, tabFlags)) {
+                activeIndex = i;
+                ImGui::EndTabItem();
+            }
+
+            if (!open && app.tabs.size() > 1) closedIndex = i;
+        }
+        ImGui::EndTabBar();
+    }
+    if (closedIndex >= 0) {
+        app.tabs.erase(app.tabs.begin() + closedIndex);
+        if (activeIndex > closedIndex) activeIndex--;
+        if (activeIndex >= static_cast<int>(app.tabs.size()))
+            activeIndex = static_cast<int>(app.tabs.size()) - 1;
+    }
+    app.activeTab = std::clamp(activeIndex, 0, static_cast<int>(app.tabs.size()) - 1);
+
+    TabState& tab = app.tabs[app.activeTab];
+
     const float totalWidth = ImGui::GetContentRegionAvail().x;
     const float totalHeight = ImGui::GetContentRegionAvail().y;
     const float dividerWidth = 8.0f;
     const float minPanelWidth = 250.0f;
 
-    if (leftWidth <= 0.0f)
-        leftWidth = totalWidth * 0.7f;
+    if (tab.leftWidth <= 0.0f)
+        tab.leftWidth = totalWidth * 0.7f;
 
-    leftWidth = std::clamp(leftWidth, minPanelWidth, totalWidth - minPanelWidth - dividerWidth);
-    float rightWidth = totalWidth - leftWidth - dividerWidth;
+    tab.leftWidth = std::clamp(tab.leftWidth, minPanelWidth, totalWidth - minPanelWidth - dividerWidth);
+    float rightWidth = totalWidth - tab.leftWidth - dividerWidth;
 
-    ImGui::BeginChild("LeftRegion", ImVec2(leftWidth, totalHeight), false);
-    inputPanel(state);
+    ImGui::BeginChild("LeftRegion", ImVec2(tab.leftWidth, totalHeight), false);
+    inputPanel(app, tab);
     ImGui::EndChild();
 
     ImGui::SameLine(0.0f, 0.0f);
@@ -827,9 +924,9 @@ static void optimizerMenu(Environment& state) {
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
     
     if (dividerActive) {
-        leftWidth += ImGui::GetIO().MouseDelta.x;
-        leftWidth = std::clamp(leftWidth, minPanelWidth, totalWidth - minPanelWidth - dividerWidth);
-        rightWidth = totalWidth - leftWidth - dividerWidth;
+        tab.leftWidth += ImGui::GetIO().MouseDelta.x;
+        tab.leftWidth = std::clamp(tab.leftWidth, minPanelWidth, totalWidth - minPanelWidth - dividerWidth);
+        rightWidth = totalWidth - tab.leftWidth - dividerWidth;
     }
 
     ImDrawList* drawList = ImGui::GetWindowDrawList();
@@ -842,7 +939,7 @@ static void optimizerMenu(Environment& state) {
     ImGui::SameLine(0.0f, 0.0f);
 
     ImGui::BeginChild("RightRegion", ImVec2(rightWidth, totalHeight), false);
-    outputPanel(state);
+    outputPanel(tab);
     ImGui::EndChild();
 
     ImGui::End();
@@ -864,13 +961,12 @@ int main() {
     glfwSwapInterval(1);
 
     IMGUI_CHECKVERSION();
-    Environment state;
+    AppState app;
     ImGui::CreateContext();
-    applyTheme(state.themeIndex);
+    applyTheme(app.themeIndex);
     initFont();
 
-    initModel(state);
-    initGlobals(state);
+    app.tabs.push_back(makeDefaultTab(app.nextTabId++));
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
@@ -888,7 +984,7 @@ int main() {
             pushed_font = true;
         }
 
-        optimizerMenu(state);
+        optimizerMenu(app);
 
         if (pushed_font) ImGui::PopFont();
 
@@ -938,6 +1034,8 @@ static void applyAccent(const RGB& accent){
     RGB dark = {0.10f, 0.10f, 0.10f};
     RGB mid  = mix(dark, accent, 0.35f);
     RGB soft = mix(dark, accent, 0.20f);
+    RGB tabBg = mix(dark, accent, 0.28f);
+    RGB tabActive = mix(dark, accent, 0.52f);
 
     c[ImGuiCol_Button]        = scale(accent, 0.85f, 0.85f);
     c[ImGuiCol_ButtonHovered] = scale(accent, 1.00f, 0.95f);
@@ -960,6 +1058,12 @@ static void applyAccent(const RGB& accent){
     c[ImGuiCol_TableBorderStrong] = rgba(mid,  0.85f);
     c[ImGuiCol_TableRowBg]    = rgba(soft, 0.60f);
     c[ImGuiCol_TableRowBgAlt] = rgba(mid,  0.60f);
+
+    c[ImGuiCol_Tab]               = rgba(tabBg, 0.90f);
+    c[ImGuiCol_TabHovered]        = rgba(tabActive, 0.95f);
+    c[ImGuiCol_TabActive]         = rgba(tabActive, 1.00f);
+    c[ImGuiCol_TabUnfocused]      = rgba(tabBg, 0.70f);
+    c[ImGuiCol_TabUnfocusedActive]= rgba(tabActive, 0.80f);
 }
 
 static void applyTheme(int themeIndex) {
