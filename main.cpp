@@ -1,10 +1,13 @@
 #include "parser.hpp"
+
 #include <cmath>
 #include <stdexcept>
 #include <stdio.h>
 #include <algorithm>
 #include <string>
 #include <vector>
+#include <fstream>
+#include <filesystem>
 
 #if !defined(GL_SILENCE_DEPRECATION)
 #define GL_SILENCE_DEPRECATION
@@ -17,11 +20,15 @@
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
 #include "misc/cpp/imgui_stdlib.h"
+#include "nfd.h"
 #include "optimizer.hpp"
 #include <sstream>
 #include <iomanip>
 
+#include "thirdParty/json.hpp"
+
 const static char* title = "Mom, can we have wolfram at home?";
+using json = nlohmann::json;
 
 struct Environment {
 
@@ -66,28 +73,55 @@ struct TabState {
     int id = 0;
     std::string name = "Untitled";
     std::string nameDraft;
+    std::string savedFingerprint;
+    std::string savedFileName;
+    std::string inlineSaveMessage;
+    bool inlineSaveIsError = false;
     Environment env;
     float leftWidth = 0.0f;
     int prevN = -1; // Exist to prevent table resize on every frame.
 };
 
 struct AppState {
-    int themeIndex = 0;
+    enum class Theme { Obsidian = 0, Curry = 1, LuminousAbyss = 2, CherryBlossom = 3 };
+    Theme theme = Theme::Obsidian;
     std::vector<TabState> tabs;
     int activeTab = 0;
     int nextTabId = 1;
+    int pendingCloseTabId = -1;
+    std::string closePopupError;
 };
 
 static void glfw_error_callback(int error, const char* description) {
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 
-static void applyTheme(int themeIndex);
+static void applyTheme(AppState::Theme theme);
 static ImFont* codeFont = nullptr;
 static ImFont* uiFont = nullptr;
 static constexpr int nMin = 1;
 static constexpr int nMax = 256;
 static constexpr int maxTabs = 16;
+static const char* preferencePath = "preference.json";
+static const char* tabsDirPath = "presets/saves";
+static TabState makeDefaultTab(int tabId);
+static void trim(std::string& s);
+
+static constexpr int themeCount = 4;
+static const char* themeNames[themeCount] = {
+    "Obsidian", "Curry", "Luminous Abyss", "Cherry Blossom"
+};
+static bool nfdReady = false;
+static std::string nfdInitError;
+
+static int themeToIndex(AppState::Theme theme) {
+    return static_cast<int>(theme);
+}
+
+static AppState::Theme indexToTheme(int index) {
+    const int clamped = std::clamp(index, 0, themeCount - 1);
+    return static_cast<AppState::Theme>(clamped);
+}
 
 static void initFont() {
     ImGuiIO& io = ImGui::GetIO();
@@ -166,6 +200,161 @@ static void initGlobals(Environment& state){
     }
 }
 
+
+// Forward declarations for utility/serialization helpers (defined near file bottom).
+static json buildTabJson(const TabState& tab);
+static std::string buildTabFingerprint(const TabState& tab);
+static bool isTabModified(const TabState& tab);
+static std::string safeFileName(std::string name);
+static bool saveTabToFile(TabState& tab, std::string& err);
+static bool parseOptionalStringVector(const json& obj, const char* key, std::vector<std::string>& out, std::string& err);
+static bool loadTabFromJson(TabState& tab, const json& j, std::string& err);
+static bool choosePresetFile(std::string& outPath, std::string& err);
+static bool initFileDialog(std::string& err);
+static void shutdownFileDialog();
+static void savePreferences(const AppState& app);
+static void loadPreferences(AppState& app);
+static int findTabIndexById(const AppState& app, int id);
+static void closeTabById(AppState& app, int tabId, int& activeIndex);
+static void setInlineStatus(TabState& tab, const std::string& message, bool isError);
+static void loadPresetIntoTab(TabState& tab, const std::string& selectedPath);
+
+struct TopBarResult {
+    int closeNowTabId = -1;
+    int requestClosePopupTabId = -1;
+    int activeIndex = 0;
+};
+static TopBarResult renderTopBar(AppState& app) {
+    TopBarResult result;
+    result.activeIndex = app.activeTab;
+    const float loadBtnW = 120.0f;
+
+    if (!ImGui::BeginTable("top_bar", 2, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoBordersInBody))
+        return result;
+
+    ImGui::TableSetupColumn("tabs", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("load", ImGuiTableColumnFlags_WidthFixed, loadBtnW);
+    ImGui::TableNextRow();
+
+    ImGui::TableSetColumnIndex(0);
+    if (ImGui::BeginTabBar("optimizer_tabs")) {
+        int justCreatedTabIndex = -1;
+        const bool canAddTab = app.tabs.size() < maxTabs;
+        if (!canAddTab) ImGui::BeginDisabled();
+        if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing) && canAddTab) {
+            app.tabs.push_back(makeDefaultTab(app.nextTabId++));
+            justCreatedTabIndex = static_cast<int>(app.tabs.size()) - 1;
+            result.activeIndex = justCreatedTabIndex;
+            app.activeTab = justCreatedTabIndex;
+        }
+        if (!canAddTab) ImGui::EndDisabled();
+
+        const int tabCount = static_cast<int>(app.tabs.size());
+        for (int i = 0; i < tabCount; i++) {
+            bool open = true;
+            ImGuiTabItemFlags tabFlags = 0;
+            if (i == justCreatedTabIndex) tabFlags |= ImGuiTabItemFlags_SetSelected;
+            const std::string tabLabel = app.tabs[i].name + "###tab_" + std::to_string(app.tabs[i].id);
+
+            if (ImGui::BeginTabItem(tabLabel.c_str(), &open, tabFlags)) {
+                result.activeIndex = i;
+                ImGui::EndTabItem();
+            }
+
+            if (!open) {
+                if (isTabModified(app.tabs[i])) {
+                    result.requestClosePopupTabId = app.tabs[i].id;
+                } else {
+                    result.closeNowTabId = app.tabs[i].id;
+                }
+            }
+        }
+        ImGui::EndTabBar();
+    }
+
+    ImGui::TableSetColumnIndex(1);
+    if (ImGui::Button("Load Preset", ImVec2(-1.0f, 0))) {
+        std::string selectedPath;
+        std::string pickerErr;
+        if (choosePresetFile(selectedPath, pickerErr)) {
+            if (app.activeTab >= 0 && app.activeTab < static_cast<int>(app.tabs.size()))
+                loadPresetIntoTab(app.tabs[app.activeTab], selectedPath);
+        } else if (!pickerErr.empty()) {
+            if (app.activeTab >= 0 && app.activeTab < static_cast<int>(app.tabs.size()))
+                setInlineStatus(app.tabs[app.activeTab], "Load failed: " + pickerErr, true);
+        }
+    }
+
+    ImGui::EndTable();
+    return result;
+}
+
+static void handleClosePopup(AppState& app, int& activeIndex) {
+    if (ImGui::BeginPopupModal("Save Tab Before Closing?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        const int pendingIdx = findTabIndexById(app, app.pendingCloseTabId);
+        if (pendingIdx < 0) {
+            app.pendingCloseTabId = -1;
+            app.closePopupError.clear();
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+
+        const std::string& tabTitle = app.tabs[pendingIdx].name;
+        ImGui::Text("Save changes to '%s' before closing?", tabTitle.c_str());
+        if (!app.closePopupError.empty())
+            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "%s", app.closePopupError.c_str());
+        ImGui::Spacing();
+
+        if (ImGui::Button("Save", ImVec2(110, 0))) {
+            std::string err;
+            if (saveTabToFile(app.tabs[pendingIdx], err)) {
+                app.tabs[pendingIdx].savedFingerprint = buildTabFingerprint(app.tabs[pendingIdx]);
+                closeTabById(app, app.pendingCloseTabId, activeIndex);
+                app.pendingCloseTabId = -1;
+                app.closePopupError.clear();
+                ImGui::CloseCurrentPopup();
+            } else {
+                app.closePopupError = err;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Don't Save", ImVec2(110, 0))) {
+            closeTabById(app, app.pendingCloseTabId, activeIndex);
+            app.pendingCloseTabId = -1;
+            app.closePopupError.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(110, 0))) {
+            app.pendingCloseTabId = -1;
+            app.closePopupError.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+static bool hasModifiedTabs(const AppState& app) {
+    for (const TabState& tab : app.tabs) {
+        if (isTabModified(tab)) return true;
+    }
+    return false;
+}
+
+static bool saveAllModifiedTabs(AppState& app, std::string& err) {
+    for (TabState& tab : app.tabs) {
+        if (!isTabModified(tab)) continue;
+        std::string saveErr;
+        if (!saveTabToFile(tab, saveErr)) {
+            err = "Failed to save '" + tab.name + "': " + saveErr;
+            return false;
+        }
+        tab.savedFingerprint = buildTabFingerprint(tab);
+    }
+    return true;
+}
+
 static TabState makeDefaultTab(int tabId) {
     TabState tab;
     tab.id = tabId;
@@ -174,6 +363,7 @@ static TabState makeDefaultTab(int tabId) {
     initModel(tab.env);
     initGlobals(tab.env);
     tab.prevN = tab.env.n;
+    tab.savedFingerprint = buildTabFingerprint(tab);
     return tab;
 }
 
@@ -283,6 +473,13 @@ static void trim(std::string& s) {
     const size_t end = s.find_last_not_of(" \t\n\r\f\v");
     s.erase(end + 1);
     s.erase(0, start);
+}
+
+static void normalizeTabTitle(TabState& tab) {
+    trim(tab.nameDraft);
+    if (tab.nameDraft.empty())
+        tab.nameDraft = "Untitled " + std::to_string(tab.id);
+    tab.name = tab.nameDraft;
 }
 
 static void InputTextAutoWidth(const char* id, std::string& str, float minW = 10.0f){
@@ -509,14 +706,16 @@ static void inputPanel(AppState& app, TabState& tab){
     ImGui::BeginChild("InputPanel", ImVec2(0, 0), true);
     ImGui::PopStyleVar();
 
-    const char* themes[] = {"Obsidian", "Curry", "Luminous Abyss", "Cherry Blossom"};
     ImGui::Spacing();
     ImGui::AlignTextToFramePadding();
     ImGui::Text("Theme:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(180.0f);
-    if (ImGui::Combo("##theme_bottom", &app.themeIndex, themes, IM_ARRAYSIZE(themes))) {
-        applyTheme(app.themeIndex);
+    int themeIndex = themeToIndex(app.theme);
+    if (ImGui::Combo("##theme_bottom", &themeIndex, themeNames, themeCount)) {
+        app.theme = indexToTheme(themeIndex);
+        applyTheme(app.theme);
+        savePreferences(app);
     }
 
     ImGui::AlignTextToFramePadding();
@@ -525,11 +724,25 @@ static void inputPanel(AppState& app, TabState& tab){
     ImGui::SetNextItemWidth(220.0f);
     const bool pressedEnter = ImGui::InputText("##tab_name",&tab.nameDraft,ImGuiInputTextFlags_EnterReturnsTrue);
     const bool commitName = pressedEnter || ImGui::IsItemDeactivatedAfterEdit();
-    if (commitName) {
-        trim(tab.nameDraft);
-        if (tab.nameDraft.empty()) 
-            tab.nameDraft = "Untitled " + std::to_string(tab.id);
-        tab.name = tab.nameDraft;
+    if (commitName) normalizeTabTitle(tab);
+    ImGui::SameLine();
+    if (ImGui::Button("Save")) {
+        normalizeTabTitle(tab);
+        std::string err;
+        if (saveTabToFile(tab, err)) {
+            tab.savedFingerprint = buildTabFingerprint(tab);
+            tab.inlineSaveMessage = "Saved as '" + tab.savedFileName + "'";
+            tab.inlineSaveIsError = false;
+        } else {
+            tab.inlineSaveMessage = err;
+            tab.inlineSaveIsError = true;
+        }
+    }
+    if (!tab.inlineSaveMessage.empty()) {
+        const ImVec4 color = tab.inlineSaveIsError
+            ? ImVec4(1.0f, 0.45f, 0.45f, 1.0f)
+            : ImVec4(0.45f, 1.0f, 0.55f, 1.0f);
+        ImGui::TextColored(color, "%s", tab.inlineSaveMessage.c_str());
     }
     ImGui::Spacing();
 
@@ -684,7 +897,6 @@ static void outputPanel(TabState& tab){
 
     int T = (int)sol.Xs.size();
 
-    // ----- Facing -----
     std::vector<double> facings(T, 0.0);
     for (int t = 0; t < (int)sol.thetas.size(); t++) {
         double deg = sol.thetas[t] * 180.0 / M_PI;
@@ -697,21 +909,18 @@ static void outputPanel(TabState& tab){
         facings[t] = wrapped;
     }
 
-    // small helper to format doubles
     auto fmt_double = [](double v, int prec) -> std::string {
         std::ostringstream oss;
         oss << std::fixed << std::setprecision(prec) << v;
         return oss.str();
     };
 
-    // ----- Turns -----
     std::vector<std::string> turns(T, "-");
     for (int t = 0; t < T - 2; t++) {
         double d = facings[t + 1] - facings[t];
         turns[t] = fmt_double(d, anglePrecision);
     }
 
-    // ----- Positions -----
     std::vector<double> xvals(T);
     std::vector<double> zvals(T);
     for (int t = 0; t < T; t++) {
@@ -719,7 +928,6 @@ static void outputPanel(TabState& tab){
         zvals[t] = sol.Zs[t] - sol.Zs[state.zIndex] - state.zAdd;
     }
 
-    // ----- Velocities -----
     std::vector<std::string> vxvals(T, "-");
     std::vector<std::string> vzvals(T, "-");
 
@@ -831,11 +1039,9 @@ static void outputPanel(TabState& tab){
     std::string facingList = formatFacingList(facings);
     std::string turnList = formatTurnList(facings);
 
-
     ShowReadOnlyBlock("Facing:", facingList, 30.0f);
     ImGui::Spacing();
     ShowReadOnlyBlock("Turn:", turnList, 30.0f);
-
 
     ImGui::PopFont();
 
@@ -859,43 +1065,16 @@ static void optimizerMenu(AppState& app) {
 
     ImGui::Begin("optimizerMenu", nullptr, flags);
 
-    int closedIndex = -1;
-    int activeIndex = app.activeTab;
-    if (ImGui::BeginTabBar("optimizer_tabs")) {
-        int justCreatedTabIndex = -1;
-        const bool canAddTab = app.tabs.size() < maxTabs;
-        if (!canAddTab) ImGui::BeginDisabled();
-        if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing) && canAddTab) {
-            app.tabs.push_back(makeDefaultTab(app.nextTabId++));
-            justCreatedTabIndex = static_cast<int>(app.tabs.size()) - 1;
-            activeIndex = justCreatedTabIndex;
-            app.activeTab = justCreatedTabIndex;
-        }
-        if (!canAddTab) ImGui::EndDisabled();
-
-        const int tabCount = static_cast<int>(app.tabs.size());
-        for (int i = 0; i < tabCount; i++) {
-            bool open = true;
-            ImGuiTabItemFlags tabFlags = 0;
-            if (i == justCreatedTabIndex) tabFlags |= ImGuiTabItemFlags_SetSelected;
-            const std::string tabLabel = app.tabs[i].name + "###tab_" + std::to_string(app.tabs[i].id);
-
-            if (ImGui::BeginTabItem(tabLabel.c_str(), &open, tabFlags)) {
-                activeIndex = i;
-                ImGui::EndTabItem();
-            }
-
-            if (!open && app.tabs.size() > 1) closedIndex = i;
-        }
-        ImGui::EndTabBar();
+    TopBarResult top = renderTopBar(app);
+    if (top.requestClosePopupTabId >= 0) {
+        app.pendingCloseTabId = top.requestClosePopupTabId;
+        app.closePopupError.clear();
+        ImGui::OpenPopup("Save Tab Before Closing?");
     }
-    if (closedIndex >= 0) {
-        app.tabs.erase(app.tabs.begin() + closedIndex);
-        if (activeIndex > closedIndex) activeIndex--;
-        if (activeIndex >= static_cast<int>(app.tabs.size()))
-            activeIndex = static_cast<int>(app.tabs.size()) - 1;
-    }
-    app.activeTab = std::clamp(activeIndex, 0, static_cast<int>(app.tabs.size()) - 1);
+    if (top.closeNowTabId >= 0)
+        closeTabById(app, top.closeNowTabId, top.activeIndex);
+    handleClosePopup(app, top.activeIndex);
+    app.activeTab = std::clamp(top.activeIndex, 0, static_cast<int>(app.tabs.size()) - 1);
 
     TabState& tab = app.tabs[app.activeTab];
 
@@ -962,17 +1141,38 @@ int main() {
 
     IMGUI_CHECKVERSION();
     AppState app;
+    loadPreferences(app);
     ImGui::CreateContext();
-    applyTheme(app.themeIndex);
+    applyTheme(app.theme);
     initFont();
 
     app.tabs.push_back(makeDefaultTab(app.nextTabId++));
+    nfdReady = initFileDialog(nfdInitError);
+    if (!nfdReady) {
+        setInlineStatus(app.tabs[0], "Load failed: " + nfdInitError, true);
+    }
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
 
-    while (!glfwWindowShouldClose(window)) {
+    bool running = true;
+    bool showExitSavePrompt = false;
+    bool openExitSavePopupNextFrame = false;
+    std::string exitSaveError;
+
+    while (running) {
         glfwPollEvents();
+        if (glfwWindowShouldClose(window)) {
+            glfwSetWindowShouldClose(window, GLFW_FALSE);
+            if (hasModifiedTabs(app)) {
+                showExitSavePrompt = true;
+                openExitSavePopupNextFrame = true;
+                exitSaveError.clear();
+            } else {
+                running = false;
+                continue;
+            }
+        }
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -985,6 +1185,45 @@ int main() {
         }
 
         optimizerMenu(app);
+
+        if (openExitSavePopupNextFrame) {
+            ImGui::OpenPopup("Save Changes Before Exit?");
+            openExitSavePopupNextFrame = false;
+        }
+
+        if (showExitSavePrompt && ImGui::BeginPopupModal("Save Changes Before Exit?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("There are unsaved tabs. Save before exiting?");
+            if (!exitSaveError.empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "%s", exitSaveError.c_str());
+            ImGui::Spacing();
+
+            if (ImGui::Button("Save All", ImVec2(120, 0))) {
+                std::string err;
+                if (saveAllModifiedTabs(app, err)) {
+                    running = false;
+                    showExitSavePrompt = false;
+                    openExitSavePopupNextFrame = false;
+                    ImGui::CloseCurrentPopup();
+                } else {
+                    exitSaveError = err;
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Discard All", ImVec2(120, 0))) {
+                running = false;
+                showExitSavePrompt = false;
+                openExitSavePopupNextFrame = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                showExitSavePrompt = false;
+                openExitSavePopupNextFrame = false;
+                exitSaveError.clear();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
 
         if (pushed_font) ImGui::PopFont();
 
@@ -1002,11 +1241,303 @@ int main() {
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
+    if (nfdReady) shutdownFileDialog();
+    savePreferences(app);
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;
 }
 
+// ---- Serialization / Deserialization, complete coded by AI -------
+static json buildTabJson(const TabState& tab) {
+    const Environment& e = tab.env;
+    return json{
+        {"title", tab.name},
+        {"maximize", e.maximize},
+        {"currObj", static_cast<int>(e.currObj)},
+        {"n", e.n},
+        {"initV", e.initV},
+        {"dragX", e.dragX},
+        {"dragZ", e.dragZ},
+        {"accel", e.accel},
+        {"globalNames", e.globalNames},
+        {"globalValues", e.globalValues},
+        {"objScript", e.objScript},
+        {"constraintScript", e.constraintScript},
+        {"post", {
+            {"xTick", e.post.xTick},
+            {"xAdd", e.post.xAdd},
+            {"zTick", e.post.zTick},
+            {"zAdd", e.post.zAdd},
+            {"positionPrecision", e.post.positionPrecision},
+        }}
+    };
+}
+
+static std::string buildTabFingerprint(const TabState& tab) {
+    return buildTabJson(tab).dump();
+}
+
+static bool isTabModified(const TabState& tab) {
+    return buildTabFingerprint(tab) != tab.savedFingerprint;
+}
+
+static std::string safeFileName(std::string name) {
+    for (char& ch : name) {
+        const bool forbidden =
+            ch == '/' || ch == '\\' || ch == ':' || ch == '*' || ch == '?' ||
+            ch == '"' || ch == '<' || ch == '>' || ch == '|';
+        if (forbidden || static_cast<unsigned char>(ch) < 32) ch = '_';
+    }
+    const size_t start = name.find_first_not_of(" \t\n\r\f\v");
+    if (start == std::string::npos) {
+        name.clear();
+    } else {
+        const size_t end = name.find_last_not_of(" \t\n\r\f\v");
+        name.erase(end + 1);
+        name.erase(0, start);
+    }
+    while (!name.empty() && (name.back() == '.' || name.back() == ' ')) name.pop_back();
+    if (name.empty()) name = "Untitled";
+    return name;
+}
+
+static bool saveTabToFile(TabState& tab, std::string& err) {
+    try {
+        std::filesystem::create_directories(tabsDirPath);
+        const std::string baseName = safeFileName(tab.name);
+        const std::string fileName = baseName + ".json";
+        const std::string path = std::string(tabsDirPath) + "/" + fileName;
+        const bool isRenameTarget = tab.savedFileName != fileName;
+        const bool hasOldFile = !tab.savedFileName.empty();
+        const std::string oldPath = std::string(tabsDirPath) + "/" + tab.savedFileName;
+        if (isRenameTarget && std::filesystem::exists(path)) {
+            err = "Name already taken: " + fileName + ". Choose another title.";
+            return false;
+        }
+
+        std::ofstream out(path, std::ios::trunc);
+        if (!out) {
+            err = "Failed to open " + path;
+            return false;
+        }
+        out << buildTabJson(tab).dump(2) << "\n";
+        if (!out.good()) {
+            err = "Failed to write " + path;
+            return false;
+        }
+
+        if (isRenameTarget && hasOldFile && std::filesystem::exists(oldPath)) {
+            std::error_code removeErr;
+            std::filesystem::remove(oldPath, removeErr);
+            if (removeErr) {
+                err = "Saved to " + fileName + ", but failed to remove old file: " + tab.savedFileName;
+                return false;
+            }
+        }
+
+        tab.savedFileName = fileName;
+        return true;
+    } catch (const std::exception& e) {
+        err = e.what();
+        return false;
+    }
+}
+
+static bool parseOptionalStringVector(const json& obj, const char* key, std::vector<std::string>& out, std::string& err) {
+    if (!obj.contains(key)) return true;
+    try {
+        out = obj.at(key).get<std::vector<std::string>>();
+        return true;
+    } catch (...) {
+        err = std::string("Invalid field: ") + key;
+        return false;
+    }
+}
+
+static bool loadTabFromJson(TabState& tab, const json& j, std::string& err) {
+    try {
+        Environment loaded;
+        loaded.maximize = j.value("maximize", loaded.maximize);
+
+        const int objIndex = j.value("currObj", static_cast<int>(loaded.currObj));
+        if (objIndex < 0 || objIndex > 2) {
+            err = "Invalid field: currObj";
+            return false;
+        }
+        loaded.currObj = static_cast<Environment::objectiveType>(objIndex);
+
+        loaded.n = j.value("n", loaded.n);
+        loaded.n = std::clamp(loaded.n, nMin, nMax);
+        loaded.editN = loaded.n;
+        loaded.initV = j.value("initV", loaded.initV);
+        loaded.objScript = j.value("objScript", loaded.objScript);
+        loaded.constraintScript = j.value("constraintScript", loaded.constraintScript);
+
+        if (!parseOptionalStringVector(j, "dragX", loaded.dragX, err)) return false;
+        if (!parseOptionalStringVector(j, "dragZ", loaded.dragZ, err)) return false;
+        if (!parseOptionalStringVector(j, "accel", loaded.accel, err)) return false;
+        if (!parseOptionalStringVector(j, "globalNames", loaded.globalNames, err)) return false;
+        if (!parseOptionalStringVector(j, "globalValues", loaded.globalValues, err)) return false;
+
+        if (static_cast<int>(loaded.dragX.size()) != loaded.n ||
+            static_cast<int>(loaded.dragZ.size()) != loaded.n ||
+            static_cast<int>(loaded.accel.size()) != loaded.n) {
+            err = "dragX/dragZ/accel sizes must match n";
+            return false;
+        }
+
+        if (loaded.globalNames.size() != loaded.globalValues.size()) {
+            err = "globalNames/globalValues size mismatch";
+            return false;
+        }
+        loaded.varCapacity = static_cast<int>(loaded.globalNames.size());
+        if (loaded.varCapacity < 1) {
+            loaded.varCapacity = 1;
+            loaded.globalNames = {""};
+            loaded.globalValues = {""};
+        }
+
+        if (j.contains("post")) {
+            const json& post = j.at("post");
+            loaded.post.xTick = post.value("xTick", loaded.post.xTick);
+            loaded.post.xAdd = post.value("xAdd", loaded.post.xAdd);
+            loaded.post.zTick = post.value("zTick", loaded.post.zTick);
+            loaded.post.zAdd = post.value("zAdd", loaded.post.zAdd);
+            loaded.post.positionPrecision = post.value("positionPrecision", loaded.post.positionPrecision);
+        }
+
+        tab.name = j.value("title", tab.name);
+        trim(tab.name);
+        if (tab.name.empty()) tab.name = "Untitled " + std::to_string(tab.id);
+        tab.nameDraft = tab.name;
+        tab.env = loaded;
+        tab.prevN = loaded.n;
+        tab.env.lastSol.reset();
+        tab.env.lastError.clear();
+        tab.inlineSaveMessage.clear();
+        tab.inlineSaveIsError = false;
+        return true;
+    } catch (const std::exception& e) {
+        err = e.what();
+        return false;
+    }
+}
+
+static bool choosePresetFile(std::string& outPath, std::string& err) {
+    if (!nfdReady) {
+        err = nfdInitError.empty() ? "File dialog is unavailable." : nfdInitError;
+        return false;
+    }
+
+    const std::string defaultDir = std::filesystem::absolute(tabsDirPath).string();
+    nfdu8char_t* pickedPath = nullptr;
+    nfdu8filteritem_t filterItem[1] = {{"JSON", "json"}};
+    const nfdresult_t res = NFD_OpenDialogU8(&pickedPath, filterItem, 1, defaultDir.c_str());
+
+    if (res == NFD_OKAY) {
+        outPath = pickedPath;
+        NFD_FreePathU8(pickedPath);
+        return true;
+    }
+    if (res == NFD_CANCEL) {
+        err.clear();
+        return false;
+    }
+    const char* nfdErr = NFD_GetError();
+    if (nfdErr && *nfdErr)
+        err = nfdErr;
+    else
+        err = "File picker failed.";
+    return false;
+}
+
+static bool initFileDialog(std::string& err) {
+    const nfdresult_t res = NFD_Init();
+    if (res == NFD_OKAY) return true;
+    const char* nfdErr = NFD_GetError();
+    if (nfdErr && *nfdErr)
+        err = nfdErr;
+    else
+        err = "NFD_Init failed.";
+    return false;
+}
+
+static void shutdownFileDialog() {
+    NFD_Quit();
+}
+
+static void savePreferences(const AppState& app) {
+    std::ofstream out(preferencePath, std::ios::trunc);
+    if (!out) return;
+    const json pref = {
+        {"themeIndex", themeToIndex(app.theme)}
+    };
+    out << pref.dump(2) << "\n";
+}
+
+static void loadPreferences(AppState& app) {
+    std::ifstream in(preferencePath);
+    if (!in) return;
+    try {
+        json pref;
+        in >> pref;
+        const int parsed = pref.value("themeIndex", themeToIndex(app.theme));
+        app.theme = indexToTheme(parsed);
+    } catch (...) {
+        // Ignore invalid preference file
+    }
+}
+
+static int findTabIndexById(const AppState& app, int id) {
+    for (int i = 0; i < static_cast<int>(app.tabs.size()); i++) {
+        if (app.tabs[i].id == id) return i;
+    }
+    return -1;
+}
+
+static void closeTabById(AppState& app, int tabId, int& activeIndex) {
+    const int idx = findTabIndexById(app, tabId);
+    if (idx < 0) return;
+    if (static_cast<int>(app.tabs.size()) <= 1) {
+        app.tabs[0] = makeDefaultTab(app.nextTabId++);
+        activeIndex = 0;
+        return;
+    }
+
+    app.tabs.erase(app.tabs.begin() + idx);
+    if (activeIndex > idx) activeIndex--;
+    if (activeIndex >= static_cast<int>(app.tabs.size()))
+        activeIndex = static_cast<int>(app.tabs.size()) - 1;
+}
+
+static void setInlineStatus(TabState& tab, const std::string& message, bool isError) {
+    tab.inlineSaveMessage = message;
+    tab.inlineSaveIsError = isError;
+}
+
+static void loadPresetIntoTab(TabState& tab, const std::string& selectedPath) {
+    std::ifstream in(selectedPath);
+    if (!in) {
+        setInlineStatus(tab, "Load failed: unable to open file.", true);
+        return;
+    }
+
+    try {
+        json j;
+        in >> j;
+        std::string loadErr;
+        if (!loadTabFromJson(tab, j, loadErr)) {
+            setInlineStatus(tab, "Load failed: " + loadErr, true);
+            return;
+        }
+        tab.savedFileName = std::filesystem::path(selectedPath).filename().string();
+        tab.savedFingerprint = buildTabFingerprint(tab);
+        setInlineStatus(tab, "Loaded: " + tab.savedFileName, false);
+    } catch (...) {
+        setInlineStatus(tab, "Load failed: invalid JSON file.", true);
+    }
+}
 
 struct RGB {
     float r, g, b;
@@ -1066,7 +1597,7 @@ static void applyAccent(const RGB& accent){
     c[ImGuiCol_TabUnfocusedActive]= rgba(tabActive, 0.80f);
 }
 
-static void applyTheme(int themeIndex) {
+static void applyTheme(AppState::Theme theme) {
     ImGuiStyle& style = ImGui::GetStyle();
     
     style.WindowRounding = 7.0f;
@@ -1097,11 +1628,10 @@ static void applyTheme(int themeIndex) {
     c[ImGuiCol_TitleBg]       = {0.1f, 0.1f, 0.1f, 1.0f};
     c[ImGuiCol_TitleBgActive] = {0.15f, 0.15f, 0.15f, 1.0f};
 
-    // Should I make a enum?
-    switch (themeIndex){
-        case 0: applyAccent({0.45f, 0.39f, 0.60f}); break; // Obsidian
-        case 1: applyAccent({0.92f, 0.69f, 0.22f}); break; // Curry (Literally honey)
-        case 2: applyAccent({0.38f, 0.74f, 0.80f}); break; // Luminous Abyss
-        case 3: applyAccent({0.86f, 0.57f, 0.75f}); break; // Cherry Blossom
+    switch (theme){
+        case AppState::Theme::Obsidian:      applyAccent({0.45f, 0.39f, 0.60f}); break;
+        case AppState::Theme::Curry:         applyAccent({0.92f, 0.69f, 0.22f}); break;
+        case AppState::Theme::LuminousAbyss: applyAccent({0.38f, 0.74f, 0.80f}); break;
+        case AppState::Theme::CherryBlossom: applyAccent({0.86f, 0.57f, 0.75f}); break;
     }
 }

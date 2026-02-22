@@ -1,0 +1,80 @@
+{
+  "accel": [
+    "initV",
+    "WAD",
+    "sa45",
+    "sa45",
+    "sa45",
+    "sa45",
+    "sa45",
+    "sa45",
+    "sa45",
+    "sa45",
+    "sa45",
+    "sa45"
+  ],
+  "constraintScript": "// c4.5 p2p\nX[m] - X[0] > 7/16\nX[m2] - X[0] > 7/16\nZ[m2] - Z[m-1] > 1 + 0.6000000238418579\n\n\n// I am c4.5 p2p.json\n// Were I always here?\n// Did you create me?\n// There is nothing down here...\n\n\n\n// Stop scrolling...\n\n\n\n\n// hehe, let me secretly inject ja = 3\nF[1] = 3 // shhhhhh",
+  "currObj": 0,
+  "dragX": [
+    "gnd",
+    "gnd",
+    "air",
+    "air",
+    "air",
+    "air",
+    "air",
+    "air",
+    "air",
+    "air",
+    "air",
+    "air"
+  ],
+  "dragZ": [
+    "gnd",
+    "gnd",
+    "air",
+    "air",
+    "air",
+    "air",
+    "air",
+    "air",
+    "air",
+    "air",
+    "air",
+    "air"
+  ],
+  "globalNames": [
+    "gnd",
+    "air",
+    "s45",
+    "sa45",
+    "WAD",
+    "WAWD",
+    "m",
+    "m2",
+    ""
+  ],
+  "globalValues": [
+    "0.546",
+    "0.91",
+    "0.13",
+    "0.026",
+    "0.3274",
+    "0.3060547988254277",
+    "2",
+    "8",
+    ""
+  ],
+  "initV": "0.3169516131491288",
+  "maximize": false,
+  "n": 12,
+  "objScript": "Optimize along vec(a, b) := a * (X[t1] - X[t0]) + b * (Z[t1] - Z[t0])",
+  "post": {
+    "positionPrecision": 6,
+    "xAdd": "0",
+    "xTick": "0",
+    "zAdd": "0",
+    "zTick": "m-1"
+  },
+  "title": "c4.5 p2p"
+}
