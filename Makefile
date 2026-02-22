@@ -33,7 +33,11 @@ ifneq (,$(findstring MSYS,$(UNAME_S)))
 SRC += thirdParty/nfd/src/nfd_win.cpp
 endif
 ifeq ($(OS),Windows_NT)
+ifeq (,$(findstring MINGW,$(UNAME_S)))
+ifeq (,$(findstring MSYS,$(UNAME_S)))
 SRC += thirdParty/nfd/src/nfd_win.cpp
+endif
+endif
 endif
 
 OBJ := $(addprefix $(BUILD_DIR)/,$(patsubst %.cpp,%.o,$(patsubst %.m,%.o,$(SRC))))
@@ -77,13 +81,16 @@ STRIP_CMD = strip --strip-unneeded $(BUILD_DIR)/$(TARGET)
 endif
 
 ifneq (,$(findstring MINGW,$(UNAME_S)))
-LDLIBS += -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
+LDLIBS := $(filter-out -lglfw,$(LDLIBS))
+LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
 endif
 ifneq (,$(findstring MSYS,$(UNAME_S)))
-LDLIBS += -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
+LDLIBS := $(filter-out -lglfw,$(LDLIBS))
+LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
 endif
 ifeq ($(OS),Windows_NT)
-LDLIBS += -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
+LDLIBS := $(filter-out -lglfw,$(LDLIBS))
+LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
 endif
 
 .PHONY: all debug release clean clean-artifacts \
