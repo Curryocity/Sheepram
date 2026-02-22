@@ -1,0 +1,3 @@
+[submodule "thirdParty/nfd"]
+	path = thirdParty/nfd
+	url = https://github.com/btzy/nativefiledialog-extended.git
