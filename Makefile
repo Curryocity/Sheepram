@@ -6,6 +6,7 @@ UNAME_S := $(shell uname -s)
 ARCH ?= $(shell uname -m)
 BUILD_DIR := build/$(UNAME_S)-$(ARCH)
 PKG_CONFIG ?= pkg-config
+WINDRES ?= windres
 
 SRC := \
 	main.cpp \
@@ -42,6 +43,7 @@ endif
 
 OBJ := $(addprefix $(BUILD_DIR)/,$(patsubst %.cpp,%.o,$(patsubst %.m,%.o,$(SRC))))
 DEP := $(OBJ:.o=.d)
+EXTRA_OBJ :=
 
 CPPFLAGS := -Iimgui -Iimgui/backends -IthirdParty/nfd/src/include
 CXXFLAGS := -std=c++20 -Wall -Wextra -MMD -MP -ffp-contract=off
@@ -83,15 +85,19 @@ endif
 ifneq (,$(findstring MINGW,$(UNAME_S)))
 LDLIBS := $(filter-out -lglfw,$(LDLIBS))
 LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
+EXTRA_OBJ += $(BUILD_DIR)/resources/windows/app_icon.o
 endif
 ifneq (,$(findstring MSYS,$(UNAME_S)))
 LDLIBS := $(filter-out -lglfw,$(LDLIBS))
 LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
+EXTRA_OBJ += $(BUILD_DIR)/resources/windows/app_icon.o
 endif
 ifeq ($(OS),Windows_NT)
 LDLIBS := $(filter-out -lglfw,$(LDLIBS))
 LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
+EXTRA_OBJ += $(BUILD_DIR)/resources/windows/app_icon.o
 endif
+EXTRA_OBJ := $(sort $(EXTRA_OBJ))
 
 .PHONY: all debug release clean clean-artifacts \
 	package-macos-arm64 package-macos-x86_64 package-linux-x86_64 package-windows-x86_64
@@ -109,8 +115,8 @@ ifneq ($(STRIP_CMD),)
 	$(STRIP_CMD)
 endif
 
-$(BUILD_DIR)/$(TARGET): $(OBJ)
-	$(CXX) $(OBJ) $(LDFLAGS) $(LDLIBS) -o $@
+$(BUILD_DIR)/$(TARGET): $(OBJ) $(EXTRA_OBJ)
+	$(CXX) $(OBJ) $(EXTRA_OBJ) $(LDFLAGS) $(LDLIBS) -o $@
 ifneq ($(BUILD_DIR),build)
 	@mkdir -p build
 	cp -f $@ build/$(TARGET)
@@ -124,8 +130,12 @@ $(BUILD_DIR)/%.o: %.m
 	@mkdir -p $(dir $@)
 	clang $(CPPFLAGS) $(OBJCFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/resources/windows/%.o: resources/windows/%.rc
+	@mkdir -p $(dir $@)
+	$(WINDRES) $< -O coff -o $@
+
 clean:
-	rm -f $(BUILD_DIR)/$(TARGET) $(OBJ) $(DEP)
+	rm -f $(BUILD_DIR)/$(TARGET) $(OBJ) $(DEP) $(EXTRA_OBJ)
 
 clean-artifacts:
 	rm -rf $(BUILD_DIR)/*.dSYM *.dSYM

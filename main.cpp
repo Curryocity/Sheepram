@@ -217,6 +217,33 @@ static std::filesystem::path resourcePath(const std::filesystem::path& relPath) 
     return resourceRootPath / relPath;
 }
 
+static std::vector<std::filesystem::path> bundledPresetDirs() {
+    std::vector<std::filesystem::path> candidates;
+    std::error_code ec;
+    candidates.push_back(resourcePath("presets/saves"));
+    candidates.push_back(resourceRootPath.parent_path() / "presets/saves");
+    candidates.push_back(std::filesystem::current_path(ec) / "presets/saves");
+    return candidates;
+}
+
+static void seedBundledPresets() {
+    for (const auto& srcDir : bundledPresetDirs()) {
+        std::error_code ec;
+        if (!std::filesystem::exists(srcDir, ec) || !std::filesystem::is_directory(srcDir, ec))
+            continue;
+
+        for (const auto& entry : std::filesystem::directory_iterator(srcDir, ec)) {
+            if (ec) break;
+            if (!entry.is_regular_file(ec)) continue;
+            if (entry.path().extension() != ".json") continue;
+
+            const std::filesystem::path dst = tabsDirPath / entry.path().filename();
+            if (std::filesystem::exists(dst, ec)) continue;
+            std::filesystem::copy_file(entry.path(), dst, std::filesystem::copy_options::none, ec);
+        }
+    }
+}
+
 static void initPaths() {
     resourceRootPath = resolveResourceRoot();
     const std::filesystem::path dataRoot = resolveDataRoot();
@@ -224,6 +251,7 @@ static void initPaths() {
     tabsDirPath = dataRoot / "presets/saves";
     std::error_code ec;
     std::filesystem::create_directories(tabsDirPath, ec);
+    seedBundledPresets();
 }
 
 static int themeToIndex(AppState::Theme theme) {
