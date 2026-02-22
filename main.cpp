@@ -676,7 +676,7 @@ static void outputPanel(Environment& state){
     }
 
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(10.0f, 3.0f));
-    constexpr float tableContentWidth = 900.0f;
+    constexpr float tableContentWidth = 877.0f;
     constexpr float estimateRowHeight = 34.0f;
     constexpr float minRowHeight = 20.0f;
     constexpr int maxVisibleRows = 13;
@@ -748,7 +748,7 @@ static void outputPanel(Environment& state){
     ImGui::PopStyleVar();
 
     ImGui::Spacing();
-    ImGui::Text("=== Facing/Turn Copying ===");
+    ImGui::Text("=== Manual Copying ===");
 
     auto formatFacingList = [&](const std::vector<double>& Fs)
     {
