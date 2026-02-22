@@ -3,6 +3,7 @@
 #include <vector>
 #include <cmath>
 #include <cstddef>
+#include <stdexcept>
 
 struct optimizer {
 
