@@ -13,7 +13,11 @@
 #define GL_SILENCE_DEPRECATION
 #endif
 
+#if defined(__APPLE__)
 #include <OpenGL/gl3.h>
+#else
+#include <GL/gl.h>
+#endif
 #include <GLFW/glfw3.h>
 
 #include "imgui.h"
@@ -24,10 +28,20 @@
 #include "optimizer.hpp"
 #include <sstream>
 #include <iomanip>
+#include <cstdlib>
 
 #include "thirdParty/json.hpp"
 
-const static char* title = "Mom, can we have wolfram at home?";
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <unistd.h>
+#else
+#include <unistd.h>
+#endif
+
+const static char* title = "Wolfram? No. Sheepram.";
 using json = nlohmann::json;
 
 struct Environment {
@@ -102,8 +116,10 @@ static ImFont* uiFont = nullptr;
 static constexpr int nMin = 1;
 static constexpr int nMax = 256;
 static constexpr int maxTabs = 16;
-static const char* preferencePath = "preference.json";
-static const char* tabsDirPath = "presets/saves";
+static const char* appDataDirName = "Sheepram";
+static std::filesystem::path resourceRootPath = ".";
+static std::filesystem::path preferencePath = "preference.json";
+static std::filesystem::path tabsDirPath = "presets/saves";
 static TabState makeDefaultTab(int tabId);
 static void trim(std::string& s);
 
@@ -113,6 +129,101 @@ static const char* themeNames[themeCount] = {
 };
 static bool nfdReady = false;
 static std::string nfdInitError;
+
+static std::filesystem::path executablePath() {
+#if defined(_WIN32)
+    std::vector<char> buf(MAX_PATH);
+    DWORD len = 0;
+    while (true) {
+        len = GetModuleFileNameA(nullptr, buf.data(), static_cast<DWORD>(buf.size()));
+        if (len == 0) return {};
+        if (len < buf.size()) return std::filesystem::path(std::string(buf.data(), len));
+        buf.resize(buf.size() * 2);
+    }
+#elif defined(__APPLE__)
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::vector<char> buf(size + 1, '\0');
+    if (_NSGetExecutablePath(buf.data(), &size) != 0) return {};
+    std::error_code ec;
+    return std::filesystem::canonical(std::filesystem::path(buf.data()), ec);
+#else
+    std::vector<char> buf(4096, '\0');
+    const ssize_t len = readlink("/proc/self/exe", buf.data(), buf.size() - 1);
+    if (len <= 0) return {};
+    buf[static_cast<size_t>(len)] = '\0';
+    return std::filesystem::path(buf.data());
+#endif
+}
+
+static bool hasBundledAssets(const std::filesystem::path& root) {
+    return std::filesystem::exists(root / "asset/fonts/JetBrainsMono-Regular.ttf") &&
+           std::filesystem::exists(root / "asset/fonts/MinecraftRegular.otf");
+}
+
+static std::filesystem::path resolveResourceRoot() {
+    std::vector<std::filesystem::path> candidates;
+    std::error_code ec;
+    candidates.push_back(std::filesystem::current_path(ec));
+
+    const std::filesystem::path exePath = executablePath();
+    if (!exePath.empty()) {
+        const std::filesystem::path exeDir = exePath.parent_path();
+        candidates.push_back(exeDir);
+        candidates.push_back(exeDir.parent_path());
+        candidates.push_back(exeDir.parent_path().parent_path());
+        candidates.push_back(exeDir.parent_path() / "Resources");
+        candidates.push_back(exeDir.parent_path().parent_path() / "Resources");
+    }
+
+    for (const auto& candidate : candidates) {
+        if (!candidate.empty() && hasBundledAssets(candidate)) return candidate;
+    }
+    return std::filesystem::current_path(ec);
+}
+
+static std::filesystem::path resolveDataRoot() {
+    std::filesystem::path base;
+    if (const char* custom = std::getenv("WOLFRAMMCPK_DATA_DIR"); custom && *custom) {
+        base = custom;
+    } else {
+#if defined(_WIN32)
+        const char* appData = std::getenv("APPDATA");
+        base = (appData && *appData) ? std::filesystem::path(appData) : std::filesystem::current_path();
+#elif defined(__APPLE__)
+        const char* home = std::getenv("HOME");
+        base = (home && *home) ? (std::filesystem::path(home) / "Library/Application Support")
+                               : std::filesystem::current_path();
+#else
+        const char* home = std::getenv("HOME");
+        base = (home && *home) ? (std::filesystem::path(home) / ".local/share")
+                               : std::filesystem::current_path();
+#endif
+    }
+
+    std::filesystem::path appRoot = base / appDataDirName;
+    std::error_code ec;
+    std::filesystem::create_directories(appRoot, ec);
+    if (!ec) return appRoot;
+
+    appRoot = std::filesystem::current_path() / appDataDirName;
+    ec.clear();
+    std::filesystem::create_directories(appRoot, ec);
+    return appRoot;
+}
+
+static std::filesystem::path resourcePath(const std::filesystem::path& relPath) {
+    return resourceRootPath / relPath;
+}
+
+static void initPaths() {
+    resourceRootPath = resolveResourceRoot();
+    const std::filesystem::path dataRoot = resolveDataRoot();
+    preferencePath = dataRoot / "preference.json";
+    tabsDirPath = dataRoot / "presets/saves";
+    std::error_code ec;
+    std::filesystem::create_directories(tabsDirPath, ec);
+}
 
 static int themeToIndex(AppState::Theme theme) {
     return static_cast<int>(theme);
@@ -125,8 +236,10 @@ static AppState::Theme indexToTheme(int index) {
 
 static void initFont() {
     ImGuiIO& io = ImGui::GetIO();
-    codeFont = io.Fonts->AddFontFromFileTTF("asset/fonts/JetBrainsMono-Regular.ttf", 16.0f);
-    uiFont = io.Fonts->AddFontFromFileTTF("asset/fonts/MinecraftRegular.otf", 16.0f);
+    const std::string codeFontPath = resourcePath("asset/fonts/JetBrainsMono-Regular.ttf").string();
+    const std::string uiFontPath = resourcePath("asset/fonts/MinecraftRegular.otf").string();
+    codeFont = io.Fonts->AddFontFromFileTTF(codeFontPath.c_str(), 16.0f);
+    uiFont = io.Fonts->AddFontFromFileTTF(uiFontPath.c_str(), 16.0f);
 }
 
 static void initModel(Environment& state){
@@ -1127,6 +1240,7 @@ static void optimizerMenu(AppState& app) {
 int main() {
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) return 1;
+    initPaths();
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -1307,10 +1421,10 @@ static bool saveTabToFile(TabState& tab, std::string& err) {
         std::filesystem::create_directories(tabsDirPath);
         const std::string baseName = safeFileName(tab.name);
         const std::string fileName = baseName + ".json";
-        const std::string path = std::string(tabsDirPath) + "/" + fileName;
+        const std::filesystem::path path = tabsDirPath / fileName;
         const bool isRenameTarget = tab.savedFileName != fileName;
         const bool hasOldFile = !tab.savedFileName.empty();
-        const std::string oldPath = std::string(tabsDirPath) + "/" + tab.savedFileName;
+        const std::filesystem::path oldPath = tabsDirPath / tab.savedFileName;
         if (isRenameTarget && std::filesystem::exists(path)) {
             err = "Name already taken: " + fileName + ". Choose another title.";
             return false;
@@ -1318,12 +1432,12 @@ static bool saveTabToFile(TabState& tab, std::string& err) {
 
         std::ofstream out(path, std::ios::trunc);
         if (!out) {
-            err = "Failed to open " + path;
+            err = "Failed to open " + path.string();
             return false;
         }
         out << buildTabJson(tab).dump(2) << "\n";
         if (!out.good()) {
-            err = "Failed to write " + path;
+            err = "Failed to write " + path.string();
             return false;
         }
 
