@@ -2,6 +2,8 @@
 
 A cross platform Bitcoin miner, very professional vscode setup by me.
 
+![Sheepram Icon](asset/icon/App.png)
+
 ## Download
 
 Get the package for your platform from the latest release/workflow artifacts:
