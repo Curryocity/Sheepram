@@ -119,6 +119,7 @@ jobs:
             mingw-w64-x86_64-glfw
             mingw-w64-x86_64-gtk3
             zip
+            unzip
       - name: Restore build cache
         uses: actions/cache@v4
         with:
