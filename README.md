@@ -35,7 +35,7 @@ Then open the app again.
 2. Open the extracted folder.
 3. Double-click `Sheepram.exe`.
 
-Keep `asset/` and `presets/` next to `Sheepram.exe`.
+Keep all shipped files in the extracted folder (`Sheepram.exe`, `asset/`, `presets/`, bundled `.dll` files).
 
 ### Linux
 
@@ -47,6 +47,8 @@ Keep `asset/` and `presets/` next to `Sheepram.exe`.
 chmod +x Sheepram
 ./Sheepram
 ```
+
+`Sheepram` is the launcher script and loads bundled libraries from `lib/` before starting `Sheepram.bin`.
 
 Optional launcher:
 
