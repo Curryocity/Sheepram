@@ -137,15 +137,48 @@ copy_linux_shared_libs() {
   done
 }
 
+bundle_macos_glfw() {
+  local app_bin="$1"
+  local fw_dir="$2"
+
+  if ! command -v otool >/dev/null 2>&1; then
+    echo "otool not found; cannot bundle macOS dylibs." >&2
+    return 1
+  fi
+  if ! command -v install_name_tool >/dev/null 2>&1; then
+    echo "install_name_tool not found; cannot rewrite macOS dylib paths." >&2
+    return 1
+  fi
+
+  local glfw_src
+  glfw_src="$(otool -L "$app_bin" | awk '/libglfw[.]3[.]dylib/ {print $1; exit}')"
+  if [ -z "$glfw_src" ]; then
+    return 0
+  fi
+  if [ ! -f "$glfw_src" ]; then
+    echo "GLFW dylib referenced by app was not found on build host: $glfw_src" >&2
+    return 1
+  fi
+
+  mkdir -p "$fw_dir"
+  local glfw_dst="$fw_dir/libglfw.3.dylib"
+  cp -f "$glfw_src" "$glfw_dst"
+  chmod 755 "$glfw_dst"
+
+  install_name_tool -id "@executable_path/../Frameworks/libglfw.3.dylib" "$glfw_dst"
+  install_name_tool -change "$glfw_src" "@executable_path/../Frameworks/libglfw.3.dylib" "$app_bin"
+}
+
 case "$platform" in
   macos)
     stage_dir="$dist_dir/${app_name}-${version}-macos-${arch}"
     bundle_dir="$stage_dir/${app_name}.app"
     rm -rf "$stage_dir"
-    mkdir -p "$bundle_dir/Contents/MacOS" "$bundle_dir/Contents/Resources"
+    mkdir -p "$bundle_dir/Contents/MacOS" "$bundle_dir/Contents/Resources" "$bundle_dir/Contents/Frameworks"
 
     cp "$binary_path" "$bundle_dir/Contents/MacOS/$app_name"
     chmod +x "$bundle_dir/Contents/MacOS/$app_name"
+    bundle_macos_glfw "$bundle_dir/Contents/MacOS/$app_name" "$bundle_dir/Contents/Frameworks"
     cp -R "$asset_dir" "$bundle_dir/Contents/Resources/"
     if [ -f "$mac_icon_icns" ]; then
       cp "$mac_icon_icns" "$bundle_dir/Contents/Resources/app.icns"
@@ -192,6 +225,10 @@ ${icon_plist}
 </dict>
 </plist>
 PLIST
+
+    if command -v codesign >/dev/null 2>&1; then
+      codesign --force --deep --sign - "$bundle_dir" >/dev/null
+    fi
 
     (
       cd "$dist_dir"
