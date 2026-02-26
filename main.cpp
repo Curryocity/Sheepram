@@ -1271,23 +1271,51 @@ int main() {
     if (!glfwInit()) return 1;
     initPaths();
 
-    glfwDefaultWindowHints();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    GLFWwindow* window = nullptr;
+    const char* glslVersion = "#version 330 core";
+
+    auto tryCreateWindow = [&](int major, int minor, bool requestProfile) -> bool {
+        glfwDefaultWindowHints();
+        if (major > 0 && minor > 0) {
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, major);
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, minor);
+        }
 #if defined(__APPLE__)
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+        (void)requestProfile;
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+#else
+        if (requestProfile) {
+            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        }
+#endif
+        window = glfwCreateWindow(1100, 720, title, nullptr, nullptr);
+        if (!window) return false;
+        glfwMakeContextCurrent(window);
+        if (glfwGetCurrentContext() != window) {
+            glfwDestroyWindow(window);
+            window = nullptr;
+            return false;
+        }
+        return true;
+    };
+
+#if defined(__APPLE__)
+    if (!tryCreateWindow(3, 3, true)) return 1;
+    glslVersion = "#version 330 core";
+#else
+    // Windows/Linux fallback chain for driver compatibility.
+    if (tryCreateWindow(3, 3, false)) {
+        glslVersion = "#version 130";
+    } else if (tryCreateWindow(3, 0, false)) {
+        glslVersion = "#version 130";
+    } else if (tryCreateWindow(0, 0, false)) {
+        glslVersion = "#version 130";
+    } else {
+        return 1;
+    }
 #endif
 
-    GLFWwindow* window = glfwCreateWindow(1100, 720, title, nullptr, nullptr);
-    if (!window) {
-        // Fallback for older/quirky Windows OpenGL drivers.
-        glfwDefaultWindowHints();
-        window = glfwCreateWindow(1100, 720, title, nullptr, nullptr);
-    }
-    if (!window) return 1;
-
-    glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
     IMGUI_CHECKVERSION();
@@ -1304,7 +1332,7 @@ int main() {
     }
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 330 core");
+    ImGui_ImplOpenGL3_Init(glslVersion);
 
     bool running = true;
     bool showExitSavePrompt = false;
