@@ -29,6 +29,21 @@ Get the package for your platform from the latest release/workflow artifacts:
 
 Keep all shipped files in the extracted folder (`Sheepram.exe`, `asset/`, `presets/`, bundled `.dll` files).
 
+### Known Issues (Windows)
+
+- Error: `GLFW Error 65544: WGL: Failed to make context current: The handle is invalid.`
+
+This can happen on dual-GPU laptops (integrated + discrete GPU) when Windows runs the app on the wrong GPU path.
+
+Fix:
+
+1. Open `Settings` -> `System` -> `Display` -> `Graphics`.
+2. Add `Sheepram.exe` (from the extracted folder).
+3. Click `Options` -> choose `High performance`.
+4. Save and restart the app.
+
+If needed, also set `Sheepram.exe` to the discrete GPU in NVIDIA/AMD control panel.
+
 ### Linux
 
 1. Extract the downloaded `tar.gz`.
