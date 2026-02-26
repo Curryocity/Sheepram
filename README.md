@@ -11,7 +11,7 @@ Get the package for your platform from the latest release/workflow artifacts:
 - macOS ARM64: `Sheepram-<version>-macos-arm64.zip`
 - macOS x86_64 (Intel): `Sheepram-<version>-macos-x86_64.zip`
 - Windows x86_64: `Sheepram-<version>-windows-x86_64.zip`
-- Linux x86_64: `Sheepram-<version>-linux-x86_64.tar.gz`
+- Linux x86_64: `Sheepram-<version>-linux-x86_64.zip`
 
 ## Install and Run
 
@@ -20,14 +20,6 @@ Get the package for your platform from the latest release/workflow artifacts:
 1. Unzip the downloaded file.
 2. Drag `Sheepram.app` to `Applications`.
 3. Open `Sheepram.app`.
-
-If macOS blocks the app with a security warning, run:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/Sheepram.app
-```
-
-Then open the app again.
 
 ### Windows
 
