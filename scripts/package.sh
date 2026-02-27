@@ -29,8 +29,21 @@ fi
 mkdir -p "$dist_dir"
 
 is_system_windows_dll() {
-  case "$1" in
-    KERNEL32.dll|USER32.dll|GDI32.dll|SHELL32.dll|OLE32.dll|COMDLG32.dll|ADVAPI32.dll|COMCTL32.dll|IMM32.dll|OLEAUT32.dll|WS2_32.dll|WINMM.dll|VERSION.dll|SHLWAPI.dll|UCRTBASE.dll|MSVCRT.dll|api-ms-win-*.dll)
+  local dll_upper
+  dll_upper="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
+  case "$dll_upper" in
+    KERNEL32.DLL|KERNELBASE.DLL|NTDLL.DLL|USER32.DLL|GDI32.DLL|SHELL32.DLL|OLE32.DLL|COMDLG32.DLL|ADVAPI32.DLL|COMCTL32.DLL|IMM32.DLL|OLEAUT32.DLL|WS2_32.DLL|WINMM.DLL|VERSION.DLL|SHLWAPI.DLL|RPCRT4.DLL|SECHOST.DLL|SETUPAPI.DLL|CFGMGR32.DLL|BCRYPT.DLL|CRYPT32.DLL|WLDAP32.DLL|DNSAPI.DLL|IPHLPAPI.DLL|UCRTBASE.DLL|MSVCRT.DLL|OPENGL32.DLL|GLU32.DLL|API-MS-WIN-*.DLL)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+is_windows_system_path() {
+  local path_lower
+  path_lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$path_lower" in
+    */windows/system32/*|*/windows/syswow64/*)
       return 0
       ;;
   esac
@@ -101,6 +114,9 @@ copy_windows_dlls() {
       done
 
       if [ -n "$found" ]; then
+        if is_windows_system_path "$found"; then
+          continue
+        fi
         cp -f "$found" "$staged"
         queue+=("$staged")
       elif ! array_contains "$dll" "${missing[@]}"; then
