@@ -122,17 +122,34 @@ copy_windows_dlls() {
 copy_linux_shared_libs() {
   local bin_path="$1"
   local lib_dir="$2"
+  local mode="${LINUX_BUNDLE_MODE:-lean}"
   mkdir -p "$lib_dir"
   if ! command -v ldd >/dev/null 2>&1; then
     return
   fi
 
+  echo "Linux library bundling mode: $mode"
+
   ldd "$bin_path" | awk '{if ($3 ~ /^\//) print $3}' | sort -u | while IFS= read -r so; do
+    local so_name
+    so_name="$(basename "$so")"
+
     case "$so" in
       /lib/*/ld-linux*.so*|/lib64/ld-linux*.so*|/lib/*/libc.so*|/lib64/libc.so*|/lib/*/libm.so*|/lib64/libm.so*|/lib/*/libpthread.so*|/lib64/libpthread.so*|/lib/*/libdl.so*|/lib64/libdl.so*|/lib/*/librt.so*|/lib64/librt.so*)
         continue
         ;;
     esac
+
+    if [ "$mode" = "lean" ]; then
+      case "$so_name" in
+        libstdc++.so*|libgcc_s.so*|libglfw.so*|libglfw3.so*)
+          ;;
+        *)
+          continue
+          ;;
+      esac
+    fi
+
     cp -f "$so" "$lib_dir/"
   done
 }

@@ -22,7 +22,7 @@ struct Matrix {
         std::vector<double> product(n, 0.0);
         for (int i = 0; i < n; i++) {
             double sum = 0.0;
-            for (int j = 0; j < n; ++j) 
+            for (int j = 0; j < n; j++) 
                 sum += (*this)(i, j) * v[j];
             product[i] = sum;
         }
@@ -31,13 +31,13 @@ struct Matrix {
 
     void addOuterProduct(const std::vector<double>& a, const std::vector<double>& b, double s) {
         for (int i = 0; i < n; i++) 
-            for (int j = 0; j < n; ++j) 
+            for (int j = 0; j < n; j++) 
                 (*this)(i, j) += s * a[i] * b[j];
     }
 
     void addSymmetricalOuter(const std::vector<double>& a, const std::vector<double>& b, double s) {
         for (int i = 0; i < n; i++) 
-            for (int j = 0; j < n; ++j) 
+            for (int j = 0; j < n; j++) 
                 (*this)(i, j) += s * (a[i] * b[j] + a[j] * b[i]);
     }
 
@@ -117,7 +117,7 @@ void optimizer::compileModel(Model& model) {
     // InitVx = initV * sin(F[0]), initVz = initV * cos(F[0])
     model.Vx[0].sinCoeff[0] = model.initV;
     model.Vz[0].cosCoeff[0] = model.initV;
-    for (int t = 1; t < n; ++t) {
+    for (int t = 1; t < n; t++) {
         // v[t] = drag[t-1] * v[t-1] + accel[t] * trig(F[t])
         addScaled(model.Vx[t], model.Vx[t - 1], model.dragX[t - 1]);
         addScaled(model.Vz[t], model.Vz[t - 1], model.dragZ[t - 1]);
@@ -127,7 +127,7 @@ void optimizer::compileModel(Model& model) {
 
     // Generate X, Z
     // pos[0] = 0, pos[t] = pos[t-1] + v[t-1]
-    for (int t = 1; t < n; ++t) {
+    for (int t = 1; t < n; t++) {
         addScaled(model.X[t], model.X[t - 1], 1.0);
         addScaled(model.X[t], model.Vx[t - 1], 1.0);
         addScaled(model.Z[t], model.Z[t - 1], 1.0);
@@ -177,7 +177,7 @@ optimizer::Solution optimizer::optimize(const Model& model, const Problem& prob)
             lamb[i] = std::max(0.0, lamb[i] + pen * gi);
             max_gi = std::max(max_gi, std::max(0.0, gi));
         }
-        for (int j = 0; j < static_cast<int>(prob.eqCons.size()); ++j) {
+        for (int j = 0; j < static_cast<int>(prob.eqCons.size()); j++) {
             const double hj = eval(prob.eqCons[j], thetas);
             nu[j] += pen * hj;
             max_hj = std::max(max_hj, std::abs(hj));
@@ -287,7 +287,7 @@ double optimizer::computeAugL(std::vector<double>& gOut, const std::vector<doubl
         addScaled(gOut, global_temp_g, t);
     }
 
-    for (int j = 0; j < static_cast<int>(prob.eqCons.size()); ++j) {
+    for (int j = 0; j < static_cast<int>(prob.eqCons.size()); j++) {
         const CompiledExpr& eq = prob.eqCons[j];
         const double v_eq = eval(eq, thetas);
         grad(eq, thetas, global_temp_g);

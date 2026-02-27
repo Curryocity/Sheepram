@@ -6,12 +6,13 @@ A cross platform Bitcoin miner, very professional vscode setup by me.
 
 ## Download
 
-Get the package for your platform from the latest release/workflow artifacts:
+Get the package for your platform from the latest release/workflow artifacts.
+Workflow artifacts download as a `.zip`; for Linux, that `.zip` contains `Sheepram-<version>-linux-x86_64.tar.gz`.
 
 - macOS ARM64: `Sheepram-<version>-macos-arm64.zip`
 - macOS x86_64 (Intel): `Sheepram-<version>-macos-x86_64.zip`
 - Windows x86_64: `Sheepram-<version>-windows-x86_64.zip`
-- Linux x86_64: `Sheepram-<version>-linux-x86_64.zip`
+- Linux x86_64: `Sheepram-<version>-linux-x86_64.tar.gz`
 
 ## Install and Run
 
@@ -46,9 +47,10 @@ If needed, also set `Sheepram.exe` to the discrete GPU in NVIDIA/AMD control pan
 
 ### Linux
 
-1. Extract the downloaded `tar.gz`.
-2. Open terminal in the extracted folder.
-3. Run:
+1. If downloaded from workflow artifacts, unzip first to get `Sheepram-<version>-linux-x86_64.tar.gz`.
+2. Extract `Sheepram-<version>-linux-x86_64.tar.gz`.
+3. Open terminal in the extracted folder.
+4. Run:
 
 ```bash
 chmod +x Sheepram
@@ -105,10 +107,10 @@ make -j8 debug UNAME_S=MINGW64_NT ARCH=x86_64
 ## Packaging
 
 ```bash
-make package-macos-arm64 VERSION=v0.1.0
-make package-macos-x86_64 VERSION=v0.1.0
-make package-linux-x86_64 VERSION=v0.1.0
-make package-windows-x86_64 VERSION=v0.1.0
+make package-macos-arm64 VERSION=vX.X.X
+make package-macos-x86_64 VERSION=vX.X.X
+make package-linux-x86_64 VERSION=vX.X.X
+make package-windows-x86_64 VERSION=vX.X.X
 ```
 
 Artifacts are generated in `dist/`.

@@ -98,7 +98,13 @@ struct TabState {
 };
 
 struct AppState {
-    enum class Theme { Obsidian = 0, Curry = 1, LuminousAbyss = 2, CherryBlossom = 3 };
+    enum class Theme {
+        Obsidian = 0,
+        Curry = 1,
+        LuminousAbyss = 2,
+        CherryBlossom = 3,
+        CrimsonForest = 4
+    };
     Theme theme = Theme::Obsidian;
     std::vector<TabState> tabs;
     int activeTab = 0;
@@ -113,6 +119,7 @@ static void glfw_error_callback(int error, const char* description) {
 
 static void applyTheme(AppState::Theme theme);
 static ImFont* codeFont = nullptr;
+static ImFont* bigCodeFont = nullptr;
 static ImFont* uiFont = nullptr;
 static constexpr int nMin = 1;
 static constexpr int nMax = 256;
@@ -124,9 +131,9 @@ static std::filesystem::path tabsDirPath = "presets/saves";
 static TabState makeDefaultTab(int tabId);
 static void trim(std::string& s);
 
-static constexpr int themeCount = 4;
+static constexpr int themeCount = 5;
 static const char* themeNames[themeCount] = {
-    "Obsidian", "Curry", "Luminous Abyss", "Cherry Blossom"
+    "Obsidian", "Curry", "Luminous Abyss", "Cherry Blossom", "Crimson Forest"
 };
 static bool nfdReady = false;
 static std::string nfdInitError;
@@ -268,6 +275,7 @@ static void initFont() {
     const std::string codeFontPath = resourcePath("asset/fonts/JetBrainsMono-Regular.ttf").string();
     const std::string uiFontPath = resourcePath("asset/fonts/MinecraftRegular.otf").string();
     codeFont = io.Fonts->AddFontFromFileTTF(codeFontPath.c_str(), 16.0f);
+    bigCodeFont = io.Fonts->AddFontFromFileTTF(codeFontPath.c_str(), 22.0f);
     uiFont = io.Fonts->AddFontFromFileTTF(uiFontPath.c_str(), 16.0f);
 }
 
@@ -633,14 +641,24 @@ static void InputTextAutoWidth(const char* id, std::string& str, float minW = 10
     ImGui::InputText(id, &str);
 }
 
-static void ShowReadOnlyBlock(const char* label, const std::string& text, float height = 70.0f){
+static void ShowReadOnlyBlock(const char* label, const std::string& text, float height = 70.0f, bool copyButtonQ = false){
+    ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(label);
+    
+    if (copyButtonQ){
+        ImGui::SameLine();
+        if (ImGui::Button((std::string("Copy##") + label).c_str()))
+            ImGui::SetClipboardText(text.c_str());
+    }
 
     ImGui::PushFont(codeFont);
 
-    // InputTextMultiline needs a mutable buffer.
-    std::string buf;
-    buf = text;
+    // Persistent storage
+    static std::unordered_map<std::string, std::string> buffers;
+    std::string& buf = buffers[label];
+
+    if (buf != text)
+        buf = text;
 
     ImGui::PushID(label);
     ImGui::InputTextMultiline(
@@ -672,7 +690,7 @@ inline static void modelTable(TabState& tab){
         state.accel.resize(state.n, "sa45");
 
         // Re-apply special defaults
-        for (int i = 0; i < std::min(2, state.n); ++i) {
+        for (int i = 0; i < std::min(2, state.n); i++) {
             state.dragX[i] = "gnd";
             state.dragZ[i] = "gnd";
         }
@@ -1031,11 +1049,13 @@ static void outputPanel(TabState& tab){
     constexpr int anglePrecision = 3;
     const int positionPrecision = std::clamp(state.post.positionPrecision, 3, 10);
 
-    ImGui::Text("=== Optimal Objective ===");
-    ImGui::Text("%.16f", sol.optimum);
+    ImGui::Spacing();
+    ImGui::PushFont(bigCodeFont);
+    ImGui::TextColored(ImVec4(0.8f,0.85f,1.0f,1.0f), "=> %.12f", sol.optimum);
+    ImGui::PopFont();
 
     ImGui::Spacing();
-    ImGui::Text("=== LOG ===");
+    ImGui::Spacing();
 
     int T = (int)sol.Xs.size();
 
@@ -1154,7 +1174,7 @@ static void outputPanel(TabState& tab){
     ImGui::PopStyleVar();
 
     ImGui::Spacing();
-    ImGui::Text("=== Manual Copying ===");
+    ImGui::Spacing();
 
     auto formatFacingList = [&](const std::vector<double>& Fs)
     {
@@ -1181,9 +1201,9 @@ static void outputPanel(TabState& tab){
     std::string facingList = formatFacingList(facings);
     std::string turnList = formatTurnList(facings);
 
-    ShowReadOnlyBlock("Facing:", facingList, 30.0f);
+    ShowReadOnlyBlock("Facing:", facingList, 30.0f, true);
     ImGui::Spacing();
-    ShowReadOnlyBlock("Turn:", turnList, 30.0f);
+    ShowReadOnlyBlock("Turn:", turnList, 30.0f, true);
 
     ImGui::PopFont();
 
@@ -1812,5 +1832,6 @@ static void applyTheme(AppState::Theme theme) {
         case AppState::Theme::Curry:         applyAccent({0.92f, 0.69f, 0.22f}); break;
         case AppState::Theme::LuminousAbyss: applyAccent({0.38f, 0.74f, 0.80f}); break;
         case AppState::Theme::CherryBlossom: applyAccent({0.86f, 0.57f, 0.75f}); break;
+        case AppState::Theme::CrimsonForest: applyAccent({0.85f, 0.32f, 0.36f}); break;
     }
 }

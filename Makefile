@@ -86,16 +86,19 @@ ifneq (,$(findstring MINGW,$(UNAME_S)))
 LDLIBS := $(filter-out -lglfw,$(LDLIBS))
 LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
 EXTRA_OBJ += $(BUILD_DIR)/resources/windows/app_icon.o
+STRIP_CMD = strip --strip-unneeded $(BUILD_DIR)/$(TARGET)
 endif
 ifneq (,$(findstring MSYS,$(UNAME_S)))
 LDLIBS := $(filter-out -lglfw,$(LDLIBS))
 LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
 EXTRA_OBJ += $(BUILD_DIR)/resources/windows/app_icon.o
+STRIP_CMD = strip --strip-unneeded $(BUILD_DIR)/$(TARGET)
 endif
 ifeq ($(OS),Windows_NT)
 LDLIBS := $(filter-out -lglfw,$(LDLIBS))
 LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
 EXTRA_OBJ += $(BUILD_DIR)/resources/windows/app_icon.o
+STRIP_CMD = strip --strip-unneeded $(BUILD_DIR)/$(TARGET)
 endif
 EXTRA_OBJ := $(sort $(EXTRA_OBJ))
 
