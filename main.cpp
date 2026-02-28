@@ -641,8 +641,9 @@ static void InputTextAutoWidth(const char* id, std::string& str, float minW = 10
     ImGui::InputText(id, &str);
 }
 
-static void ShowReadOnlyBlock(const char* label, const std::string& text, float height = 70.0f, bool copyButtonQ = false){
+static void readOnlyBlock(const char* label, const std::string& text, float height = 70.0f, bool copyButtonQ = false){
     ImGui::AlignTextToFramePadding();
+    ImGui::PushFont(uiFont);
     ImGui::TextUnformatted(label);
     
     if (copyButtonQ){
@@ -650,6 +651,7 @@ static void ShowReadOnlyBlock(const char* label, const std::string& text, float 
         if (ImGui::Button((std::string("Copy##") + label).c_str()))
             ImGui::SetClipboardText(text.c_str());
     }
+    ImGui::PopFont();
 
     ImGui::PushFont(codeFont);
 
@@ -1019,6 +1021,131 @@ static void inputPanel(AppState& app, TabState& tab){
     ImGui::EndChild();
 }
 
+static constexpr double minGridPx = 67.0;
+static constexpr double maxGridPx = 100.0;
+static constexpr float plotPad = 30.0f;
+
+struct XZPlotLayout {
+    double minX = 0.0;
+    double maxX = 0.0;
+    double minZ = 0.0;
+    double maxZ = 0.0;
+    double rangeX = 1.0;
+    double rangeZ = 1.0;
+    double centerX = 0.0;
+    double centerZ = 0.0;
+    double scale = minGridPx;
+    float contentWidth = 2.0f * plotPad;
+    float contentHeight = 2.0f * plotPad;
+};
+
+static XZPlotLayout computeXZPlotLayout(const std::vector<double>& xs, const std::vector<double>& zs, ImVec2 size) {
+    XZPlotLayout layout;
+    if (xs.empty() || xs.size() != zs.size()) return layout;
+
+    layout.minX = *std::min_element(xs.begin(), xs.end());
+    layout.maxX = *std::max_element(xs.begin(), xs.end());
+    layout.minZ = *std::min_element(zs.begin(), zs.end());
+    layout.maxZ = *std::max_element(zs.begin(), zs.end());
+
+    if (layout.minX == layout.maxX) { layout.minX -= 0.5; layout.maxX += 0.5; }
+    if (layout.minZ == layout.maxZ) { layout.minZ -= 0.5; layout.maxZ += 0.5; }
+
+    layout.rangeX = std::max(layout.maxX - layout.minX, 1e-3);
+    layout.rangeZ = std::max(layout.maxZ - layout.minZ, 1e-3);
+    layout.centerX = 0.5 * (layout.minX + layout.maxX);
+    layout.centerZ = 0.5 * (layout.minZ + layout.maxZ);
+
+    const float plotW = std::max(1.0f, size.x - 2.0f * plotPad);
+    const float plotH = std::max(1.0f, size.y - 2.0f * plotPad);
+    layout.scale = std::clamp(std::min(plotW / layout.rangeX, plotH / layout.rangeZ), minGridPx, maxGridPx);
+    layout.contentWidth = static_cast<float>(layout.rangeX * layout.scale + 2.0f * plotPad);
+    layout.contentHeight = static_cast<float>(layout.rangeZ * layout.scale + 2.0f * plotPad);
+    return layout;
+}
+
+static void drawXZPlot(const std::vector<double>& xs, const std::vector<double>& zs, ImVec2 size) {
+    if (xs.empty() || xs.size() != zs.size()) return;
+
+    ImVec2 p0 = ImGui::GetCursorScreenPos();
+    ImVec2 p1(p0.x + size.x, p0.y + size.y);
+
+    ImGui::InvisibleButton("##xzplot", size);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    dl->AddRectFilled(p0, p1, IM_COL32(20, 20, 20, 255), 6.0f);
+    dl->AddRect(p0, p1, IM_COL32(90, 90, 90, 255), 6.0f);
+
+    const XZPlotLayout layout = computeXZPlotLayout(xs, zs, size);
+    const ImVec2 center(p0.x + size.x * 0.5f, p0.y + size.y * 0.5f);
+
+    auto toScreen = [&](double x, double z) -> ImVec2 {
+        return ImVec2(
+            center.x + float((x - layout.centerX) * layout.scale),
+            center.y - float((z - layout.centerZ) * layout.scale)
+        );
+    };
+
+    dl->PushClipRect(p0, p1, true);
+
+    const ImU32 gridColor = IM_COL32(150, 150, 150, 150);
+    const ImU32 axisColor = IM_COL32(200, 200, 200, 180);
+
+    const double canvasMinX = layout.centerX - (size.x * 0.5f) / layout.scale;
+    const double canvasMaxX = layout.centerX + (size.x * 0.5f) / layout.scale;
+    const double canvasMinZ = layout.centerZ - (size.y * 0.5f) / layout.scale;
+    const double canvasMaxZ = layout.centerZ + (size.y * 0.5f) / layout.scale;
+
+    for (int gx = static_cast<int>(std::ceil(canvasMinX)); gx <= static_cast<int>(std::floor(canvasMaxX)); ++gx) {
+        const float x = toScreen(static_cast<double>(gx), layout.centerZ).x;
+        dl->AddLine(ImVec2(x, p0.y), ImVec2(x, p1.y),
+                    gx == 0 ? axisColor : gridColor,
+                    gx == 0 ? 1.6f : 1.0f);
+    }
+
+    for (int gz = static_cast<int>(std::ceil(canvasMinZ)); gz <= static_cast<int>(std::floor(canvasMaxZ)); ++gz) {
+        const float y = toScreen(layout.centerX, static_cast<double>(gz)).y;
+        dl->AddLine(ImVec2(p0.x, y), ImVec2(p1.x, y),
+                    gz == 0 ? axisColor : gridColor,
+                    gz == 0 ? 1.6f : 1.0f);
+    }
+
+    for (int i = 1; i < (int)xs.size(); ++i) {
+        dl->AddLine(
+            toScreen(xs[i - 1], zs[i - 1]),
+            toScreen(xs[i], zs[i]),
+            IM_COL32(192, 192, 200, 255),
+            2.0f
+        );
+    }
+
+    for (int i = 0; i < (int)xs.size(); ++i) {
+        dl->AddCircleFilled(toScreen(xs[i], zs[i]), 3.5f, IM_COL32(240, 240, 240, 255));
+    }
+
+    dl->PopClipRect();
+}
+
+static float computeXZPlotCanvasWidth(const std::vector<double>& xs, const std::vector<double>& zs, float viewportWidth, float plotHeight) {
+    if (xs.empty() || xs.size() != zs.size()) return viewportWidth;
+    const XZPlotLayout layout = computeXZPlotLayout(xs, zs, ImVec2(viewportWidth, plotHeight));
+    return std::max(viewportWidth, layout.contentWidth);
+}
+
+static ImVec2 computeXZPlotViewportSize(const std::vector<double>& xs, const std::vector<double>& zs) {
+    constexpr float minPlotSize = 250.0f;
+    constexpr float maxPlotSize = 1000.0f;
+    if (xs.empty() || xs.size() != zs.size()) return ImVec2(minPlotSize, minPlotSize);
+    const XZPlotLayout heightLayout = computeXZPlotLayout(xs, zs, ImVec2(minPlotSize, maxPlotSize));
+    const float viewportHeight = std::clamp(heightLayout.contentHeight, minPlotSize, maxPlotSize);
+    const float contentWidth = computeXZPlotCanvasWidth(xs, zs, 0.0f, viewportHeight);
+    return ImVec2(
+        std::clamp(contentWidth, minPlotSize, maxPlotSize),
+        viewportHeight
+    );
+} 
+
+
 static void outputPanel(TabState& tab){
     Environment& state = tab.env;
     ImGui::BeginChild("OutputPanel", ImVec2(0, 0), true);
@@ -1200,10 +1327,28 @@ static void outputPanel(TabState& tab){
 
     std::string facingList = formatFacingList(facings);
     std::string turnList = formatTurnList(facings);
+    ImVec2 plotViewportSize = computeXZPlotViewportSize(xvals, zvals);
+    const float plotCanvasWidth = computeXZPlotCanvasWidth(xvals, zvals, plotViewportSize.x, plotViewportSize.y);
+    plotViewportSize.x += 25.0f;
+    plotViewportSize.y += 50.0f;
 
-    ShowReadOnlyBlock("Facing:", facingList, 30.0f, true);
+    readOnlyBlock("Facing", facingList, 30.0f, true);
     ImGui::Spacing();
-    ShowReadOnlyBlock("Turn:", turnList, 30.0f, true);
+    readOnlyBlock("Turn", turnList, 30.0f, true);
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+    ImGui::PushFont(uiFont);
+    ImGui::Text("Visualization");
+    ImGui::PopFont();
+    ImGui::BeginChild("PlotScroll", ImVec2(plotViewportSize.x, plotViewportSize.y + 20.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetScrollX(std::max(0.0f, 0.5f * (plotCanvasWidth - plotViewportSize.x)));
+    }
+    drawXZPlot(xvals, zvals, ImVec2(plotCanvasWidth, plotViewportSize.y));
+    ImGui::EndChild();
+    ImGui::Spacing();
+
 
     ImGui::PopFont();
 

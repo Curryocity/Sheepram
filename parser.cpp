@@ -193,7 +193,6 @@ std::vector<Cons> Parser::parseMultiConstraints(const std::string& input){
 
 void Parser::buildVarMap(int globalN, double initV, const std::vector<std::string>& names, const std::vector<std::string>& values){
     varMap.clear();
-    varMap["N"] = globalN;
     varMap["n"] = globalN;
     varMap["initV"] = initV;
     int m = names.size();
@@ -207,7 +206,7 @@ void Parser::buildVarMap(int globalN, double initV, const std::vector<std::strin
 
         if(!std::isalpha(name[0]) && name[0] != '_')
             throw std::runtime_error{name + " is an illegal name"};
-        if(name == "N" || name == "n" || name == "initV" || name == "X" || name == "Z" || name == "F")
+        if(name == "n" || name == "initV" || name == "X" || name == "Z" || name == "F")
             throw std::runtime_error{name + " is a reserved keyword"};
         if(value.empty()) 
             throw std::runtime_error{name + " has no definition"};
