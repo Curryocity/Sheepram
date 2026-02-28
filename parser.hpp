@@ -51,7 +51,7 @@ class Parser{
     };
 
     void buildVarMap(int globalN, double initV, const std::vector<std::string>& names, const std::vector<std::string>& values);
-    Expr resolveIndexed(char c, int index);
+    Expr resolveIndexed(const std::string& s, int index, const Lexer& lex);
 
     Cons parseConstraint(const std::string& s);
 

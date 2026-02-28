@@ -206,7 +206,7 @@ void Parser::buildVarMap(int globalN, double initV, const std::vector<std::strin
 
         if(!std::isalpha(name[0]) && name[0] != '_')
             throw std::runtime_error{name + " is an illegal name"};
-        if(name == "n" || name == "initV" || name == "X" || name == "Z" || name == "F")
+        if(name == "n" || name == "initV" || name == "X" || name == "Z" || name == "F" || name == "Vx" || name == "Vz" || name == "T")
             throw std::runtime_error{name + " is a reserved keyword"};
         if(value.empty()) 
             throw std::runtime_error{name + " has no definition"};
@@ -222,17 +222,42 @@ void Parser::buildVarMap(int globalN, double initV, const std::vector<std::strin
     }
 }
 
-Expr Parser::resolveIndexed(char c, int index){
-    switch(c){
-        case 'X':
-            return model.X[index];
-        case 'Z':
-            return model.Z[index];
-        case 'F':
-            Expr e(model.n);
-            e.thetaCoeff[index] =  180.0 / std::numbers::pi_v<double>; 
-            // so when F[t] = 180 deg, it thinks 180 / PI * theta[t] = 180 -> theta[t] = PI radians
-            return e;
+Expr Parser::resolveIndexed(const std::string& s, int index, const Lexer& lex){
+    Token minusTok{TokenType::Operator, "-"};
+    auto boundCheck = [&](int idx, int size) {
+        if (idx < 0 || idx >= size) 
+            throw error(s + "[" + std::to_string(index) + "] is out of range", lex);
+    };
+
+    if (s == "X") {
+        boundCheck(index, model.X.size());
+        return model.X.at(index);
+    }
+    if (s == "Z") {
+        boundCheck(index, model.Z.size());
+        return model.Z.at(index);
+    }
+    if (s == "Vx") {
+        boundCheck(index, model.X.size() - 1);
+        return combineExpr(model.X.at(index + 1), model.X.at(index), minusTok, lex);
+    }
+    if (s == "Vz") {
+        boundCheck(index, model.Z.size() - 1);
+        return combineExpr(model.Z.at(index + 1), model.Z.at(index), minusTok, lex);
+    }
+    if (s == "F") {
+        boundCheck(index, model.n);
+        Expr e(model.n);
+        e.thetaCoeff[index] =  180.0 / std::numbers::pi_v<double>;
+        // so when F[t] = 180 deg, it thinks 180 / PI * theta[t] = 180 -> theta[t] = PI radians
+        return e;
+    }
+    if (s == "T") { // Turn: T[i] = F[i+1] - F[i]
+        boundCheck(index, model.n - 1);
+        Expr e(model.n);
+        e.thetaCoeff[index + 1] =  180.0 / std::numbers::pi_v<double>;
+        e.thetaCoeff[index] =  - 180.0 / std::numbers::pi_v<double>;
+        return e;
     }
     throw std::runtime_error{"Bug: This shouldn't happen cuz I checked the identifier name already."};
 }
@@ -355,7 +380,7 @@ Expr Parser::parseNumber(const Token& tok){
 }
 
 Expr Parser::parseIdentifier(Lexer& lex, const Token& tok){
-    if(tok.text == "X" || tok.text == "Z" || tok.text == "F"){
+    if(tok.text == "X" || tok.text == "Z" || tok.text == "F" || tok.text == "Vx" || tok.text == "Vz" || tok.text == "T"){
         
         if(lex.next().type != TokenType::LBracket)
             throw error("Expected '[' after " + tok.text, lex);
@@ -370,10 +395,10 @@ Expr Parser::parseIdentifier(Lexer& lex, const Token& tok){
 
         int idx = (int) std::round(index.constant);
 
-        if (idx < 0 || idx >= model.n)
-            throw error("Index out of range", lex);
+        if (idx < 0)
+            throw error(tok.text + "[" + std::to_string(idx) + "] is out of range", lex);
 
-        return resolveIndexed(tok.text[0], idx);
+        return resolveIndexed(tok.text, idx, lex);
     }else{ // Variables
         if (varMap.contains(tok.text)) {
             double v = varMap.at(tok.text);

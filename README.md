@@ -1,8 +1,12 @@
 # Sheepram
 
+![Sheepram Icon](asset/icon/app.png)
+
 A cross platform Bitcoin miner, very professional vscode setup by me.
 
-![Sheepram Icon](asset/icon/app.png)
+**Anyways here's the preview('low Z h2h.json' by HammSamichz):**
+
+![Sheepram Icon](readmeResource/showcase.png)
 
 ## Download
 

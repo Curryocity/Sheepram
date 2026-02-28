@@ -1064,7 +1064,8 @@ static XZPlotLayout computeXZPlotLayout(const std::vector<double>& xs, const std
     return layout;
 }
 
-static void drawXZPlot(const std::vector<double>& xs, const std::vector<double>& zs, ImVec2 size) {
+static void drawXZPlot(const std::vector<double>& xs, const std::vector<double>& zs, const std::vector<double>& facings, const std::vector<std::string>& vxvals, const std::vector<std::string>& vzvals,
+                       ImVec2 size, int positionPrecision, int anglePrecision) {
     if (xs.empty() || xs.size() != zs.size()) return;
 
     ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -1072,6 +1073,7 @@ static void drawXZPlot(const std::vector<double>& xs, const std::vector<double>&
 
     ImGui::InvisibleButton("##xzplot", size);
     ImDrawList* dl = ImGui::GetWindowDrawList();
+    const bool plotHovered = ImGui::IsItemHovered();
 
     dl->AddRectFilled(p0, p1, IM_COL32(20, 20, 20, 255), 6.0f);
     dl->AddRect(p0, p1, IM_COL32(90, 90, 90, 255), 6.0f);
@@ -1095,6 +1097,11 @@ static void drawXZPlot(const std::vector<double>& xs, const std::vector<double>&
     const double canvasMaxX = layout.centerX + (size.x * 0.5f) / layout.scale;
     const double canvasMinZ = layout.centerZ - (size.y * 0.5f) / layout.scale;
     const double canvasMaxZ = layout.centerZ + (size.y * 0.5f) / layout.scale;
+    const ImVec2 mousePos = ImGui::GetIO().MousePos;
+    constexpr float hoverRadius = 8.0f;
+    const float hoverRadiusSq = hoverRadius * hoverRadius;
+    int hoveredIndex = -1;
+    float bestDistSq = hoverRadiusSq;
 
     for (int gx = static_cast<int>(std::ceil(canvasMinX)); gx <= static_cast<int>(std::floor(canvasMaxX)); ++gx) {
         const float x = toScreen(static_cast<double>(gx), layout.centerZ).x;
@@ -1120,10 +1127,41 @@ static void drawXZPlot(const std::vector<double>& xs, const std::vector<double>&
     }
 
     for (int i = 0; i < (int)xs.size(); ++i) {
-        dl->AddCircleFilled(toScreen(xs[i], zs[i]), 3.5f, IM_COL32(240, 240, 240, 255));
+        const ImVec2 point = toScreen(xs[i], zs[i]);
+        if (plotHovered) {
+            const float dx = point.x - mousePos.x;
+            const float dy = point.y - mousePos.y;
+            const float distSq = dx * dx + dy * dy;
+            if (distSq <= bestDistSq) {
+                bestDistSq = distSq;
+                hoveredIndex = i;
+            }
+        }
+        dl->AddCircleFilled(point, 3.5f, IM_COL32(240, 240, 240, 255));
+    }
+
+    if (hoveredIndex >= 0) {
+        const ImVec2 point = toScreen(xs[hoveredIndex], zs[hoveredIndex]);
+        dl->AddCircle(point, 7.0f, IM_COL32(255, 255, 255, 220), 0, 1.8f);
     }
 
     dl->PopClipRect();
+
+    if (hoveredIndex >= 0) {
+        auto fmt_double = [](double v, int prec) -> std::string {
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(prec) << v;
+            return oss.str();
+        };
+
+        ImGui::BeginTooltip();
+        ImGui::Text("Tick %d", hoveredIndex);
+        ImGui::Separator();
+        ImGui::Text("Facing:  %s", fmt_double(facings[hoveredIndex], anglePrecision).c_str());
+        ImGui::Text("Pos:  (%s, %s)", fmt_double(xs[hoveredIndex], positionPrecision).c_str(), fmt_double(zs[hoveredIndex], positionPrecision).c_str());
+        ImGui::Text("Vel: (%s, %s)", vxvals[hoveredIndex].c_str(), vzvals[hoveredIndex].c_str());
+        ImGui::EndTooltip();
+    }
 }
 
 static float computeXZPlotCanvasWidth(const std::vector<double>& xs, const std::vector<double>& zs, float viewportWidth, float plotHeight) {
@@ -1345,7 +1383,8 @@ static void outputPanel(TabState& tab){
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetScrollX(std::max(0.0f, 0.5f * (plotCanvasWidth - plotViewportSize.x)));
     }
-    drawXZPlot(xvals, zvals, ImVec2(plotCanvasWidth, plotViewportSize.y));
+    drawXZPlot(xvals, zvals, facings, vxvals, vzvals,
+               ImVec2(plotCanvasWidth, plotViewportSize.y), positionPrecision, anglePrecision);
     ImGui::EndChild();
     ImGui::Spacing();
 
