@@ -1,6 +1,6 @@
 # Sheepram
 
-![Sheepram Icon](asset/icon/app.png)
+![Sheepram Icon](readmeResource/Sheepram.png)
 
 A cross platform Bitcoin miner, very professional vscode setup by me.
 
