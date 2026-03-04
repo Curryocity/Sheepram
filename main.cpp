@@ -100,6 +100,10 @@ struct TabState {
     Environment env;
     float leftWidth = 0.0f;
     int prevN = -1; // Exist to prevent table resize on every frame.
+    int selectedModelTickIndex = -1;
+    int selectedGlobalVarIndex = -1;
+    ImVec2 modelRegionMin = ImVec2(0.0f, 0.0f);
+    ImVec2 modelRegionMax = ImVec2(0.0f, 0.0f);
 };
 
 struct AppState {
@@ -717,6 +721,11 @@ inline static void modelTable(TabState& tab){
     }
 
     ImGui::BeginChild("model_region", ImVec2(0, 145), false);
+    tab.modelRegionMin = ImGui::GetWindowPos();
+    tab.modelRegionMax = ImVec2(tab.modelRegionMin.x + ImGui::GetWindowSize().x,
+                                tab.modelRegionMin.y + ImGui::GetWindowSize().y);
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+    const ImU32 selectedBorderColor = ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 0.4f));
 
     if (ImGui::BeginTable("model_table",
                         state.n + 1,
@@ -755,6 +764,13 @@ inline static void modelTable(TabState& tab){
             ImGui::PushID(t);
             ImGui::SetNextItemWidth(columnWidth);
             ImGui::InputText("##dragX", &state.dragX[t]);
+            if (ImGui::IsItemActivated() || ImGui::IsItemClicked())
+                tab.selectedModelTickIndex = t;
+            if (tab.selectedModelTickIndex == t){
+                const ImVec2 min = ImGui::GetItemRectMin();
+                const ImVec2 max = ImGui::GetItemRectMax();
+                drawList->AddRect(min, max, selectedBorderColor, 3.0f, 0, 2.0f);
+            }
             ImGui::PopID();
         }
 
@@ -767,6 +783,14 @@ inline static void modelTable(TabState& tab){
             ImGui::PushID(1000 + t);
             ImGui::SetNextItemWidth(columnWidth);
             ImGui::InputText("##dragZ", &state.dragZ[t]);
+            if (ImGui::IsItemActivated() || ImGui::IsItemClicked())
+                tab.selectedModelTickIndex = t;
+            if (tab.selectedModelTickIndex == t){
+                const ImVec2 min = ImGui::GetItemRectMin();
+                const ImVec2 max = ImGui::GetItemRectMax();
+                drawList->AddRect(min, max, selectedBorderColor, 3.0f, 0, 2.0f);
+            }
+                
             ImGui::PopID();
         }
 
@@ -783,6 +807,13 @@ inline static void modelTable(TabState& tab){
                 ImGui::PushID(2000 + t);
                 ImGui::SetNextItemWidth(columnWidth);
                 ImGui::InputText("##accel", &state.accel[t]);
+                if (ImGui::IsItemActivated() || ImGui::IsItemClicked())
+                    tab.selectedModelTickIndex = t;
+                if (tab.selectedModelTickIndex == t){
+                    const ImVec2 min = ImGui::GetItemRectMin();
+                    const ImVec2 max = ImGui::GetItemRectMax();
+                    drawList->AddRect(min, max, selectedBorderColor, 3.0f, 0, 2.0f);
+                }
                 ImGui::PopID();
             }
         }
@@ -793,7 +824,8 @@ inline static void modelTable(TabState& tab){
     ImGui::EndChild();
 }
 
-inline static void globalVarTable(Environment& state){
+inline static void globalVarTable(TabState& tab){
+    Environment& state = tab.env;
     if (state.varCapacity < 1) state.varCapacity = 1;
     if (static_cast<int>(state.globalNames.size()) < state.varCapacity)
         state.globalNames.resize(state.varCapacity, "");
@@ -802,19 +834,34 @@ inline static void globalVarTable(Environment& state){
 
     ImGui::SeparatorText("Global Variables");
     ImGui::BeginChild("var_region", ImVec2(0, 80), false);
+    const ImVec2 varRegionMin = ImGui::GetWindowPos();
+    const ImVec2 varRegionMax(varRegionMin.x + ImGui::GetWindowSize().x,
+                              varRegionMin.y + ImGui::GetWindowSize().y);
 
     const float buttonWidth = 26.0f;
     const float buttonHeight = ImGui::GetFrameHeight();
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+    const ImU32 selectedBorderColor = ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 0.4f));
+
+    const int activeIndex = state.varCapacity > 0
+    ? ((tab.selectedGlobalVarIndex >= 0 && tab.selectedGlobalVarIndex < state.varCapacity)
+        ? tab.selectedGlobalVarIndex
+        : state.varCapacity - 1)
+    : -1;
+
     ImGui::BeginGroup();
     if (ImGui::Button("+", ImVec2(buttonWidth, buttonHeight))) {
+        const int insertIndex = activeIndex + 1;
+        state.globalNames.insert(state.globalNames.begin() + insertIndex, "");
+        state.globalValues.insert(state.globalValues.begin() + insertIndex, "");
         ++state.varCapacity;
-        state.globalNames.push_back("");
-        state.globalValues.push_back("");
+        tab.selectedGlobalVarIndex = insertIndex;
     }
     if (ImGui::Button("-", ImVec2(buttonWidth, buttonHeight)) && state.varCapacity > 1) {
+        state.globalNames.erase(state.globalNames.begin() + activeIndex);
+        state.globalValues.erase(state.globalValues.begin() + activeIndex);
         --state.varCapacity;
-        state.globalNames.pop_back();
-        state.globalValues.pop_back();
+        tab.selectedGlobalVarIndex = std::max(0, activeIndex - 1);
     }
     ImGui::EndGroup();
 
@@ -850,7 +897,13 @@ inline static void globalVarTable(Environment& state){
 
             ImGui::SetNextItemWidth(columnWidth);
             ImGui::InputText("##name", &state.globalNames[i]);
-
+            if (ImGui::IsItemActivated() || ImGui::IsItemClicked())
+                tab.selectedGlobalVarIndex = i;
+            if (tab.selectedGlobalVarIndex == i) {
+                const ImVec2 min = ImGui::GetItemRectMin();
+                const ImVec2 max = ImGui::GetItemRectMax();
+                drawList->AddRect(min, max, selectedBorderColor, 3.0f, 0, 2.0f);
+            }
             ImGui::PopID();
         }
 
@@ -864,12 +917,25 @@ inline static void globalVarTable(Environment& state){
 
             ImGui::SetNextItemWidth(columnWidth);
             ImGui::InputText("##value",&state.globalValues[i]);
-
+            if (ImGui::IsItemActivated() || ImGui::IsItemClicked())
+                tab.selectedGlobalVarIndex = i;
+            if (tab.selectedGlobalVarIndex == i) {
+                const ImVec2 min = ImGui::GetItemRectMin();
+                const ImVec2 max = ImGui::GetItemRectMax();
+                drawList->AddRect(min, max, selectedBorderColor, 3.0f, 0, 2.0f);
+            }
             ImGui::PopID();
         }
 
         ImGui::EndTable();
     }
+
+    const ImVec2 mousePos = ImGui::GetIO().MousePos;
+    const bool insideVarRegion =
+        mousePos.x >= varRegionMin.x && mousePos.x <= varRegionMax.x &&
+        mousePos.y >= varRegionMin.y && mousePos.y <= varRegionMax.y;
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !insideVarRegion)
+        tab.selectedGlobalVarIndex = -1;
 
     ImGui::EndChild();
 }
@@ -927,11 +993,65 @@ static void inputPanel(AppState& app, TabState& tab){
     ImGui::Text("n =");
     ImGui::SameLine();
 
-    ImGui::SetNextItemWidth(120.0f);
+    ImGui::SetNextItemWidth(60.0f);
 
-    ImGui::InputInt("##n", &state.editN);
+    ImGui::InputInt("##n", &state.editN, 0, 0);
+    ImVec2 modelControlsMin = ImGui::GetItemRectMin();
+    ImVec2 modelControlsMax = ImGui::GetItemRectMax();
     bool commit = ImGui::IsItemDeactivatedAfterEdit();  // Commit when lost focus (press enter unfocus)
     if (commit) state.n = state.editN;
+
+    const int activeModelTick = state.n > 0
+        ? ((tab.selectedModelTickIndex >= 0 && tab.selectedModelTickIndex < state.n)
+            ? tab.selectedModelTickIndex
+            : state.n - 1)
+        : -1;
+    const float slotButtonWidth = 30.0f;
+    const float slotButtonHeight = ImGui::GetFrameHeight();
+
+    ImGui::SameLine();
+    if (ImGui::Button("-", ImVec2(slotButtonWidth, slotButtonHeight)) && state.n > 1 && activeModelTick > 0) {
+        modelControlsMin.x = std::min(modelControlsMin.x, ImGui::GetItemRectMin().x);
+        modelControlsMin.y = std::min(modelControlsMin.y, ImGui::GetItemRectMin().y);
+        modelControlsMax.x = std::max(modelControlsMax.x, ImGui::GetItemRectMax().x);
+        modelControlsMax.y = std::max(modelControlsMax.y, ImGui::GetItemRectMax().y);
+        state.dragX.erase(state.dragX.begin() + activeModelTick);
+        state.dragZ.erase(state.dragZ.begin() + activeModelTick);
+        state.accel.erase(state.accel.begin() + activeModelTick);
+        --state.n;
+        state.editN = state.n;
+        state.accel[0] = "initV";
+        tab.prevN = state.n;
+        tab.selectedModelTickIndex = std::max(0, activeModelTick - 1);
+    }
+    modelControlsMin.x = std::min(modelControlsMin.x, ImGui::GetItemRectMin().x);
+    modelControlsMin.y = std::min(modelControlsMin.y, ImGui::GetItemRectMin().y);
+    modelControlsMax.x = std::max(modelControlsMax.x, ImGui::GetItemRectMax().x);
+    modelControlsMax.y = std::max(modelControlsMax.y, ImGui::GetItemRectMax().y);
+
+    ImGui::SameLine();
+    if (ImGui::Button("+", ImVec2(slotButtonWidth, slotButtonHeight))) {
+        modelControlsMin.x = std::min(modelControlsMin.x, ImGui::GetItemRectMin().x);
+        modelControlsMin.y = std::min(modelControlsMin.y, ImGui::GetItemRectMin().y);
+        modelControlsMax.x = std::max(modelControlsMax.x, ImGui::GetItemRectMax().x);
+        modelControlsMax.y = std::max(modelControlsMax.y, ImGui::GetItemRectMax().y);
+        const int insertIndex = activeModelTick + 1;
+        const std::string dragXValue = state.dragX[activeModelTick];
+        const std::string dragZValue = state.dragZ[activeModelTick];
+        const std::string accelValue = state.accel[activeModelTick];
+        state.dragX.insert(state.dragX.begin() + insertIndex, dragXValue);
+        state.dragZ.insert(state.dragZ.begin() + insertIndex, dragZValue);
+        state.accel.insert(state.accel.begin() + insertIndex, accelValue);
+        ++state.n;
+        state.editN = state.n;
+        state.accel[0] = "initV";
+        tab.prevN = state.n;
+        tab.selectedModelTickIndex = insertIndex;
+    }
+    modelControlsMin.x = std::min(modelControlsMin.x, ImGui::GetItemRectMin().x);
+    modelControlsMin.y = std::min(modelControlsMin.y, ImGui::GetItemRectMin().y);
+    modelControlsMax.x = std::max(modelControlsMax.x, ImGui::GetItemRectMax().x);
+    modelControlsMax.y = std::max(modelControlsMax.y, ImGui::GetItemRectMax().y);
 
     ImGui::AlignTextToFramePadding();
     ImGui::Text("initV =");
@@ -941,6 +1061,15 @@ static void inputPanel(AppState& app, TabState& tab){
 
     ImGui::Spacing();
     modelTable(tab);
+    const ImVec2 mousePos = ImGui::GetIO().MousePos;
+    const bool insideModelControls =
+        mousePos.x >= modelControlsMin.x && mousePos.x <= modelControlsMax.x &&
+        mousePos.y >= modelControlsMin.y && mousePos.y <= modelControlsMax.y;
+    const bool insideModelRegion =
+        mousePos.x >= tab.modelRegionMin.x && mousePos.x <= tab.modelRegionMax.x &&
+        mousePos.y >= tab.modelRegionMin.y && mousePos.y <= tab.modelRegionMax.y;
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !insideModelControls && !insideModelRegion)
+        tab.selectedModelTickIndex = -1;
     ImGui::Spacing();
 
     // === Core ===
@@ -978,7 +1107,7 @@ static void inputPanel(AppState& app, TabState& tab){
         ImGui::PopFont();
     }
 
-    globalVarTable(state);
+    globalVarTable(tab);
 
     // === Constraints ===
     ImGui::SeparatorText("Constraints");
@@ -1023,7 +1152,8 @@ static void inputPanel(AppState& app, TabState& tab){
     ImGui::SetNextItemWidth(90.0f);
     ImGui::Combo("##offsetMode", &state.post.offsetMode, offsetModes, IM_ARRAYSIZE(offsetModes));
 
-    state.post.angleOffset.resize(state.n, "0");
+    if ((int) state.post.angleOffset.size() != state.n)
+        state.post.angleOffset.resize(state.n, "0");
 
     ImGui::BeginChild("angle_offset_region", ImVec2(0, 63.0f), false);
     if (ImGui::BeginTable("angle_offset_table",
