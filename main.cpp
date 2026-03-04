@@ -521,6 +521,7 @@ static TabState makeDefaultTab(int tabId) {
     tab.nameDraft = tab.name;
     initModel(tab.env);
     initGlobals(tab.env);
+    tab.env.post.angleOffset.resize(tab.env.n, "0");
     tab.prevN = tab.env.n;
     tab.savedFingerprint = buildTabFingerprint(tab);
     return tab;
@@ -709,11 +710,13 @@ inline static void modelTable(TabState& tab){
         const std::string dragXFill = state.dragX.empty() ? "air" : state.dragX.back();
         const std::string dragZFill = state.dragZ.empty() ? "air" : state.dragZ.back();
         const std::string accelFill = state.accel.empty() ? "sa45" : state.accel.back();
+        const std::string angleOffsetFill = state.post.angleOffset.empty() ? "0" : state.post.angleOffset.back();
 
         // Preserve existing entries, extending new rows with the current last entries.
         state.dragX.resize(state.n, dragXFill);
         state.dragZ.resize(state.n, dragZFill);
         state.accel.resize(state.n, accelFill);
+        state.post.angleOffset.resize(state.n, angleOffsetFill);
 
         state.accel[0] = "initV";
 
@@ -1151,9 +1154,6 @@ static void inputPanel(AppState& app, TabState& tab){
     const char* offsetModes[] = {"Facing", "Turn"};
     ImGui::SetNextItemWidth(90.0f);
     ImGui::Combo("##offsetMode", &state.post.offsetMode, offsetModes, IM_ARRAYSIZE(offsetModes));
-
-    if ((int) state.post.angleOffset.size() != state.n)
-        state.post.angleOffset.resize(state.n, "0");
 
     ImGui::BeginChild("angle_offset_region", ImVec2(0, 63.0f), false);
     if (ImGui::BeginTable("angle_offset_table",
@@ -2000,6 +2000,7 @@ static bool loadTabFromJson(TabState& tab, const json& j, std::string& err) {
             }
             loaded.post.positionPrecision = post.value("positionPrecision", loaded.post.positionPrecision);
         }
+        loaded.post.angleOffset.resize(loaded.n, loaded.post.angleOffset.empty() ? "0" : loaded.post.angleOffset.back());
 
         tab.name = j.value("title", tab.name);
         trim(tab.name);
