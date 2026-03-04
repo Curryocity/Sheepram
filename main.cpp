@@ -1,6 +1,7 @@
 #include "parser.hpp"
 
 #include <cmath>
+#include <cstddef>
 #include <numbers>
 #include <stdexcept>
 #include <stdio.h>
@@ -75,12 +76,16 @@ struct Environment {
         std::string xAdd = "0"; 
         std::string zTick = "m-1";
         std::string zAdd = "0";
+        std::vector<std::string> angleOffset = {"0"};
+        enum offsetType{Facing = 0, Turn = 1};
+        int offsetMode = Facing;
         int positionPrecision = 6;
     } post;
 
     std::optional<optimizer::Solution> lastSol;
     int xIndex, zIndex;
     double xAdd, zAdd;
+    std::vector<double> angleOffset;
     std::string lastError;
 };
 
@@ -533,14 +538,16 @@ static void runOptimizer(Environment& state) {
         model.n = n;
 
         // 2. Initialize parser(varTables, Expr sizes) 
-        Parser p(model, state.globalNames, state.globalValues);
+        Parser p(model);
+        model.initV = p.parseConstant(state.initV); 
+        p.defineInitV(model.initV);
+        p.addVariables(state.globalNames, state.globalValues);
 
         // 3. Evaluate drag/accel scripts to constants
         model.dragX.resize(n);
         model.dragZ.resize(n);
         model.accel.resize(n);
 
-        model.initV = p.parseConstant(state.initV); // accel[0] is not used in the optimizer
         for (int i = 0; i < model.n - 1; i++) {
             model.dragX[i] = p.parseConstant(state.dragX[i]);
             model.dragZ[i] = p.parseConstant(state.dragZ[i]);
@@ -582,6 +589,17 @@ static void runOptimizer(Environment& state) {
             state.xAdd = p.parseConstant(state.post.xAdd);
             state.zIndex = (int) std::round(p.parseConstant(state.post.zTick));
             state.zAdd = p.parseConstant(state.post.zAdd);
+            state.angleOffset.resize(state.post.angleOffset.size());
+            for (int i = 0; i < (int)state.post.angleOffset.size(); i++)
+                state.angleOffset[i] = p.parseConstant(state.post.angleOffset[i]);
+
+            if(state.post.offsetMode == Environment::Post::Turn){
+                double accumulation = 0;
+                for (int i = 0; i < (int)state.post.angleOffset.size(); i++){
+                    accumulation += state.angleOffset[i];
+                    state.angleOffset[i] = accumulation;
+                }
+            }
 
             if(state.xIndex < 0 || state.xIndex >= n || state.zIndex < 0 || state.zIndex >= n)
                 throw std::runtime_error{"Out of bound access"};
@@ -684,24 +702,18 @@ inline static void modelTable(TabState& tab){
     }
 
     if (state.n != tab.prevN) {
+        const std::string dragXFill = state.dragX.empty() ? "air" : state.dragX.back();
+        const std::string dragZFill = state.dragZ.empty() ? "air" : state.dragZ.back();
+        const std::string accelFill = state.accel.empty() ? "sa45" : state.accel.back();
+
+        // Preserve existing entries, extending new rows with the current last entries.
+        state.dragX.resize(state.n, dragXFill);
+        state.dragZ.resize(state.n, dragZFill);
+        state.accel.resize(state.n, accelFill);
+
+        state.accel[0] = "initV";
+
         tab.prevN = state.n;
-
-        // Preserve existing entries, fill new ones with defaults
-        state.dragX.resize(state.n, "air");
-        state.dragZ.resize(state.n, "air");
-        state.accel.resize(state.n, "sa45");
-
-        // Re-apply special defaults
-        for (int i = 0; i < std::min(2, state.n); i++) {
-            state.dragX[i] = "gnd";
-            state.dragZ[i] = "gnd";
-        }
-
-        if (state.n > 0)
-            state.accel[0] = "initV";
-
-        if (state.n > 1)
-            state.accel[1] = "WAD";
     }
 
     ImGui::BeginChild("model_region", ImVec2(0, 145), false);
@@ -1005,6 +1017,48 @@ static void inputPanel(AppState& app, TabState& tab){
     InputTextAutoWidth("##zAdd", state.post.zAdd);
 
     ImGui::AlignTextToFramePadding();
+    ImGui::Text("Angle Offset (Manual copying section):");
+    ImGui::SameLine(0.0f, 8.0f);
+    const char* offsetModes[] = {"Facing", "Turn"};
+    ImGui::SetNextItemWidth(90.0f);
+    ImGui::Combo("##offsetMode", &state.post.offsetMode, offsetModes, IM_ARRAYSIZE(offsetModes));
+
+    state.post.angleOffset.resize(state.n, "0");
+
+    ImGui::BeginChild("angle_offset_region", ImVec2(0, 63.0f), false);
+    if (ImGui::BeginTable("angle_offset_table",
+                          state.n + 1,
+                          ImGuiTableFlags_Borders |
+                          ImGuiTableFlags_RowBg |
+                          ImGuiTableFlags_ScrollX |
+                          ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupScrollFreeze(1, 0);
+        const float columnWidth = 50.0f;
+
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        centerColumnText("Tick");
+        for (int col = 0; col < state.n; col++) {
+            ImGui::TableSetColumnIndex(col + 1);
+            centerColumnInt(col);
+        }
+
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        centerColumnText("Offset");
+        for (int col = 0; col < state.n; col++) {
+            ImGui::TableSetColumnIndex(col + 1);
+            ImGui::PushID(4000 + col);
+            ImGui::SetNextItemWidth(columnWidth);
+            ImGui::InputText("##angle_offset", &state.post.angleOffset[col]);
+            ImGui::PopID();
+        }
+
+        ImGui::EndTable();
+    }
+    ImGui::EndChild();
+
+    ImGui::AlignTextToFramePadding();
     ImGui::Text("X/Z precision:");
     ImGui::SameLine(0.0f, 8.0f);
     ImGui::SetNextItemWidth(80.0f);
@@ -1064,9 +1118,9 @@ static XZPlotLayout computeXZPlotLayout(const std::vector<double>& xs, const std
     return layout;
 }
 
-static void drawXZPlot(const std::vector<double>& xs, const std::vector<double>& zs, const std::vector<double>& facings, const std::vector<std::string>& vxvals, const std::vector<std::string>& vzvals,
+static void drawXZPlot(const std::vector<double>& Xs, const std::vector<double>& Zs, const std::vector<double>& facings, const std::vector<std::string>& VXs, const std::vector<std::string>& VZs,
                        ImVec2 size, int positionPrecision, int anglePrecision) {
-    if (xs.empty() || xs.size() != zs.size()) return;
+    if (Xs.empty() || Xs.size() != Zs.size()) return;
 
     ImVec2 p0 = ImGui::GetCursorScreenPos();
     ImVec2 p1(p0.x + size.x, p0.y + size.y);
@@ -1078,7 +1132,7 @@ static void drawXZPlot(const std::vector<double>& xs, const std::vector<double>&
     dl->AddRectFilled(p0, p1, IM_COL32(20, 20, 20, 255), 6.0f);
     dl->AddRect(p0, p1, IM_COL32(90, 90, 90, 255), 6.0f);
 
-    const XZPlotLayout layout = computeXZPlotLayout(xs, zs, size);
+    const XZPlotLayout layout = computeXZPlotLayout(Xs, Zs, size);
     const ImVec2 center(p0.x + size.x * 0.5f, p0.y + size.y * 0.5f);
 
     auto toScreen = [&](double x, double z) -> ImVec2 {
@@ -1103,31 +1157,31 @@ static void drawXZPlot(const std::vector<double>& xs, const std::vector<double>&
     int hoveredIndex = -1;
     float bestDistSq = hoverRadiusSq;
 
-    for (int gx = static_cast<int>(std::ceil(canvasMinX)); gx <= static_cast<int>(std::floor(canvasMaxX)); ++gx) {
+    for (int gx = static_cast<int>(std::ceil(canvasMinX)); gx <= static_cast<int>(std::floor(canvasMaxX)); gx++) {
         const float x = toScreen(static_cast<double>(gx), layout.centerZ).x;
         dl->AddLine(ImVec2(x, p0.y), ImVec2(x, p1.y),
                     gx == 0 ? axisColor : gridColor,
                     gx == 0 ? 1.6f : 1.0f);
     }
 
-    for (int gz = static_cast<int>(std::ceil(canvasMinZ)); gz <= static_cast<int>(std::floor(canvasMaxZ)); ++gz) {
+    for (int gz = static_cast<int>(std::ceil(canvasMinZ)); gz <= static_cast<int>(std::floor(canvasMaxZ)); gz++) {
         const float y = toScreen(layout.centerX, static_cast<double>(gz)).y;
         dl->AddLine(ImVec2(p0.x, y), ImVec2(p1.x, y),
                     gz == 0 ? axisColor : gridColor,
                     gz == 0 ? 1.6f : 1.0f);
     }
 
-    for (int i = 1; i < (int)xs.size(); ++i) {
+    for (int i = 1; i < (int)Xs.size(); i++) {
         dl->AddLine(
-            toScreen(xs[i - 1], zs[i - 1]),
-            toScreen(xs[i], zs[i]),
+            toScreen(Xs[i - 1], Zs[i - 1]),
+            toScreen(Xs[i], Zs[i]),
             IM_COL32(192, 192, 200, 255),
             2.0f
         );
     }
 
-    for (int i = 0; i < (int)xs.size(); ++i) {
-        const ImVec2 point = toScreen(xs[i], zs[i]);
+    for (int i = 0; i < (int)Xs.size(); i++) {
+        const ImVec2 point = toScreen(Xs[i], Zs[i]);
         if (plotHovered) {
             const float dx = point.x - mousePos.x;
             const float dy = point.y - mousePos.y;
@@ -1141,7 +1195,7 @@ static void drawXZPlot(const std::vector<double>& xs, const std::vector<double>&
     }
 
     if (hoveredIndex >= 0) {
-        const ImVec2 point = toScreen(xs[hoveredIndex], zs[hoveredIndex]);
+        const ImVec2 point = toScreen(Xs[hoveredIndex], Zs[hoveredIndex]);
         dl->AddCircle(point, 7.0f, IM_COL32(255, 255, 255, 220), 0, 1.8f);
     }
 
@@ -1158,8 +1212,15 @@ static void drawXZPlot(const std::vector<double>& xs, const std::vector<double>&
         ImGui::Text("Tick %d", hoveredIndex);
         ImGui::Separator();
         ImGui::Text("Facing:  %s", fmt_double(facings[hoveredIndex], anglePrecision).c_str());
-        ImGui::Text("Pos:  (%s, %s)", fmt_double(xs[hoveredIndex], positionPrecision).c_str(), fmt_double(zs[hoveredIndex], positionPrecision).c_str());
-        ImGui::Text("Vel: (%s, %s)", vxvals[hoveredIndex].c_str(), vzvals[hoveredIndex].c_str());
+        ImGui::Text("Pos:  (%s, %s)", fmt_double(Xs[hoveredIndex], positionPrecision).c_str(), fmt_double(Zs[hoveredIndex], positionPrecision).c_str());
+        ImGui::Text("Vel: (%s, %s)", VXs[hoveredIndex].c_str(), VZs[hoveredIndex].c_str());
+        if((size_t) hoveredIndex < Xs.size() - 1){
+            double vx = Xs[hoveredIndex + 1] - Xs[hoveredIndex];
+            double vz = Zs[hoveredIndex + 1] - Zs[hoveredIndex];
+            double magnitude = std::sqrt(vx * vx + vz * vz);
+            double direction = std::atan2(vx, vz) * 180.0 / std::numbers::pi_v<double>;
+            ImGui::Text("SpeedVec: (%s, %s°)", fmt_double(magnitude, positionPrecision).c_str(), fmt_double(direction, positionPrecision).c_str());
+        }
         ImGui::EndTooltip();
     }
 }
@@ -1341,23 +1402,24 @@ static void outputPanel(TabState& tab){
     ImGui::Spacing();
     ImGui::Spacing();
 
-    auto formatFacingList = [&](const std::vector<double>& Fs)
-    {
+    auto formatFacingList = [&](const std::vector<double>& Fs){
         std::string s = "{";
-        for (int i = 0; i < state.n; i++) {
+        for (int i = 0; i < (int)Fs.size() - 1; i++) {
             if (i) s += ", ";
-            s += fmt_double(Fs[i], anglePrecision);
+            double f = Fs[i] + state.angleOffset[i];
+            s += fmt_double(f, anglePrecision);
         }
         s += "}";
         return s;
     };
 
-    auto formatTurnList = [&](const std::vector<double>& Fs)
-    {
+    auto formatTurnList = [&](const std::vector<double>& Fs){
         std::string s = "{";
-        for (int i = 0; i + 1 < state.n; i++) {
+        for (int i = 0; i + 1 < (int)Fs.size() - 1; i++) {
             if (i) s += ", ";
-            s += fmt_double(Fs[i + 1] - Fs[i], anglePrecision);
+            double f0 = Fs[i] + state.angleOffset[i];
+            double f1 = Fs[i + 1] + state.angleOffset[i + 1];
+            s += fmt_double(f1 - f0, anglePrecision);
         }
         s += "}";
         return s;
@@ -1652,6 +1714,8 @@ static json buildTabJson(const TabState& tab) {
             {"xAdd", e.post.xAdd},
             {"zTick", e.post.zTick},
             {"zAdd", e.post.zAdd},
+            {"angleOffset", e.post.angleOffset},
+            {"offsetMode", e.post.offsetMode},
             {"positionPrecision", e.post.positionPrecision},
         }}
     };
@@ -1787,6 +1851,23 @@ static bool loadTabFromJson(TabState& tab, const json& j, std::string& err) {
             loaded.post.xAdd = post.value("xAdd", loaded.post.xAdd);
             loaded.post.zTick = post.value("zTick", loaded.post.zTick);
             loaded.post.zAdd = post.value("zAdd", loaded.post.zAdd);
+            if (post.contains("angleOffset")) {
+                const json& angleOffset = post.at("angleOffset");
+                if (angleOffset.is_array()) {
+                    loaded.post.angleOffset = angleOffset.get<std::vector<std::string>>();
+                } else if (angleOffset.is_string()) {
+                    loaded.post.angleOffset = {angleOffset.get<std::string>()};
+                } else {
+                    err = "Invalid field: post.angleOffset";
+                    return false;
+                }
+            }
+            loaded.post.offsetMode = post.value("offsetMode", loaded.post.offsetMode);
+            if (loaded.post.offsetMode < Environment::Post::Facing ||
+                loaded.post.offsetMode > Environment::Post::Turn) {
+                err = "Invalid field: post.offsetMode";
+                return false;
+            }
             loaded.post.positionPrecision = post.value("positionPrecision", loaded.post.positionPrecision);
         }
 

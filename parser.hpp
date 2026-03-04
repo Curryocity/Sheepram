@@ -12,10 +12,14 @@ class Parser{
 
     public:
 
-    Parser(const optimizer::Model& m, std::vector<std::string> names, std::vector<std::string> values)  : model(m){
-        buildVarMap(m.n - 1, m.initV, names, values);
+    Parser(const optimizer::Model& m)  : model(m){
+        this -> varMap.clear();
+        this -> varMap["n"] = m.n - 1;
     }
 
+    void defineInitV(double initV);
+    void addVariable(std::string& name, const std::string& value);
+    void addVariables(const std::vector<std::string>& names, const std::vector<std::string>& values);
     std::vector<Cons> parseMultiConstraints(const std::string& input);
     Expr parseExpr(const std::string& s);
     double parseConstant(const std::string& s);
@@ -50,7 +54,7 @@ class Parser{
         int right;
     };
 
-    void buildVarMap(int globalN, double initV, const std::vector<std::string>& names, const std::vector<std::string>& values);
+    
     Expr resolveIndexed(const std::string& s, int index, const Lexer& lex);
 
     Cons parseConstraint(const std::string& s);

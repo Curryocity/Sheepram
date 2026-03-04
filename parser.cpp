@@ -191,34 +191,38 @@ std::vector<Cons> Parser::parseMultiConstraints(const std::string& input){
     return constraints;
 }
 
-void Parser::buildVarMap(int globalN, double initV, const std::vector<std::string>& names, const std::vector<std::string>& values){
-    varMap.clear();
-    varMap["n"] = globalN;
-    varMap["initV"] = initV;
+void Parser::defineInitV(double initV){
+    this -> varMap["initV"] = initV;
+};
+
+void Parser::addVariable(std::string& name, const std::string& value){
+    trim(name);
+    if (name.empty())
+        return;
+    if(!std::isalpha(name[0]) && name[0] != '_')
+            throw std::runtime_error{name + " is an illegal name"};
+    if(name == "n" || name == "initV" || name == "X" || name == "Z" || name == "F" || name == "Vx" || name == "Vz" || name == "T")
+        throw std::runtime_error{name + " is a reserved keyword"};
+    if(value.empty()) 
+        throw std::runtime_error{name + " has no definition"};
+
+    Lexer lex(value);
+    Expr e = parseExpr(lex, 0);
+    if (lex.peek().type != TokenType::End)
+        throw error("Invalid expression in definition of " + name, lex);
+    if(!e.isConstant()) throw std::runtime_error{"Unable to reduce '" + name + "' to a constant."};
+
+    double v = e.constant;
+    this -> varMap[name] = v;
+}
+
+void Parser::addVariables(const std::vector<std::string>& names, const std::vector<std::string>& values){
+
     int m = names.size();
     for(int i = 0; i < m; i++){
         const std::string& value = values[i];
         std::string name = names[i];
-        trim(name);
-
-        if (name.empty())
-            continue;
-
-        if(!std::isalpha(name[0]) && name[0] != '_')
-            throw std::runtime_error{name + " is an illegal name"};
-        if(name == "n" || name == "initV" || name == "X" || name == "Z" || name == "F" || name == "Vx" || name == "Vz" || name == "T")
-            throw std::runtime_error{name + " is a reserved keyword"};
-        if(value.empty()) 
-            throw std::runtime_error{name + " has no definition"};
-
-        Lexer lex(value);
-        Expr e = parseExpr(lex, 0);
-        if (lex.peek().type != TokenType::End)
-            throw error("Invalid expression in definition of " + name, lex);
-        if(!e.isConstant()) throw std::runtime_error{"Unable to reduce '" + name + "' to a constant."};
-
-        double v = e.constant;
-        this -> varMap[name] = v;
+        addVariable(name, value);
     }
 }
 
