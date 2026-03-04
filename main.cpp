@@ -1179,6 +1179,10 @@ static void inputPanel(AppState& app, TabState& tab){
     const char* offsetModes[] = {"Facing", "Turn"};
     ImGui::SetNextItemWidth(90.0f);
     ImGui::Combo("##offsetMode", &state.post.offsetMode, offsetModes, IM_ARRAYSIZE(offsetModes));
+    ImGui::SameLine(0.0f, 8.0f);
+    if (ImGui::Button("Reset")) {
+        std::fill(state.post.angleOffset.begin(), state.post.angleOffset.end(), "0");
+    }
 
     ImGui::BeginChild("angle_offset_region", ImVec2(0, 63.0f), false);
     if (ImGui::BeginTable("angle_offset_table",
