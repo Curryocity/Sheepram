@@ -23,6 +23,7 @@
 #include <GLFW/glfw3.h>
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
 #include "misc/cpp/imgui_stdlib.h"
@@ -139,6 +140,15 @@ static std::filesystem::path preferencePath = "preference.json";
 static std::filesystem::path tabsDirPath = "presets/saves";
 static TabState makeDefaultTab(int tabId);
 static void trim(std::string& s);
+static void drawClippedSelectionRect(ImDrawList* drawList,
+                                     const ImVec2& min,
+                                     const ImVec2& max,
+                                     ImU32 color) {
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    drawList->PushClipRect(window->ClipRect.Min, window->ClipRect.Max, true);
+    drawList->AddRect(min, max, color, 3.0f, 0, 2.0f);
+    drawList->PopClipRect();
+}
 
 static constexpr int themeCount = 5;
 static const char* themeNames[themeCount] = {
@@ -772,7 +782,10 @@ inline static void modelTable(TabState& tab){
             if (tab.selectedModelTickIndex == t){
                 const ImVec2 min = ImGui::GetItemRectMin();
                 const ImVec2 max = ImGui::GetItemRectMax();
-                drawList->AddRect(min, max, selectedBorderColor, 3.0f, 0, 2.0f);
+                drawClippedSelectionRect(drawList,
+                                         min,
+                                         max,
+                                         selectedBorderColor);
             }
             ImGui::PopID();
         }
@@ -791,7 +804,10 @@ inline static void modelTable(TabState& tab){
             if (tab.selectedModelTickIndex == t){
                 const ImVec2 min = ImGui::GetItemRectMin();
                 const ImVec2 max = ImGui::GetItemRectMax();
-                drawList->AddRect(min, max, selectedBorderColor, 3.0f, 0, 2.0f);
+                drawClippedSelectionRect(drawList,
+                                         min,
+                                         max,
+                                         selectedBorderColor);
             }
                 
             ImGui::PopID();
@@ -815,7 +831,10 @@ inline static void modelTable(TabState& tab){
                 if (tab.selectedModelTickIndex == t){
                     const ImVec2 min = ImGui::GetItemRectMin();
                     const ImVec2 max = ImGui::GetItemRectMax();
-                    drawList->AddRect(min, max, selectedBorderColor, 3.0f, 0, 2.0f);
+                    drawClippedSelectionRect(drawList,
+                                             min,
+                                             max,
+                                             selectedBorderColor);
                 }
                 ImGui::PopID();
             }
@@ -905,7 +924,10 @@ inline static void globalVarTable(TabState& tab){
             if (tab.selectedGlobalVarIndex == i) {
                 const ImVec2 min = ImGui::GetItemRectMin();
                 const ImVec2 max = ImGui::GetItemRectMax();
-                drawList->AddRect(min, max, selectedBorderColor, 3.0f, 0, 2.0f);
+                drawClippedSelectionRect(drawList,
+                                         min,
+                                         max,
+                                         selectedBorderColor);
             }
             ImGui::PopID();
         }
@@ -925,7 +947,10 @@ inline static void globalVarTable(TabState& tab){
             if (tab.selectedGlobalVarIndex == i) {
                 const ImVec2 min = ImGui::GetItemRectMin();
                 const ImVec2 max = ImGui::GetItemRectMax();
-                drawList->AddRect(min, max, selectedBorderColor, 3.0f, 0, 2.0f);
+                drawClippedSelectionRect(drawList,
+                                         min,
+                                         max,
+                                         selectedBorderColor);
             }
             ImGui::PopID();
         }
