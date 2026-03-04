@@ -21,6 +21,12 @@
 #include <GL/gl.h>
 #endif
 #include <GLFW/glfw3.h>
+#if defined(_WIN32)
+#ifndef GLFW_EXPOSE_NATIVE_WIN32
+#define GLFW_EXPOSE_NATIVE_WIN32
+#endif
+#include <GLFW/glfw3native.h>
+#endif
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -138,6 +144,7 @@ static const char* appDataDirName = "Sheepram";
 static std::filesystem::path resourceRootPath = ".";
 static std::filesystem::path preferencePath = "preference.json";
 static std::filesystem::path tabsDirPath = "presets/saves";
+static std::filesystem::path resourcePath(const std::filesystem::path& relPath);
 static TabState makeDefaultTab(int tabId);
 static void trim(std::string& s);
 static void drawClippedSelectionRect(ImDrawList* drawList,
@@ -149,6 +156,25 @@ static void drawClippedSelectionRect(ImDrawList* drawList,
     drawList->AddRect(min, max, color, 3.0f, 0, 2.0f);
     drawList->PopClipRect();
 }
+
+#if defined(_WIN32)
+static HICON setNativeWindowIcon(GLFWwindow* window) {
+    const std::filesystem::path iconPath = resourcePath("asset/icon/app.ico");
+    const std::wstring iconPathWide = iconPath.wstring();
+    HICON icon = static_cast<HICON>(LoadImageW(nullptr,
+                                               iconPathWide.c_str(),
+                                               IMAGE_ICON,
+                                               0,
+                                               0,
+                                               LR_LOADFROMFILE | LR_DEFAULTSIZE));
+    if (icon == nullptr) return nullptr;
+
+    const HWND hwnd = glfwGetWin32Window(window);
+    SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(icon));
+    SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(icon));
+    return icon;
+}
+#endif
 
 static constexpr int themeCount = 5;
 static const char* themeNames[themeCount] = {
@@ -1742,6 +1768,9 @@ int main() {
 #endif
 
     glfwSwapInterval(1);
+#if defined(_WIN32)
+    HICON nativeWindowIcon = setNativeWindowIcon(window);
+#endif
 
     IMGUI_CHECKVERSION();
     AppState app;
@@ -1847,6 +1876,9 @@ int main() {
     ImGui::DestroyContext();
     if (nfdReady) shutdownFileDialog();
     savePreferences(app);
+#if defined(_WIN32)
+    if (nativeWindowIcon != nullptr) DestroyIcon(nativeWindowIcon);
+#endif
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;
