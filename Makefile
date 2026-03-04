@@ -2,6 +2,7 @@ CXX ?= c++
 TARGET := main
 APP_NAME ?= Sheepram
 VERSION ?= dev
+ENABLE_LTO ?= 0
 UNAME_S := $(shell uname -s)
 ARCH ?= $(shell uname -m)
 BUILD_DIR := build/$(UNAME_S)-$(ARCH)
@@ -49,6 +50,8 @@ CPPFLAGS := -Iimgui -Iimgui/backends -IthirdParty/nfd/src/include
 CXXFLAGS := -std=c++20 -Wall -Wextra -MMD -MP -ffp-contract=off
 OBJCFLAGS := -Wall -Wextra -MMD -MP
 LDLIBS := -lglfw
+RELEASE_CXXFLAGS :=
+RELEASE_OBJCFLAGS :=
 RELEASE_LDFLAGS :=
 STRIP_CMD :=
 
@@ -86,21 +89,30 @@ ifneq (,$(findstring MINGW,$(UNAME_S)))
 LDLIBS := $(filter-out -lglfw,$(LDLIBS))
 LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
 EXTRA_OBJ += $(BUILD_DIR)/resources/windows/app_icon.o
+RELEASE_LDFLAGS += -Wl,--gc-sections
 STRIP_CMD = strip --strip-unneeded $(BUILD_DIR)/$(TARGET)
 endif
 ifneq (,$(findstring MSYS,$(UNAME_S)))
 LDLIBS := $(filter-out -lglfw,$(LDLIBS))
 LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
 EXTRA_OBJ += $(BUILD_DIR)/resources/windows/app_icon.o
+RELEASE_LDFLAGS += -Wl,--gc-sections
 STRIP_CMD = strip --strip-unneeded $(BUILD_DIR)/$(TARGET)
 endif
 ifeq ($(OS),Windows_NT)
 LDLIBS := $(filter-out -lglfw,$(LDLIBS))
 LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
 EXTRA_OBJ += $(BUILD_DIR)/resources/windows/app_icon.o
+RELEASE_LDFLAGS += -Wl,--gc-sections
 STRIP_CMD = strip --strip-unneeded $(BUILD_DIR)/$(TARGET)
 endif
 EXTRA_OBJ := $(sort $(EXTRA_OBJ))
+
+ifeq ($(ENABLE_LTO),1)
+RELEASE_CXXFLAGS += -flto
+RELEASE_OBJCFLAGS += -flto
+RELEASE_LDFLAGS += -flto
+endif
 
 .PHONY: all debug release clean clean-artifacts \
 	package-macos-arm64 package-macos-x86_64 package-linux-x86_64 package-windows-x86_64
@@ -110,8 +122,8 @@ all: debug
 debug: CXXFLAGS += -O1 -g
 debug: $(BUILD_DIR)/$(TARGET)
 
-release: CXXFLAGS += -O3 -DNDEBUG -fdata-sections -ffunction-sections
-release: OBJCFLAGS += -O3 -DNDEBUG -fdata-sections -ffunction-sections
+release: CXXFLAGS += -O3 -DNDEBUG -fdata-sections -ffunction-sections $(RELEASE_CXXFLAGS)
+release: OBJCFLAGS += -O3 -DNDEBUG -fdata-sections -ffunction-sections $(RELEASE_OBJCFLAGS)
 release: LDFLAGS += $(RELEASE_LDFLAGS)
 release: $(BUILD_DIR)/$(TARGET)
 ifneq ($(STRIP_CMD),)
