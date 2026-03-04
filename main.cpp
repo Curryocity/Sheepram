@@ -106,6 +106,7 @@ struct TabState {
     bool inlineSaveIsError = false;
     Environment env;
     float leftWidth = 0.0f;
+    float consEditorHeight = 120.0f;
     int prevN = -1; // Exist to prevent table resize on every frame.
     int selectedModelTickIndex = -1;
     int selectedGlobalVarIndex = -1;
@@ -1166,93 +1167,127 @@ static void inputPanel(AppState& app, TabState& tab){
     // === Constraints ===
     ImGui::SeparatorText("Constraints");
 
+    const float minConsEditorHeight = 80.0f;
+    const float maxConsEditorHeight = 360.0f;
+    tab.consEditorHeight = std::clamp(tab.consEditorHeight,
+                                            minConsEditorHeight,
+                                            maxConsEditorHeight);
+
     ImGui::PushFont(codeFont);
-    ImGui::InputTextMultiline("##constraint_script", &state.constraintScript, ImVec2(-1.0f, 120.0f), ImGuiInputTextFlags_AllowTabInput);
+    ImGui::InputTextMultiline("##constraint_script",
+                              &state.constraintScript,
+                              ImVec2(-1.0f, tab.consEditorHeight),
+                              ImGuiInputTextFlags_AllowTabInput);
     ImGui::PopFont();
+    ImVec2 constraintDividerPos = ImGui::GetCursorScreenPos();
+    const float constraintDividerHeight = 8.0f;
+    ImGui::InvisibleButton("##constraint_divider",
+                           ImVec2(ImGui::GetContentRegionAvail().x, constraintDividerHeight),
+                           ImGuiButtonFlags_MouseButtonLeft);
+    const bool constraintDividerHovered = ImGui::IsItemHovered();
+    const bool constraintDividerActive = ImGui::IsItemActive();
+    if (constraintDividerHovered || constraintDividerActive)
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+    if (constraintDividerActive) {
+        tab.consEditorHeight += ImGui::GetIO().MouseDelta.y;
+        tab.consEditorHeight = std::clamp(tab.consEditorHeight,
+                                                minConsEditorHeight,
+                                                maxConsEditorHeight);
+    }
+    ImDrawList* constraintDividerDrawList = ImGui::GetWindowDrawList();
+    const ImU32 constraintDividerColor = constraintDividerActive
+        ? ImGui::GetColorU32(ImGuiCol_SeparatorActive)
+        : (constraintDividerHovered
+            ? ImGui::GetColorU32(ImGuiCol_SeparatorHovered)
+            : ImGui::GetColorU32(ImGuiCol_Separator));
+    const float constraintDividerY = constraintDividerPos.y + constraintDividerHeight * 0.5f;
+    constraintDividerDrawList->AddLine(ImVec2(constraintDividerPos.x, constraintDividerY),
+                                       ImVec2(constraintDividerPos.x + ImGui::GetItemRectSize().x, constraintDividerY),
+                                       constraintDividerColor,
+                                       2.0f);
 
 
     // === Postprocessing ===
-    ImGui::SeparatorText("Postprocessor");
+    if (ImGui::CollapsingHeader("Postprocessor", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::PushFont(codeFont);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4,2));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);
 
-    ImGui::PushFont(codeFont);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4,2));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("X Origin: X[");
+        ImGui::SameLine(0.0f, 0.0f);
 
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("X Origin: X[");
-    ImGui::SameLine(0.0f, 0.0f);
-
-    InputTextAutoWidth("##xTick", state.post.xTick);
-    ImGui::SameLine(0.0f, 0.0f);
-    ImGui::Text("] + ");
-    ImGui::SameLine(0.0f, 0.0f);
-    InputTextAutoWidth("##xAdd", state.post.xAdd);
+        InputTextAutoWidth("##xTick", state.post.xTick);
+        ImGui::SameLine(0.0f, 0.0f);
+        ImGui::Text("] + ");
+        ImGui::SameLine(0.0f, 0.0f);
+        InputTextAutoWidth("##xAdd", state.post.xAdd);
 
 
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("Z Origin: Z[");
-    ImGui::SameLine(0.0f, 0.0f);
-    InputTextAutoWidth("##zTick", state.post.zTick);
-    ImGui::SameLine(0.0f, 0.0f);
-    ImGui::Text("] + ");
-    ImGui::SameLine(0.0f, 0.0f);
-    InputTextAutoWidth("##zAdd", state.post.zAdd);
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("Z Origin: Z[");
+        ImGui::SameLine(0.0f, 0.0f);
+        InputTextAutoWidth("##zTick", state.post.zTick);
+        ImGui::SameLine(0.0f, 0.0f);
+        ImGui::Text("] + ");
+        ImGui::SameLine(0.0f, 0.0f);
+        InputTextAutoWidth("##zAdd", state.post.zAdd);
 
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("Angle Offset (Manual copying section):");
-    ImGui::SameLine(0.0f, 8.0f);
-    const char* offsetModes[] = {"Facing", "Turn"};
-    ImGui::SetNextItemWidth(90.0f);
-    ImGui::Combo("##offsetMode", &state.post.offsetMode, offsetModes, IM_ARRAYSIZE(offsetModes));
-    ImGui::SameLine(0.0f, 8.0f);
-    if (ImGui::Button("Reset")) {
-        std::fill(state.post.angleOffset.begin(), state.post.angleOffset.end(), "0");
-    }
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("X/Z precision:");
+        ImGui::SameLine(0.0f, 8.0f);
+        ImGui::SetNextItemWidth(80.0f);
+        ImGui::InputInt("##positionPrecision", &state.post.positionPrecision);
+        state.post.positionPrecision = std::clamp(state.post.positionPrecision, 3, 10);
 
-    ImGui::BeginChild("angle_offset_region", ImVec2(0, 63.0f), false);
-    if (ImGui::BeginTable("angle_offset_table",
-                          state.n + 1,
-                          ImGuiTableFlags_Borders |
-                          ImGuiTableFlags_RowBg |
-                          ImGuiTableFlags_ScrollX |
-                          ImGuiTableFlags_SizingFixedFit)) {
-        ImGui::TableSetupScrollFreeze(1, 0);
-        const float columnWidth = 50.0f;
-
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(0);
-        centerColumnText("Tick");
-        for (int col = 0; col < state.n; col++) {
-            ImGui::TableSetColumnIndex(col + 1);
-            centerColumnInt(col);
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("Angle Offset (Manual copying section):");
+        ImGui::SameLine(0.0f, 8.0f);
+        const char* offsetModes[] = {"Facing", "Turn"};
+        ImGui::SetNextItemWidth(90.0f);
+        ImGui::Combo("##offsetMode", &state.post.offsetMode, offsetModes, IM_ARRAYSIZE(offsetModes));
+        ImGui::SameLine(0.0f, 8.0f);
+        if (ImGui::Button("Reset")) {
+            std::fill(state.post.angleOffset.begin(), state.post.angleOffset.end(), "0");
         }
 
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(0);
-        centerColumnText("Offset");
-        for (int col = 0; col < state.n; col++) {
-            ImGui::TableSetColumnIndex(col + 1);
-            ImGui::PushID(4000 + col);
-            ImGui::SetNextItemWidth(columnWidth);
-            ImGui::InputText("##angle_offset", &state.post.angleOffset[col]);
-            ImGui::PopID();
+        ImGui::BeginChild("angle_offset_region", ImVec2(0, 63.0f), false);
+        if (ImGui::BeginTable("angle_offset_table",
+                              state.n + 1,
+                              ImGuiTableFlags_Borders |
+                              ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_ScrollX |
+                              ImGuiTableFlags_SizingFixedFit)) {
+            ImGui::TableSetupScrollFreeze(1, 0);
+            const float columnWidth = 50.0f;
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            centerColumnText("Tick");
+            for (int col = 0; col < state.n; col++) {
+                ImGui::TableSetColumnIndex(col + 1);
+                centerColumnInt(col);
+            }
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            centerColumnText("Offset");
+            for (int col = 0; col < state.n; col++) {
+                ImGui::TableSetColumnIndex(col + 1);
+                ImGui::PushID(4000 + col);
+                ImGui::SetNextItemWidth(columnWidth);
+                ImGui::InputText("##angle_offset", &state.post.angleOffset[col]);
+                ImGui::PopID();
+            }
+
+            ImGui::EndTable();
         }
+        ImGui::EndChild();
 
-        ImGui::EndTable();
+        ImGui::PopStyleVar(3);
+        ImGui::PopFont();
     }
-    ImGui::EndChild();
-
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("X/Z precision:");
-    ImGui::SameLine(0.0f, 8.0f);
-    ImGui::SetNextItemWidth(80.0f);
-    ImGui::InputInt("##positionPrecision", &state.post.positionPrecision);
-    state.post.positionPrecision = std::clamp(state.post.positionPrecision, 3, 10);
-
-
-    ImGui::PopStyleVar(3);
-    ImGui::PopFont();
 
     if (ImGui::Button("Optimize!!", ImVec2(-1, 35)))
         runOptimizer(state);
