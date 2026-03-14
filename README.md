@@ -5,8 +5,11 @@
 ## Guide
 
 **1. Model (Drags & Accels Table):** The solver assume you know the movement method in every ticks. Sheepram does the angles only.
+
 **2. Objective function:** The objective you are trying to optimize, `X[n]`? `Z[n]`? or a custom one(write it with the script below)?
+
 **3. Global Variables:** Optional, it is useful for reusing constants, and index relative to something.
+
 **4. Constraints**: You can write constraints with the custom scripting language.
 
 Supported indexed variables:
