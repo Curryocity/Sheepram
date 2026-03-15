@@ -465,9 +465,9 @@ It works by maintaining an approximation $H$ of the inverse Hessian.
 
    The updated Hessian approximation must satisfy the secant equation at the current iteration:
 
-   $$
-   \Delta grad(f) = H \Delta\theta
-   $$
+$$
+\Delta grad(f) = H \Delta \theta
+$$
 
 2. **Symmetry**:
 
