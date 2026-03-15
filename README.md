@@ -122,10 +122,19 @@ Redefining a variable overwrites the old value.
 2. Now, you have basically make your initV an optimizable variable that satisfies. $\epsilon \le initV \le 2V - \epsilon$.
 3. Note that you cannot actually set `initV` to `V` because the variable declare order. You should put in a real number.
 4. **Explanation:** 
-Setting `Drag = 1` makes velocities additive across ticks. 
-Let $z$ be the added velocities (The real/imaginary parts are the X/Z components respectively): $$z = Ve^{i\alpha} + (V - \epsilon)e^{i\beta}$$
-By Triangle Inequality: $$\epsilon \le |z| \le 2V - \epsilon$$
-Also not difficult to find that: $$arg(z) = \frac{\alpha + \beta}{2}$$
+  Setting `Drag = 1` makes velocities additive across ticks. 
+
+    Let $z$ be the added velocities (The real/imaginary parts are the X/Z components respectively): 
+
+    $$z = Ve^{i\alpha} + (V - \epsilon)e^{i\beta}$$
+
+    By Triangle Inequality: 
+
+    $$\epsilon \le |z| \le 2V - \epsilon$$
+
+    Also not difficult to find that: 
+
+    $$arg(z) = \frac{\alpha + \beta}{2}$$
 
 
 ## Installation
