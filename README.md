@@ -118,10 +118,13 @@ Redefining a variable overwrites the old value.
 
 ### Optimizing initV (making initV an optimizable variable)
 
-1. In the model table, set the first column's dragX/Z to 1 and second column's accel to $V - \epsilon$, where $\epsilon$ is a small number like `1e-5` to prevent numerical instability.
-2. Now, you have basically make your initV an optimizable variable that satisfies. $\epsilon \le initV \le 2V - \epsilon$.
-3. Note that you cannot actually set `initV` to `V` because the variable declare order. You should put in a real number.
-4. **Explanation:** 
+1. In the model table, set the first column's `dragX/Z` to `1` and second column's accel to $initV - \epsilon$, where $\epsilon$ is a small number like `1e-5` to prevent numerical instability.
+
+2. Now, you have basically made `initV` an optimizable variable $\delta$ that satisfies
+
+ $$\epsilon \le \delta \le 2 \cdot initV - \epsilon$$
+
+3. **Explanation:** 
   Setting `Drag = 1` makes velocities additive across ticks. 
 
     Let $z$ be the added velocities (The real/imaginary parts are the X/Z components respectively): 
