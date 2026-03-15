@@ -202,7 +202,7 @@ Horizontal velocity follows the following “linear” recurrence relation (with
 
 $$
 \begin{aligned}
-Vx[t + 1] &= drag[t] \cdot Vx[t] + accel[t] \cdot \sin(\theta_t) \
+Vx[t + 1] &= drag[t] \cdot Vx[t] + accel[t] \cdot \sin(\theta_t) \\
 Vz[t + 1] &= drag[t] \cdot Vz[t] + accel[t] \cdot \cos(\theta_t)
 \end{aligned}
 $$
@@ -218,7 +218,7 @@ Position is then obtained by summing the velocity at each tick:
 
 $$
 \begin{aligned}
-X[t] &= X[t-1] + Vx[t-1] \
+X[t] &= X[t-1] + Vx[t-1] \\
 Z[t] &= Z[t-1] + Vz[t-1]
 \end{aligned}
 $$
