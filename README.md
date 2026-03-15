@@ -12,16 +12,20 @@ Sheepram is a tool for solving **Minecraft Onejump angle optimization problems**
   * [Installation](#installation)
   * [User Data Location](#user-data-location)
 * **Technical Section**
-
   * [Project Components](#project-components)
   * [Movement Optimization in Minecraft](#movement-optimization-in-minecraft)
-
     * [1. Building the Movement Model](#1-building-the-movement-model)
     * [2. Objective Function](#2-objective-function)
     * [3. Constraints](#3-constraints)
     * [4. Unknown Variables](#4-unknown-variables)
-    * [5. Scripting Language and Parser](#5-scripting-language-and-parser)
-    * [6. Optimization Algorithm](#6-optimization-algorithm)
+  * [Optimization Algorithm](#optimization-algorithm)
+    * [From Constrained to Unconstrained Optimization](#from-constrained-to-unconstrained-optimization)
+    * [ALM Algorithm (Outer Loop)](#alm-algorithm-outer-loop)
+
+    * [Inner Loop](#inner-loop)
+      * [BGFS](#3-quasi-newton-a-middle-ground)
+      * [Line Search](#line-search)
+    * [Pseudocode](#pseudocode)
   * [Future Prospect](#future-prospect)
 
 
@@ -321,48 +325,11 @@ $$
 
 so numerical differentiation is not needed.
 
-### 5. Scripting Language and Parser
-
-This scripting language is parsed using a **Pratt parser** (the reference I used at the time was [Simple but Powerful Pratt Parsing](https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html)).
-
-Supported operations include:
-
-* addition and subtraction
-* multiplication and division by constants
-* parentheses
-* comparison operators
-* built-in indexed physics variables
-
-The constraint language supports the following indexed variables:
-
-| Variable | Meaning                  |
-| -------- | ------------------------ |
-| `X[i]`   | X position at tick i     |
-| `Z[i]`   | Z position at tick i     |
-| `Vx[i]`  | X velocity at tick i     |
-| `Vz[i]`  | Z velocity at tick i     |
-| `F[i]`   | Facing angle (degrees)   |
-| `T[i]`   | Turn angle between ticks |
-
-For example:
-
-```txt
-X[7] - X[0] > 0.4375
-T[3] < 45
-```
-
-where
-
-* `F[i]` represents the facing direction
-* `T[i] = F[i+1] - F[i]` represents the turn between adjacent ticks
-
-To preserve the symbolic structure, **nonlinear multiplication is not allowed**. Otherwise, expressions such as $\sin(\theta) \cdot \cos(\theta)$ would introduce data types the system is not designed to handle.
-
-### 6. Optimization Algorithm
+## Optimization Algorithm
 
 **Overall idea:** Convert the constrained problem into an unconstrained one, then optimize it using methods such as gradient descent, quasi-Newton methods, or Newton’s method.
 
-#### From Constrained to Unconstrained Optimization
+### From Constrained to Unconstrained Optimization
 
 Consider a constrained optimization problem:
 
@@ -382,7 +349,7 @@ $$
 At the optimal solution, the **KKT conditions** must hold.
 **However, directly solving the KKT system is often difficult in practice**, so the multipliers $\lambda_i$ are not easy to solve for directly.
 
-### Candidate Alternative: Penalty Method
+#### Candidate Alternative: Penalty Method
 
 One idea is to introduce a **penalty term** $\rho$ to penalize solutions that violate the constraints:
 
@@ -392,7 +359,7 @@ $$
 
 But this has a major drawback: when $\rho$ becomes large, the optimization problem becomes **numerically ill-conditioned**, and convergence becomes unstable.
 
-### Augmented Lagrangian Method (ALM)
+#### Augmented Lagrangian Method (ALM)
 
 The **Augmented Lagrangian Method** combines the ideas of the penalty method and Lagrange multipliers.
 
@@ -545,11 +512,7 @@ Line search is important in practice because it helps prevent divergence when th
 
 In my project, I use a weaker line search implementation than SciPy: its zoom phase mainly uses binary search instead of polynomial interpolation. I will not go into those details here.
 
-### Algorithm Summary
-
-Sheepram uses an **Augmented Lagrangian outer loop** together with a **BFGS inner loop** to solve the constrained optimization problem.
-
-#### Pseudocode
+### Pseudocode
 
 ```text
 initialize θ, λ, rho
