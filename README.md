@@ -255,7 +255,7 @@ From the perspective of stratfinding, Minecraft jumps can roughly be divided int
 
 One major reason constraints are needed is precisely to describe Neo problems. Intuitively, we want the player to go around a wall and then move as far left (negative $X$) as possible after passing it.
 
-**A missing image of c4.5 p2p in-game with path visualization**
+> **A missing image of c4.5 p2p in-game with path visualization**
 
 The constraints are used to **encode** what it means to “go around the wall.” In the example above, this can be written as:
 
