@@ -107,23 +107,7 @@ The postprocessor lets you:
 
 ## Tips
 
-### Resizing
-
-* You can resize the constraint panel vertically.
-* You can drag the divider between the input and output panels.
-
-### Table insertion / deletion
-
-You can select a slot in the table (both in the model table and the global variables table), then press the `+` or `-` button.
-
-* On the model table, `+` duplicates the selected column.
-* On the global variables table, `+` inserts an empty column.
-
-### Plot hover
-
-Hovering over a plotted point shows information for that tick.
-
-### Global variable declaration order
+#### Global variable declaration order
 
 Variables are declared in the following order:
 
@@ -131,6 +115,18 @@ Variables are declared in the following order:
 
 A later variable may use previously defined variables.
 Redefining a variable overwrites the old value.
+
+#### Optimizing initV (making initV an optimizable variable)
+
+1. In the model table, set the first column's dragX/Z to 1 and second column's accel to $V - \epsilon$, where $\epsilon$ is a small number like `1e-5` to prevent numerical instability.
+2. Now, you have basically make your initV an optimizable variable that satisfies. $\epsilon \le initV \le 2V - \epsilon$.
+3. Note that you cannot actually set `initV` to `V` because the variable declare order. You should put in a real number.
+4. **Explanation:** 
+Setting `Drag = 1` makes velocities additive across ticks. 
+Let $z$ be the added velocities (The real/imaginary parts are the X/Z components respectively): $$z = Ve^{i\alpha} + (V - \epsilon)e^{i\beta}$$
+By Triangle Inequality: $$\epsilon \le |z| \le 2V - \epsilon$$
+Also not difficult to find that: $$arg(z) = \frac{\alpha + \beta}{2}$$
+
 
 ## Installation
 
