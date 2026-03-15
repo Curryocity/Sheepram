@@ -233,7 +233,6 @@ $$
 
 where
 
-* $t$ is measured in game ticks; in real time, 1 second = 20 ticks
 * $\theta_t$ is the player’s facing angle at tick $t$
 * $drag[t]$ depends on block slipperiness
 * $accel[t]$ depends on the player’s movement state (ground, air, sprint, etc.)
@@ -326,7 +325,7 @@ so numerical differentiation is not needed.
 
 ## Optimization Algorithm
 
-**Overall idea:** Convert the constrained problem into an unconstrained one, then optimize it using methods such as gradient descent, quasi-Newton methods, or Newton’s method.
+> **Overall idea:** Convert the constrained problem into an unconstrained one, then optimize it using methods such as gradient descent, quasi-Newton methods, or Newton’s method.
 
 ### From Constrained to Unconstrained Optimization
 
