@@ -392,8 +392,6 @@ where $\lambda_i$ are the Lagrange multipliers and $\rho$ is the penalty paramet
 
 ### ALM Algorithm (Outer Loop)
 
-This algorithm alternates between two main steps:
-
 #### Step 1: Solve the unconstrained subproblem
 
 For fixed multipliers $\lambda$ and penalty parameter $\rho$, minimize
@@ -463,10 +461,10 @@ It works by maintaining an approximation $H$ of the inverse Hessian.
 
 1. **Secant condition**:
 
-   The updated Hessian approximation must satisfy the secant equation at the current iteration:
+   The updated inverse Hessian approximation must satisfy the secant equation at the current iteration:
 
 $$
-\Delta grad(f) = H \Delta \theta
+H \Delta grad(f) = \Delta \theta
 $$
 
 2. **Symmetry**:
