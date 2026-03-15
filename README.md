@@ -556,7 +556,7 @@ return θ, trajectory, objective value
 
 1. **Significant angles**: Minecraft angles are not truly continuous. Minecraft’s trigonometric functions rely on a lookup table with 65,536 precomputed values.
 
-```txt
+```cpp
 static void init(){
     for (int i = 0; i < 65536; ++i)
         SIN_TABLE[i] = std::sin(i * PId * 2.0 / 65536.0);
