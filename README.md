@@ -21,7 +21,6 @@ Sheepram is a tool for solving **Minecraft Onejump angle optimization problems**
   * [Optimization Algorithm](#optimization-algorithm)
     * [From Constrained to Unconstrained Optimization](#from-constrained-to-unconstrained-optimization)
     * [ALM Algorithm (Outer Loop)](#alm-algorithm-outer-loop)
-
     * [Inner Loop](#inner-loop)
       * [BGFS](#3-quasi-newton-a-middle-ground)
       * [Line Search](#line-search)
