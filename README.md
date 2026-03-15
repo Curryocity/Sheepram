@@ -347,7 +347,7 @@ Consider a constrained optimization problem:
 
 $$
 \begin{aligned}
-\min_{\theta} \quad & f(\theta) \
+\min_{\theta} \quad & f(\theta) \\
 \text{subject to} \quad & g_i(\theta) \le 0
 \end{aligned}
 $$
