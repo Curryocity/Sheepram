@@ -118,7 +118,7 @@ Redefining a variable overwrites the old value.
 
 ### Optimizing initV (making initV an optimizable variable)
 
-1. In the model table, set the 1st column's`dragX/Z`to`1`and 2nd column's`accel`to $initV - \epsilon$, where $\epsilon$ is a small number like `1e-5` to prevent numerical instability.
+1. In the model table, set the 1st column's `dragX/Z` to `1` and 2nd column's `accel` to $initV - \epsilon$, where $\epsilon$ is a small number like `1e-5` to prevent numerical instability.
 
 2. Now, you have basically made `initV` an optimizable variable $\delta$ that satisfies
 
