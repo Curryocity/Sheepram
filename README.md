@@ -107,7 +107,7 @@ The postprocessor lets you:
 
 ## Tips
 
-#### Global variable declaration order
+### Global variable declaration order
 
 Variables are declared in the following order:
 
@@ -116,7 +116,7 @@ Variables are declared in the following order:
 A later variable may use previously defined variables.
 Redefining a variable overwrites the old value.
 
-#### Optimizing initV (making initV an optimizable variable)
+### Optimizing initV (making initV an optimizable variable)
 
 1. In the model table, set the first column's dragX/Z to 1 and second column's accel to $V - \epsilon$, where $\epsilon$ is a small number like `1e-5` to prevent numerical instability.
 2. Now, you have basically make your initV an optimizable variable that satisfies. $\epsilon \le initV \le 2V - \epsilon$.
