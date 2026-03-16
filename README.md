@@ -135,7 +135,9 @@ Redefining a variable overwrites the old value.
 
     $$\epsilon \le |z| \le 2V - \epsilon$$
 
-    Also not difficult to find that: 
+    Also not difficult to see that $arg(z)$ could span a whole rotation. 
+
+    In fact, when  $\epsilon = 0$:
 
     $$arg(z) = \frac{\alpha + \beta}{2}$$
 
