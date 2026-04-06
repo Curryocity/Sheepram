@@ -12,7 +12,6 @@ binary_path="$3"
 version="${VERSION:-dev}"
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
 asset_dir="$root_dir/asset"
-presets_dir="$root_dir/presets"
 dist_dir="$root_dir/dist"
 app_name="Sheepram"
 mac_icon_icns="$asset_dir/icon/app.icns"
@@ -216,13 +215,7 @@ case "$platform" in
     if [ -f "$mac_icon_icns" ]; then
       cp "$mac_icon_icns" "$bundle_dir/Contents/Resources/app.icns"
     fi
-    if [ -d "$presets_dir" ]; then
-      cp -R "$presets_dir" "$bundle_dir/Contents/Resources/"
-    fi
     find "$bundle_dir/Contents/Resources/asset" -name '.DS_Store' -delete
-    if [ -d "$bundle_dir/Contents/Resources/presets" ]; then
-      find "$bundle_dir/Contents/Resources/presets" -name '.DS_Store' -delete
-    fi
 
     icon_plist=""
     if [ -f "$mac_icon_icns" ]; then
@@ -287,9 +280,6 @@ exec "\$ROOT_DIR/${app_name}.bin" "\$@"
 LAUNCH
     chmod +x "$stage_dir/$app_name"
     cp -R "$asset_dir" "$stage_dir/"
-    if [ -d "$presets_dir" ]; then
-      cp -R "$presets_dir" "$stage_dir/"
-    fi
     cat > "$stage_dir/${app_name}.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
@@ -301,9 +291,6 @@ Categories=Utility;
 DESKTOP
     chmod +x "$stage_dir/${app_name}.desktop"
     find "$stage_dir/asset" -name '.DS_Store' -delete
-    if [ -d "$stage_dir/presets" ]; then
-      find "$stage_dir/presets" -name '.DS_Store' -delete
-    fi
 
     tar -C "$dist_dir" -czf "$dist_dir/${app_name}-${version}-linux-${arch}.tar.gz" "${app_name}-${version}-linux-${arch}"
     echo "Created $dist_dir/${app_name}-${version}-linux-${arch}.tar.gz"
@@ -317,13 +304,7 @@ DESKTOP
     cp "$binary_path" "$stage_dir/${app_name}.exe"
     copy_windows_dlls "$stage_dir/${app_name}.exe" "$stage_dir"
     cp -R "$asset_dir" "$stage_dir/"
-    if [ -d "$presets_dir" ]; then
-      cp -R "$presets_dir" "$stage_dir/"
-    fi
     find "$stage_dir/asset" -name '.DS_Store' -delete
-    if [ -d "$stage_dir/presets" ]; then
-      find "$stage_dir/presets" -name '.DS_Store' -delete
-    fi
 
     (
       cd "$dist_dir"

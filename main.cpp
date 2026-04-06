@@ -134,6 +134,12 @@ static void glfw_error_callback(int error, const char* description) {
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 
+static double wrapDegrees180(double deg) {
+    double wrapped = std::fmod(deg + 180.0, 360.0);
+    if (wrapped < 0) wrapped += 360.0;
+    return wrapped - 180.0;
+}
+
 static void applyTheme(AppState::Theme theme);
 static ImFont* codeFont = nullptr;
 static ImFont* bigCodeFont = nullptr;
@@ -1508,9 +1514,7 @@ static void outputPanel(TabState& tab){
     std::vector<double> facings(T, 0.0);
     for (int t = 0; t < (int)sol.thetas.size(); t++) {
         double deg = sol.thetas[t] * 180.0 / std::numbers::pi_v<double>;
-        double wrapped = std::fmod(deg + 180.0, 360.0);
-        if (wrapped < 0) wrapped += 360.0;
-        wrapped -= 180.0;
+        double wrapped = wrapDegrees180(deg);
 
         wrapped = std::round(200.0 * wrapped) * 0.005;
 
@@ -1525,7 +1529,7 @@ static void outputPanel(TabState& tab){
 
     std::vector<std::string> turns(T, "-");
     for (int t = 0; t < T - 2; t++) {
-        double d = facings[t + 1] - facings[t];
+        double d = wrapDegrees180(facings[t + 1] - facings[t]);
         turns[t] = fmt_double(d, anglePrecision);
     }
 
@@ -1623,25 +1627,23 @@ static void outputPanel(TabState& tab){
     ImGui::Spacing();
 
     auto formatFacingList = [&](const std::vector<double>& Fs){
-        std::string s = "{";
+        std::string s;
         for (int i = 0; i < (int)Fs.size() - 1; i++) {
             if (i) s += ", ";
             double f = Fs[i] + state.angleOffset[i];
             s += fmt_double(f, anglePrecision);
         }
-        s += "}";
         return s;
     };
 
     auto formatTurnList = [&](const std::vector<double>& Fs){
-        std::string s = "{";
+        std::string s;
         for (int i = 0; i + 1 < (int)Fs.size() - 1; i++) {
             if (i) s += ", ";
             double f0 = Fs[i] + state.angleOffset[i];
             double f1 = Fs[i + 1] + state.angleOffset[i + 1];
-            s += fmt_double(f1 - f0, anglePrecision);
+            s += fmt_double(wrapDegrees180(f1 - f0), anglePrecision);
         }
-        s += "}";
         return s;
     };
 

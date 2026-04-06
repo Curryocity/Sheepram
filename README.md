@@ -162,7 +162,6 @@ Keep all shipped files in the extracted folder:
 
 * `Sheepram.exe`
 * `asset/`
-* `presets/`
 * bundled `.dll` files
 
 ### Known Issues (Windows)

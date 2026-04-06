@@ -29,7 +29,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sheepram-macos-arm64
-          path: dist/*.zip
+          path: dist/Sheepram-*-macos-arm64/
 
   macos-x86_64:
     name: macOS x86_64
@@ -53,7 +53,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sheepram-macos-x86_64
-          path: dist/*.zip
+          path: dist/Sheepram-*-macos-x86_64/
 
   linux-x86_64:
     name: Linux x86_64
@@ -160,4 +160,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sheepram-windows-x86_64
-          path: dist/*.zip
+          path: dist/Sheepram-*-windows-x86_64/
