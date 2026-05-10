@@ -86,6 +86,8 @@ struct Environment {
         std::vector<std::string> angleOffset = {"0"};
         enum offsetType{Facing = 0, Turn = 1};
         int offsetMode = Facing;
+        enum separatorType{Comma = 0, Space = 1, Newline = 2};
+        int copySeparator = Comma;
         int positionPrecision = 6;
     } post;
 
@@ -707,7 +709,16 @@ static void InputTextAutoWidth(const char* id, std::string& str, float minW = 10
     ImGui::InputText(id, &str);
 }
 
-static void readOnlyBlock(const char* label, const std::string& text, float height = 70.0f, bool copyButtonQ = false){
+static const char* copySeparatorText(int copySeparator) {
+    switch (copySeparator) {
+        case Environment::Post::Space: return " ";
+        case Environment::Post::Newline: return "\n";
+        case Environment::Post::Comma:
+        default: return ",";
+    }
+}
+
+static void readOnlyBlock(const char* label, const std::string& text, float height = 70.0f, bool copyButtonQ = false, const std::string* copyText = nullptr){
     ImGui::AlignTextToFramePadding();
     ImGui::PushFont(uiFont);
     ImGui::TextUnformatted(label);
@@ -715,7 +726,7 @@ static void readOnlyBlock(const char* label, const std::string& text, float heig
     if (copyButtonQ){
         ImGui::SameLine();
         if (ImGui::Button((std::string("Copy##") + label).c_str()))
-            ImGui::SetClipboardText(text.c_str());
+            ImGui::SetClipboardText(copyText ? copyText->c_str() : text.c_str());
     }
     ImGui::PopFont();
 
@@ -1634,20 +1645,20 @@ static void outputPanel(TabState& tab){
     ImGui::Spacing();
     ImGui::Spacing();
 
-    auto formatFacingList = [&](const std::vector<double>& Fs){
+    auto formatFacingList = [&](const std::vector<double>& Fs, const char* separator){
         std::string s;
         for (int i = 0; i < (int)Fs.size() - 1; i++) {
-            if (i) s += ", ";
+            if (i) s += separator;
             double f = Fs[i] + state.angleOffset[i];
             s += fmt_double(f, anglePrecision);
         }
         return s;
     };
 
-    auto formatTurnList = [&](const std::vector<double>& Fs){
+    auto formatTurnList = [&](const std::vector<double>& Fs, const char* separator){
         std::string s;
         for (int i = 0; i + 1 < (int)Fs.size() - 1; i++) {
-            if (i) s += ", ";
+            if (i) s += separator;
             double f0 = Fs[i] + state.angleOffset[i];
             double f1 = Fs[i + 1] + state.angleOffset[i + 1];
             s += fmt_double(wrapDegrees180(f1 - f0), anglePrecision);
@@ -1655,16 +1666,29 @@ static void outputPanel(TabState& tab){
         return s;
     };
 
-    std::string facingList = formatFacingList(facings);
-    std::string turnList = formatTurnList(facings);
+    const char* displaySeparator = ", ";
+    const char* copySeparator = copySeparatorText(state.post.copySeparator);
+    std::string facingList = formatFacingList(facings, displaySeparator);
+    std::string turnList = formatTurnList(facings, displaySeparator);
+    std::string copiedFacingList = formatFacingList(facings, copySeparator);
+    std::string copiedTurnList = formatTurnList(facings, copySeparator);
     ImVec2 plotViewportSize = computeXZPlotViewportSize(xvals, zvals);
     const float plotCanvasWidth = computeXZPlotCanvasWidth(xvals, zvals, plotViewportSize.x, plotViewportSize.y);
     plotViewportSize.x += 25.0f;
     plotViewportSize.y += 50.0f;
 
-    readOnlyBlock("Facing", facingList, 30.0f, true);
+    readOnlyBlock("Facing", facingList, 30.0f, true, &copiedFacingList);
     ImGui::Spacing();
-    readOnlyBlock("Turn", turnList, 30.0f, true);
+    readOnlyBlock("Turn", turnList, 30.0f, true, &copiedTurnList);
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::PushFont(uiFont);
+    ImGui::Text("Separator for copied angles:");
+    ImGui::SameLine(0.0f, 8.0f);
+    const char* separatorOptions[] = {"comma", "space", "\\n"};
+    ImGui::SetNextItemWidth(90.0f);
+    ImGui::Combo("##copySeparator", &state.post.copySeparator, separatorOptions, IM_ARRAYSIZE(separatorOptions));
+    ImGui::PopFont();
 
     ImGui::Spacing();
     ImGui::Spacing();
@@ -1952,6 +1976,7 @@ static json buildTabJson(const TabState& tab) {
             {"zAdd", e.post.zAdd},
             {"angleOffset", e.post.angleOffset},
             {"offsetMode", e.post.offsetMode},
+            {"copySeparator", e.post.copySeparator},
             {"positionPrecision", e.post.positionPrecision},
         }}
     };
@@ -2102,6 +2127,12 @@ static bool loadTabFromJson(TabState& tab, const json& j, std::string& err) {
             if (loaded.post.offsetMode < Environment::Post::Facing ||
                 loaded.post.offsetMode > Environment::Post::Turn) {
                 err = "Invalid field: post.offsetMode";
+                return false;
+            }
+            loaded.post.copySeparator = post.value("copySeparator", loaded.post.copySeparator);
+            if (loaded.post.copySeparator < Environment::Post::Comma ||
+                loaded.post.copySeparator > Environment::Post::Newline) {
+                err = "Invalid field: post.copySeparator";
                 return false;
             }
             loaded.post.positionPrecision = post.value("positionPrecision", loaded.post.positionPrecision);
