@@ -1215,37 +1215,45 @@ static void inputPanel(AppState& app, TabState& tab){
 
     // === Postprocessing ===
     if (ImGui::CollapsingHeader("Postprocessor", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::PushFont(codeFont);
+        // ImGui::PushFont(codeFont);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4,2));
         ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);
 
         ImGui::AlignTextToFramePadding();
-        ImGui::Text("X Origin: X[");
+        ImGui::Text("X Origin:");
         ImGui::SameLine(0.0f, 0.0f);
-
+        ImGui::PushFont(codeFont);
+        ImGui::Text(" X[");
+        ImGui::SameLine(0.0f, 0.0f);
         InputTextAutoWidth("##xTick", state.post.xTick);
         ImGui::SameLine(0.0f, 0.0f);
         ImGui::Text("] + ");
         ImGui::SameLine(0.0f, 0.0f);
         InputTextAutoWidth("##xAdd", state.post.xAdd);
-
+        ImGui::PopFont();
 
         ImGui::AlignTextToFramePadding();
-        ImGui::Text("Z Origin: Z[");
+        ImGui::Text("Z Origin:");
+        ImGui::SameLine(0.0f, 0.0f);
+        ImGui::PushFont(codeFont);
+        ImGui::Text(" Z[");
         ImGui::SameLine(0.0f, 0.0f);
         InputTextAutoWidth("##zTick", state.post.zTick);
         ImGui::SameLine(0.0f, 0.0f);
         ImGui::Text("] + ");
         ImGui::SameLine(0.0f, 0.0f);
         InputTextAutoWidth("##zAdd", state.post.zAdd);
+        ImGui::PopFont();
 
         ImGui::AlignTextToFramePadding();
         ImGui::Text("X/Z precision:");
         ImGui::SameLine(0.0f, 8.0f);
         ImGui::SetNextItemWidth(80.0f);
+        ImGui::PushFont(codeFont);
         ImGui::InputInt("##positionPrecision", &state.post.positionPrecision);
         state.post.positionPrecision = std::clamp(state.post.positionPrecision, 3, 10);
+        ImGui::PopFont();
 
         ImGui::AlignTextToFramePadding();
         ImGui::Text("Angle Offset (Manual copying section):");
@@ -1292,7 +1300,7 @@ static void inputPanel(AppState& app, TabState& tab){
         ImGui::EndChild();
 
         ImGui::PopStyleVar(3);
-        ImGui::PopFont();
+        // ImGui::PopFont();
     }
 
     if (ImGui::Button("Optimize!!", ImVec2(-1, 35)))
