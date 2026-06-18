@@ -153,7 +153,7 @@ optimizer::Solution optimizer::optimize(const Model& model, const Problem& prob)
     sin_cache.assign(n, 0.0);
     cos_cache.assign(n, 0.0);
 
-    std::vector<double> thetas(n, 0.0);
+    std::vector<double> thetas(n, 45);
     std::vector<double> lamb(prob.ineqCons.size(), 0.0); // "lambda" in inequality
     std::vector<double> nu(prob.eqCons.size(), 0.0);     // "nu" in equality
     double pen = 1.0;  // Penalty for "A" in "ALM"
