@@ -12,6 +12,7 @@ binary_path="$3"
 version="${VERSION:-dev}"
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
 asset_dir="$root_dir/asset"
+preset_dir="$root_dir/presets"
 dist_dir="$root_dir/dist"
 app_name="Sheepram"
 mac_icon_icns="$asset_dir/icon/app.icns"
@@ -212,6 +213,7 @@ case "$platform" in
     chmod +x "$bundle_dir/Contents/MacOS/$app_name"
     bundle_macos_glfw "$bundle_dir/Contents/MacOS/$app_name" "$bundle_dir/Contents/Frameworks"
     cp -R "$asset_dir" "$bundle_dir/Contents/Resources/"
+    cp -R "$preset_dir" "$bundle_dir/Contents/Resources/"
     if [ -f "$mac_icon_icns" ]; then
       cp "$mac_icon_icns" "$bundle_dir/Contents/Resources/app.icns"
     fi
@@ -280,6 +282,7 @@ exec "\$ROOT_DIR/${app_name}.bin" "\$@"
 LAUNCH
     chmod +x "$stage_dir/$app_name"
     cp -R "$asset_dir" "$stage_dir/"
+    cp -R "$preset_dir" "$stage_dir/"
     cat > "$stage_dir/${app_name}.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
@@ -304,6 +307,7 @@ DESKTOP
     cp "$binary_path" "$stage_dir/${app_name}.exe"
     copy_windows_dlls "$stage_dir/${app_name}.exe" "$stage_dir"
     cp -R "$asset_dir" "$stage_dir/"
+    cp -R "$preset_dir" "$stage_dir/"
     find "$stage_dir/asset" -name '.DS_Store' -delete
 
     (

@@ -14,17 +14,18 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+      - uses: laytan/setup-odin@v2
+        with:
+          release: false
       - name: Restore build cache
         uses: actions/cache@v5
         with:
           path: build
-          key: ${{ runner.os }}-arm64-build-${{ hashFiles('Makefile', 'main.cpp', 'parser.cpp', 'parser.hpp', 'optimizer.cpp', 'optimizer.hpp', 'imgui/**/*.cpp', 'imgui/**/*.h', 'thirdParty/nfd/src/**') }}
+          key: ${{ runner.os }}-arm64-odin-${{ hashFiles('Makefile', 'src/**/*.odin', 'third_party/nfd/src/**', '.gitmodules') }}
           restore-keys: |
             ${{ runner.os }}-arm64-build-
-      - name: Install deps
-        run: brew install glfw
       - name: Package
-        run: make package-macos-arm64 VERSION="${GITHUB_REF_NAME}" ENABLE_LTO=1
+        run: make package-macos-arm64 VERSION="${GITHUB_REF_NAME}"
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
@@ -38,17 +39,18 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+      - uses: laytan/setup-odin@v2
+        with:
+          release: false
       - name: Restore build cache
         uses: actions/cache@v5
         with:
           path: build
-          key: ${{ runner.os }}-x86_64-build-${{ hashFiles('Makefile', 'main.cpp', 'parser.cpp', 'parser.hpp', 'optimizer.cpp', 'optimizer.hpp', 'imgui/**/*.cpp', 'imgui/**/*.h', 'thirdParty/nfd/src/**') }}
+          key: ${{ runner.os }}-x86_64-odin-${{ hashFiles('Makefile', 'src/**/*.odin', 'third_party/nfd/src/**', '.gitmodules') }}
           restore-keys: |
             ${{ runner.os }}-x86_64-build-
-      - name: Install deps
-        run: brew install glfw
       - name: Package
-        run: make package-macos-x86_64 VERSION="${GITHUB_REF_NAME}" ENABLE_LTO=1
+        run: make package-macos-x86_64 VERSION="${GITHUB_REF_NAME}"
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
@@ -62,19 +64,22 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+      - uses: laytan/setup-odin@v2
+        with:
+          release: false
       - name: Restore build cache
         uses: actions/cache@v5
         with:
           path: build
-          key: ${{ runner.os }}-x86_64-build-${{ hashFiles('Makefile', 'main.cpp', 'parser.cpp', 'parser.hpp', 'optimizer.cpp', 'optimizer.hpp', 'imgui/**/*.cpp', 'imgui/**/*.h', 'thirdParty/nfd/src/**') }}
+          key: ${{ runner.os }}-x86_64-odin-${{ hashFiles('Makefile', 'src/**/*.odin', 'third_party/nfd/src/**', '.gitmodules') }}
           restore-keys: |
             ${{ runner.os }}-x86_64-build-
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libglfw3-dev libgtk-3-dev libgl1-mesa-dev
+          sudo apt-get install -y build-essential pkg-config libglfw3-dev libgtk-3-dev libgl1-mesa-dev python3
       - name: Package
-        run: make package-linux-x86_64 VERSION="${GITHUB_REF_NAME}" ENABLE_LTO=1
+        run: make package-linux-x86_64 VERSION="${GITHUB_REF_NAME}"
       - name: Verify packaged Linux runtime libs
         run: |
           set -euo pipefail
@@ -108,6 +113,9 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+      - uses: laytan/setup-odin@v2
+        with:
+          release: false
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -116,19 +124,19 @@ jobs:
           install: >-
             make
             mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-glfw
             mingw-w64-x86_64-gtk3
+            python
             zip
             unzip
       - name: Restore build cache
         uses: actions/cache@v5
         with:
           path: build
-          key: ${{ runner.os }}-x86_64-build-${{ hashFiles('Makefile', 'main.cpp', 'parser.cpp', 'parser.hpp', 'optimizer.cpp', 'optimizer.hpp', 'imgui/**/*.cpp', 'imgui/**/*.h', 'thirdParty/nfd/src/**') }}
+          key: ${{ runner.os }}-x86_64-odin-${{ hashFiles('Makefile', 'src/**/*.odin', 'third_party/nfd/src/**', '.gitmodules') }}
           restore-keys: |
             ${{ runner.os }}-x86_64-build-
       - name: Package
-        run: make package-windows-x86_64 VERSION="${GITHUB_REF_NAME}" ENABLE_LTO=1
+        run: make package-windows-x86_64 VERSION="${GITHUB_REF_NAME}"
       - name: Verify packaged Windows DLLs
         run: |
           set -euo pipefail
