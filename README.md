@@ -1,5 +1,7 @@
 # Sheepram
 
+> This repository is the Odin port of Original Sheepram in C++. 
+
 ![Sheepram Icon](readmeResource/Sheepram.png)
 
 Sheepram is a tool for solving **Minecraft Onejump angle optimization problems**. With custom language and numerical optimizer written entirely from scratch.
@@ -11,6 +13,7 @@ Sheepram is a tool for solving **Minecraft Onejump angle optimization problems**
   * [Tips](#tips)
   * [Installation](#installation)
   * [User Data Location](#user-data-location)
+  * [Build](#build)
 * **Technical Section**
   * [Project Components](#project-components)
   * [Movement Optimization in Minecraft](#movement-optimization-in-minecraft)
@@ -212,6 +215,21 @@ Sheepram stores preferences and presets in the user data directory:
 * Windows: `%APPDATA%\Sheepram`
 * Linux: `~/.local/share/Sheepram`
 
+## Build and run from source
+
+**Build:**
+
+```sh
+make imgui-deps
+make debug
+```
+
+**Run:**
+```sh
+./build/Sheepram
+```
+
+
 ---
 
 # Technical Section
@@ -220,9 +238,10 @@ Sheepram stores preferences and presets in the user data directory:
 
 The system consists of three main components:
 
-- **Numerical optimization engine**: `optimizer.cpp / optimizer.hpp`
-- **Expression parser (DSL compiler)**: `parser.cpp / parser.hpp`
-- **GUI built with Dear ImGui**: `main.cpp`
+- **Numerical optimization engine**: `src/optimizer/optimizer.odin`
+- **Expression parser (DSL compiler)**: `src/parser/parser.odin`
+- **Application startup and rendering loop**: `src/main.odin`
+- **GUI built with Dear ImGui**: `src/app/gui.odin`
 
 ## Movement Optimization in Minecraft
 
@@ -575,4 +594,3 @@ could be reduced to a single line of script:
 ```Sheepram
 initV(0.3169516131491288) sj sa.wa(11)
 ```
-

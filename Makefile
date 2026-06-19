@@ -1,193 +1,52 @@
-CXX ?= c++
-TARGET := main
-APP_NAME ?= Sheepram
+ODIN ?= odin
+PYTHON ?= python3
+TARGET ?= Sheepram
 VERSION ?= dev
-ENABLE_LTO ?= 0
 UNAME_S := $(shell uname -s)
-ARCH ?= $(shell uname -m)
-BUILD_DIR := build/$(UNAME_S)-$(ARCH)
-PKG_CONFIG ?= pkg-config
-WINDRES ?= windres
-
-SRC := \
-	main.cpp \
-	optimizer.cpp \
-	parser.cpp \
-	imgui/imgui.cpp \
-	imgui/imgui_draw.cpp \
-	imgui/imgui_widgets.cpp \
-	imgui/imgui_tables.cpp \
-	imgui/backends/imgui_impl_glfw.cpp \
-	imgui/backends/imgui_impl_opengl3.cpp \
-	imgui/misc/cpp/imgui_stdlib.cpp
-
-# Platform-specific NFD backend
-ifeq ($(UNAME_S),Darwin)
-SRC += thirdParty/nfd/src/nfd_cocoa.m
-endif
-ifeq ($(UNAME_S),Linux)
-SRC += thirdParty/nfd/src/nfd_gtk.cpp
-endif
-ifneq (,$(findstring MINGW,$(UNAME_S)))
-SRC += thirdParty/nfd/src/nfd_win.cpp
-endif
-ifneq (,$(findstring MSYS,$(UNAME_S)))
-SRC += thirdParty/nfd/src/nfd_win.cpp
-endif
-ifeq ($(OS),Windows_NT)
-ifeq (,$(findstring MINGW,$(UNAME_S)))
-ifeq (,$(findstring MSYS,$(UNAME_S)))
-SRC += thirdParty/nfd/src/nfd_win.cpp
-endif
-endif
-endif
-
-OBJ := $(addprefix $(BUILD_DIR)/,$(patsubst %.cpp,%.o,$(patsubst %.m,%.o,$(SRC))))
-DEP := $(OBJ:.o=.d)
-EXTRA_OBJ :=
-
-CPPFLAGS := -Iimgui -Iimgui/backends -IthirdParty/nfd/src/include
-CXXFLAGS := -std=c++20 -Wall -Wextra -MMD -MP -ffp-contract=off
-OBJCFLAGS := -Wall -Wextra -MMD -MP
-LDLIBS := -lglfw
-RELEASE_CXXFLAGS :=
-RELEASE_OBJCFLAGS :=
-RELEASE_LDFLAGS :=
-STRIP_CMD :=
-
-ifeq ($(UNAME_S),Darwin)
-CXX := clang++
-ifeq ($(ARCH),x86_64)
-BREW_PREFIX ?= /usr/local
-else
-BREW_PREFIX ?= /opt/homebrew
-endif
-CPPFLAGS += -I$(BREW_PREFIX)/include -DGL_SILENCE_DEPRECATION
-CXXFLAGS += -arch $(ARCH)
-OBJCFLAGS += -arch $(ARCH)
-LDFLAGS += -L$(BREW_PREFIX)/lib \
-	-arch $(ARCH) \
-	-framework OpenGL \
-	-framework Cocoa \
-	-framework IOKit \
-	-framework CoreVideo \
-	-framework UniformTypeIdentifiers
-RELEASE_LDFLAGS += -Wl,-dead_strip
-STRIP_CMD = strip -x $(BUILD_DIR)/$(TARGET)
-endif
+ODIN_LINK_FLAGS :=
 
 ifeq ($(UNAME_S),Linux)
-GTK_CFLAGS := $(shell $(PKG_CONFIG) --cflags gtk+-3.0 2>/dev/null)
-GTK_LIBS := $(shell $(PKG_CONFIG) --libs gtk+-3.0 2>/dev/null)
-CPPFLAGS += $(GTK_CFLAGS)
-LDLIBS += $(GTK_LIBS) -lGL -ldl -lpthread
-RELEASE_LDFLAGS += -Wl,--gc-sections
-STRIP_CMD = strip --strip-unneeded $(BUILD_DIR)/$(TARGET)
+ODIN_LINK_FLAGS += -extra-linker-flags:"$(shell pkg-config --libs gtk+-3.0)"
 endif
 
-ifneq (,$(findstring MINGW,$(UNAME_S)))
-LDLIBS := $(filter-out -lglfw,$(LDLIBS))
-LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
-EXTRA_OBJ += $(BUILD_DIR)/resources/windows/app_icon.o
-RELEASE_LDFLAGS += -Wl,--gc-sections
-STRIP_CMD = strip --strip-unneeded $(BUILD_DIR)/$(TARGET)
-endif
-ifneq (,$(findstring MSYS,$(UNAME_S)))
-LDLIBS := $(filter-out -lglfw,$(LDLIBS))
-LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
-EXTRA_OBJ += $(BUILD_DIR)/resources/windows/app_icon.o
-RELEASE_LDFLAGS += -Wl,--gc-sections
-STRIP_CMD = strip --strip-unneeded $(BUILD_DIR)/$(TARGET)
-endif
-ifeq ($(OS),Windows_NT)
-LDLIBS := $(filter-out -lglfw,$(LDLIBS))
-LDLIBS += -lglfw3 -lopengl32 -lgdi32 -lshell32 -lcomdlg32 -lole32 -luuid
-EXTRA_OBJ += $(BUILD_DIR)/resources/windows/app_icon.o
-RELEASE_LDFLAGS += -Wl,--gc-sections
-STRIP_CMD = strip --strip-unneeded $(BUILD_DIR)/$(TARGET)
-endif
-EXTRA_OBJ := $(sort $(EXTRA_OBJ))
-
-ifeq ($(ENABLE_LTO),1)
-RELEASE_CXXFLAGS += -flto
-RELEASE_OBJCFLAGS += -flto
-RELEASE_LDFLAGS += -flto
-endif
-
-.PHONY: all debug release clean clean-artifacts \
+.PHONY: all debug release imgui-deps nfd-deps clean \
 	package-macos-arm64 package-macos-x86_64 package-linux-x86_64 package-windows-x86_64
 
 all: debug
 
-debug: CXXFLAGS += -O1 -g
-debug: $(BUILD_DIR)/$(TARGET)
+debug: nfd-deps
+	$(ODIN) build src -debug $(ODIN_LINK_FLAGS) -out:build/$(TARGET)
 
-release: CXXFLAGS += -O3 -DNDEBUG -fdata-sections -ffunction-sections $(RELEASE_CXXFLAGS)
-release: OBJCFLAGS += -O3 -DNDEBUG -fdata-sections -ffunction-sections $(RELEASE_OBJCFLAGS)
-release: LDFLAGS += $(RELEASE_LDFLAGS)
-release: $(BUILD_DIR)/$(TARGET)
-ifneq ($(STRIP_CMD),)
-	$(STRIP_CMD)
+release: nfd-deps
+	$(ODIN) build src -o:speed $(ODIN_LINK_FLAGS) -out:build/$(TARGET)
+
+imgui-deps:
+	cd third_party/odin-imgui && $(PYTHON) build.py
+
+nfd-deps:
+	mkdir -p build
+ifeq ($(UNAME_S),Darwin)
+	clang -c third_party/nfd/src/nfd_cocoa.m -Ithird_party/nfd/src/include -o build/nfd_cocoa.o
 endif
-
-$(BUILD_DIR)/$(TARGET): $(OBJ) $(EXTRA_OBJ)
-	$(CXX) $(OBJ) $(EXTRA_OBJ) $(LDFLAGS) $(LDLIBS) -o $@
-ifneq ($(BUILD_DIR),build)
-	@mkdir -p build
-	cp -f $@ build/$(TARGET)
+ifeq ($(UNAME_S),Linux)
+	c++ -std=c++11 -c third_party/nfd/src/nfd_gtk.cpp -Ithird_party/nfd/src/include $$(pkg-config --cflags gtk+-3.0) -o build/nfd_gtk.o
 endif
-
-$(BUILD_DIR)/%.o: %.cpp
-	@mkdir -p $(dir $@)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/%.o: %.m
-	@mkdir -p $(dir $@)
-	clang $(CPPFLAGS) $(OBJCFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/resources/windows/%.o: resources/windows/%.rc
-	@mkdir -p $(dir $@)
-	$(WINDRES) $< -O coff -o $@
+ifeq ($(OS),Windows_NT)
+	c++ -std=c++11 -c third_party/nfd/src/nfd_win.cpp -Ithird_party/nfd/src/include -o build/nfd_win.o
+	windres resources/windows/app_icon.rc -O coff -o build/app_icon.o
+endif
 
 clean:
-	rm -f $(BUILD_DIR)/$(TARGET) $(OBJ) $(DEP) $(EXTRA_OBJ)
+	rm -rf build
 
-clean-artifacts:
-	rm -rf $(BUILD_DIR)/*.dSYM *.dSYM
+package-macos-arm64: imgui-deps release
+	VERSION=$(VERSION) ./scripts/package.sh macos arm64 build/$(TARGET)
 
-package-macos-arm64:
-	@host="$$(uname -s)"; \
-	if [ "$$host" != "Darwin" ]; then \
-		echo "package-macos-arm64 must be run on macOS (or CI macOS runner)."; \
-		exit 2; \
-	fi
-	$(MAKE) clean release UNAME_S=Darwin ARCH=arm64 TARGET=$(APP_NAME)
-	VERSION=$(VERSION) ./scripts/package.sh macos arm64 build/Darwin-arm64/$(APP_NAME)
+package-macos-x86_64: imgui-deps release
+	VERSION=$(VERSION) ./scripts/package.sh macos x86_64 build/$(TARGET)
 
-package-macos-x86_64:
-	@host="$$(uname -s)"; \
-	if [ "$$host" != "Darwin" ]; then \
-		echo "package-macos-x86_64 must be run on macOS (or CI macOS runner)."; \
-		exit 2; \
-	fi
-	$(MAKE) clean release UNAME_S=Darwin ARCH=x86_64 TARGET=$(APP_NAME)
-	VERSION=$(VERSION) ./scripts/package.sh macos x86_64 build/Darwin-x86_64/$(APP_NAME)
+package-linux-x86_64: imgui-deps release
+	VERSION=$(VERSION) ./scripts/package.sh linux x86_64 build/$(TARGET)
 
-package-linux-x86_64:
-	@host="$$(uname -s)"; \
-	if [ "$$host" != "Linux" ]; then \
-		echo "package-linux-x86_64 must be run on Linux (or CI Linux runner)."; \
-		exit 2; \
-	fi
-	$(MAKE) clean release UNAME_S=Linux ARCH=x86_64 TARGET=$(APP_NAME)
-	VERSION=$(VERSION) ./scripts/package.sh linux x86_64 build/Linux-x86_64/$(APP_NAME)
-
-package-windows-x86_64:
-	@host="$$(uname -s)"; \
-	case "$$host" in MINGW*|MSYS*|CYGWIN*) ;; \
-	*) echo "package-windows-x86_64 must be run in MinGW/MSYS/Cygwin (or CI Windows runner)."; exit 2;; \
-	esac
-	$(MAKE) clean release UNAME_S=MINGW64_NT ARCH=x86_64 TARGET=$(APP_NAME).exe
-	VERSION=$(VERSION) ./scripts/package.sh windows x86_64 build/MINGW64_NT-x86_64/$(APP_NAME).exe
-
--include $(DEP)
+package-windows-x86_64: imgui-deps release
+	VERSION=$(VERSION) ./scripts/package.sh windows x86_64 build/$(TARGET).exe

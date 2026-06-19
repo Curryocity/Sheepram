@@ -1,32 +1,12 @@
-# Build directories
-/build/
-/bin/
-/obj/
-/out/
-/dist/
-
-# Compiled objects and dependency files
+build/
+dist/
+*.dSYM/
 *.o
-*.obj
-*.d
-
-# Linked binaries and libraries
 *.a
 *.lib
-*.so
-*.dylib
-*.dll
 *.exe
-*.out
-
-# Debug/profiling artifacts
-*.dSYM/
-*.profraw
-*.profdata
-
-# Project-local runtime output
-/main
-/imgui.ini
-
-# OS noise
+Sheepram
+Sheepram.bin
 .DS_Store
+imgui.ini
+
