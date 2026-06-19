@@ -1,7 +1,5 @@
 # Sheepram
 
-> This repository is the Odin port of Original Sheepram in C++. 
-
 ![Sheepram Icon](readmeResource/Sheepram.png)
 
 Sheepram is a tool for solving **Minecraft Onejump angle optimization problems**. With custom language and numerical optimizer written entirely from scratch.
@@ -229,6 +227,10 @@ make debug
 ./build/Sheepram
 ```
 
+> [!NOTE]
+> Sheepram was rewritten in [Odin](https://odin-lang.org/).
+> The previous C++ implementation is preserved on the
+> [`legacy-cpp`](../../tree/legacy-cpp) branch.
 
 ---
 
