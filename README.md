@@ -11,7 +11,7 @@ Sheepram is a tool for solving **Minecraft Onejump angle optimization problems**
   * [Tips](#tips)
   * [Installation](#installation)
   * [User Data Location](#user-data-location)
-  * [Build](#build)
+  * [Build and run from source](#build-and-run-from-source)
 * **Technical Section**
   * [Project Components](#project-components)
   * [Movement Optimization in Minecraft](#movement-optimization-in-minecraft)
