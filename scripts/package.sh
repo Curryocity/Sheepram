@@ -158,7 +158,7 @@ copy_linux_shared_libs() {
 
     if [ "$mode" = "lean" ]; then
       case "$so_name" in
-        libstdc++.so*|libgcc_s.so*|libglfw.so*|libglfw3.so*)
+        libc++.so*|libc++abi.so*|libunwind.so*|libstdc++.so*|libgcc_s.so*|libglfw.so*|libglfw3.so*)
           ;;
         *)
           continue
