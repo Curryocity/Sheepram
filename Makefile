@@ -40,8 +40,8 @@ ifeq ($(UNAME_S),Linux)
 	c++ -std=c++11 -c third_party/nfd/src/nfd_gtk.cpp -Ithird_party/nfd/src/include $$(pkg-config --cflags gtk+-3.0) -o build/nfd_gtk.o
 endif
 ifeq ($(OS),Windows_NT)
-	c++ -std=c++11 -c third_party/nfd/src/nfd_win.cpp -Ithird_party/nfd/src/include -o build/nfd_win.o
-	windres resources/windows/app_icon.rc -O coff -o build/app_icon.o
+	MSYS2_ARG_CONV_EXCL='*' cl /nologo /c /EHsc /Ithird_party/nfd/src/include /Fobuild/nfd_win.obj third_party/nfd/src/nfd_win.cpp
+	MSYS2_ARG_CONV_EXCL='*' rc /nologo /fo build/app_icon.res resources/windows/app_icon.rc
 endif
 
 clean:

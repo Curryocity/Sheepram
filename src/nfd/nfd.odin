@@ -13,8 +13,8 @@ when ODIN_OS == .Darwin {
 	foreign import lib "../../build/nfd_gtk.o"
 } else when ODIN_OS == .Windows {
 	foreign import lib {
-		"../../build/nfd_win.o",
-		"../../build/app_icon.o",
+		"../../build/nfd_win.obj",
+		"../../build/app_icon.res",
 		"system:ole32.lib",
 		"system:uuid.lib",
 		"system:comdlg32.lib",
