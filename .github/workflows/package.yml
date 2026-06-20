@@ -17,6 +17,13 @@ jobs:
       - uses: laytan/setup-odin@v2
         with:
           release: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+      - name: Install Python build deps
+        run: python -m pip install --requirement requirements-build.txt
       - name: Restore build cache
         uses: actions/cache@v5
         with:
@@ -25,7 +32,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-arm64-build-
       - name: Package
-        run: make package-macos-arm64 VERSION="${GITHUB_REF_NAME}"
+        run: make package-macos-arm64 PYTHON=python VERSION="${GITHUB_REF_NAME}"
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
@@ -42,6 +49,13 @@ jobs:
       - uses: laytan/setup-odin@v2
         with:
           release: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+      - name: Install Python build deps
+        run: python -m pip install --requirement requirements-build.txt
       - name: Restore build cache
         uses: actions/cache@v5
         with:
@@ -50,7 +64,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-x86_64-build-
       - name: Package
-        run: make package-macos-x86_64 VERSION="${GITHUB_REF_NAME}"
+        run: make package-macos-x86_64 PYTHON=python VERSION="${GITHUB_REF_NAME}"
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
@@ -67,6 +81,13 @@ jobs:
       - uses: laytan/setup-odin@v2
         with:
           release: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+      - name: Install Python build deps
+        run: python -m pip install --requirement requirements-build.txt
       - name: Restore build cache
         uses: actions/cache@v5
         with:
@@ -77,9 +98,9 @@ jobs:
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libglfw3-dev libgtk-3-dev libgl1-mesa-dev python3
+          sudo apt-get install -y build-essential pkg-config libglfw3-dev libgtk-3-dev libgl1-mesa-dev
       - name: Package
-        run: make package-linux-x86_64 VERSION="${GITHUB_REF_NAME}"
+        run: make package-linux-x86_64 PYTHON=python VERSION="${GITHUB_REF_NAME}"
       - name: Verify packaged Linux runtime libs
         run: |
           set -euo pipefail
@@ -125,9 +146,15 @@ jobs:
             make
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-gtk3
-            python
             zip
             unzip
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+      - name: Install Python build deps
+        run: python -m pip install --requirement requirements-build.txt
       - name: Restore build cache
         uses: actions/cache@v5
         with:
@@ -136,7 +163,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-x86_64-build-
       - name: Package
-        run: make package-windows-x86_64 VERSION="${GITHUB_REF_NAME}"
+        run: make package-windows-x86_64 PYTHON=python VERSION="${GITHUB_REF_NAME}"
       - name: Verify packaged Windows DLLs
         run: |
           set -euo pipefail
