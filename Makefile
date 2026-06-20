@@ -29,10 +29,7 @@ imgui-deps:
 	cd third_party/odin-imgui && $(PYTHON) build.py
 
 windows-imgui-deps:
-	cd third_party/odin-imgui && \
-		printf '@echo off\r\n' > vcvarsall.bat && \
-		trap 'rm -f vcvarsall.bat' EXIT && \
-		$(PYTHON) build.py
+	test -f third_party/odin-imgui/imgui_windows_x64.lib
 
 nfd-deps:
 	mkdir -p build
