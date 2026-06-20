@@ -4,6 +4,11 @@ TARGET ?= Sheepram
 VERSION ?= dev
 UNAME_S := $(shell uname -s)
 ODIN_LINK_FLAGS :=
+EXE_EXT :=
+
+ifeq ($(OS),Windows_NT)
+EXE_EXT := .exe
+endif
 
 ifeq ($(UNAME_S),Linux)
 ODIN_LINK_FLAGS += -extra-linker-flags:"$(shell pkg-config --libs gtk+-3.0)"
@@ -15,10 +20,10 @@ endif
 all: debug
 
 debug: nfd-deps
-	$(ODIN) build src -debug $(ODIN_LINK_FLAGS) -out:build/$(TARGET)
+	$(ODIN) build src -debug $(ODIN_LINK_FLAGS) -out:build/$(TARGET)$(EXE_EXT)
 
 release: nfd-deps
-	$(ODIN) build src -o:speed $(ODIN_LINK_FLAGS) -out:build/$(TARGET)
+	$(ODIN) build src -o:speed $(ODIN_LINK_FLAGS) -out:build/$(TARGET)$(EXE_EXT)
 
 imgui-deps:
 	cd third_party/odin-imgui && $(PYTHON) build.py
@@ -52,4 +57,4 @@ package-linux-x86_64: imgui-deps release
 	VERSION=$(VERSION) ./scripts/package.sh linux x86_64 build/$(TARGET)
 
 package-windows-x86_64: windows-imgui-deps release
-	VERSION=$(VERSION) ./scripts/package.sh windows x86_64 build/$(TARGET).exe
+	VERSION=$(VERSION) ./scripts/package.sh windows x86_64 build/$(TARGET)$(EXE_EXT)
