@@ -142,15 +142,13 @@ jobs:
           msystem: MINGW64
           update: true
           cache: true
+          path-type: inherit
           install: >-
             make
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-gtk3
-            mingw-w64-x86_64-python-pip
             zip
             unzip
-      - name: Install Python build deps
-        run: python -m pip install --break-system-packages --requirement requirements-build.txt
       - name: Restore build cache
         uses: actions/cache@v5
         with:
@@ -159,7 +157,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-x86_64-build-
       - name: Package
-        run: make package-windows-x86_64 PYTHON=python VERSION="${GITHUB_REF_NAME}"
+        run: make package-windows-x86_64 VERSION="${GITHUB_REF_NAME}"
       - name: Verify packaged Windows DLLs
         run: |
           set -euo pipefail

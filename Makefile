@@ -9,7 +9,7 @@ ifeq ($(UNAME_S),Linux)
 ODIN_LINK_FLAGS += -extra-linker-flags:"$(shell pkg-config --libs gtk+-3.0)"
 endif
 
-.PHONY: all debug release imgui-deps nfd-deps clean \
+.PHONY: all debug release imgui-deps windows-imgui-deps nfd-deps clean \
 	package-macos-arm64 package-macos-x86_64 package-linux-x86_64 package-windows-x86_64
 
 all: debug
@@ -22,6 +22,9 @@ release: nfd-deps
 
 imgui-deps:
 	cd third_party/odin-imgui && $(PYTHON) build.py
+
+windows-imgui-deps:
+	test -f third_party/odin-imgui/imgui_windows_x64.lib
 
 nfd-deps:
 	mkdir -p build
@@ -48,5 +51,5 @@ package-macos-x86_64: imgui-deps release
 package-linux-x86_64: imgui-deps release
 	VERSION=$(VERSION) ./scripts/package.sh linux x86_64 build/$(TARGET)
 
-package-windows-x86_64: imgui-deps release
+package-windows-x86_64: windows-imgui-deps release
 	VERSION=$(VERSION) ./scripts/package.sh windows x86_64 build/$(TARGET).exe
