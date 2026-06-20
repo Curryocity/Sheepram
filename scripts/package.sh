@@ -211,6 +211,7 @@ case "$platform" in
 
     cp "$binary_path" "$bundle_dir/Contents/MacOS/$app_name"
     chmod +x "$bundle_dir/Contents/MacOS/$app_name"
+    strip -x "$bundle_dir/Contents/MacOS/$app_name"
     bundle_macos_glfw "$bundle_dir/Contents/MacOS/$app_name" "$bundle_dir/Contents/Frameworks"
     cp -R "$asset_dir" "$bundle_dir/Contents/Resources/"
     cp -R "$preset_dir" "$bundle_dir/Contents/Resources/"
@@ -272,6 +273,7 @@ PLIST
 
     cp "$binary_path" "$stage_dir/${app_name}.bin"
     chmod +x "$stage_dir/${app_name}.bin"
+    strip --strip-unneeded "$stage_dir/${app_name}.bin"
     copy_linux_shared_libs "$stage_dir/${app_name}.bin" "$stage_dir/lib"
     cat > "$stage_dir/$app_name" <<LAUNCH
 #!/usr/bin/env bash
@@ -305,6 +307,7 @@ DESKTOP
     mkdir -p "$stage_dir"
 
     cp "$binary_path" "$stage_dir/${app_name}.exe"
+    llvm-strip "$stage_dir/${app_name}.exe"
     copy_windows_dlls "$stage_dir/${app_name}.exe" "$stage_dir"
     cp -R "$asset_dir" "$stage_dir/"
     cp -R "$preset_dir" "$stage_dir/"
