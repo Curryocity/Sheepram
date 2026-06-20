@@ -4,7 +4,7 @@ import "core:fmt"
 import "core:math"
 import "core:time"
 import opt "../optimizer"
-import dsl "../parser"
+import dsl "../dsl"
 
 N_MIN :: 1
 N_MAX :: 256

@@ -1,19 +1,13 @@
-package parser
+package dsl
 
 import "core:fmt"
 import "core:math"
-import "core:strconv"
 import "core:strings"
 import opt "../optimizer"
 
 Parser :: struct {
 	model:   ^opt.Model,
 	var_map: map[string]f64,
-}
-
-Binding_Power :: struct {
-	left:  int,
-	right: int,
 }
 
 init_parser :: proc(model: ^opt.Model) -> Parser {
@@ -52,7 +46,11 @@ parser_error :: proc(message: string, lexer: ^Lexer) -> string {
 	if p > 0 do p -= 1
 	indicator := strings.repeat(" ", p)
 	defer delete(indicator)
-	return fmt.aprintf("%s\n\n%s\n%s^", message, lexer.input, indicator)
+	return fmt.aprintf("%s\n\n%s\n%s^", message, lexer.data, indicator)
+}
+
+lexer_error :: proc(token: Token, lexer: ^Lexer) -> string {
+	return parser_error(token.text, lexer)
 }
 
 define_init_v :: proc(parser: ^Parser, init_v: f64) {
@@ -171,12 +169,6 @@ combine_expr :: proc(
 	return {}, parser_error(fmt.tprintf("Unknown operator: %s", operator.text), lexer)
 }
 
-get_binding_power :: proc(operator: Token) -> (Binding_Power, string) {
-	if operator.text == "+" || operator.text == "-" do return {10, 11}, ""
-	if operator.text == "*" || operator.text == "/" do return {20, 21}, ""
-	return {}, strings.clone("Unknown operator")
-}
-
 resolve_indexed :: proc(
 	parser: ^Parser,
 	name: string,
@@ -234,8 +226,8 @@ resolve_indexed :: proc(
 }
 
 parse_number :: proc(parser: ^Parser, token: Token) -> (opt.Compiled_Expr, string) {
-	value, ok := strconv.parse_f64(token.text)
-	if !ok do return {}, fmt.aprintf("Invalid number: %s", token.text)
+	value, err := get_token_value(token)
+	if err != "" do return {}, err
 	expr := opt.make_compiled_expr(parser.model.n)
 	expr.constant = value
 	return expr, ""
@@ -249,8 +241,8 @@ parse_identifier :: proc(
 	name := token.text
 	if name == "X" || name == "Z" || name == "F" || name == "Vx" ||
 	   name == "Vz" || name == "T" {
-		open, err := lexer_next(lexer)
-		if err != "" do return {}, err
+		open := lexer_next(lexer)
+		if open.type == .Invalid do return {}, lexer_error(open, lexer)
 		if open.type != .L_Bracket {
 			return {}, parser_error(fmt.tprintf("Expected '[' after %s", name), lexer)
 		}
@@ -259,8 +251,8 @@ parse_identifier :: proc(
 		if index_err != "" do return {}, index_err
 		defer opt.destroy_compiled_expr(&index_expr)
 
-		close, close_err := lexer_next(lexer)
-		if close_err != "" do return {}, close_err
+		close := lexer_next(lexer)
+		if close.type == .Invalid do return {}, lexer_error(close, lexer)
 		if close.type != .R_Bracket do return {}, parser_error("Missing ']'", lexer)
 		if !opt.is_constant(index_expr) do return {}, parser_error("Index must be constant", lexer)
 
@@ -285,8 +277,9 @@ parse_expr_bp :: proc(
 	lexer: ^Lexer,
 	min_bp: int,
 ) -> (opt.Compiled_Expr, string) {
-	prefix, prefix_err := lexer_next(lexer)
-	if prefix_err != "" do return {}, prefix_err
+	prefix := lexer_next(lexer)
+	if prefix.type == .Invalid do return {}, lexer_error(prefix, lexer)
+	prefix_err := ""
 	lhs: opt.Compiled_Expr
 
 	#partial switch prefix.type {
@@ -305,10 +298,10 @@ parse_expr_bp :: proc(
 	case .L_Paren:
 		lhs, prefix_err = parse_expr_bp(parser, lexer, 0)
 		if prefix_err == "" {
-			close, close_err := lexer_next(lexer)
-			if close_err != "" {
+			close := lexer_next(lexer)
+			if close.type == .Invalid {
 				opt.destroy_compiled_expr(&lhs)
-				return {}, close_err
+				return {}, lexer_error(close, lexer)
 			}
 			if close.type != .R_Paren {
 				opt.destroy_compiled_expr(&lhs)
@@ -321,10 +314,10 @@ parse_expr_bp :: proc(
 	if prefix_err != "" do return {}, prefix_err
 
 	for {
-		operator, peek_err := lexer_peek(lexer)
-		if peek_err != "" {
+		operator := lexer_peek(lexer)
+		if operator.type == .Invalid {
 			opt.destroy_compiled_expr(&lhs)
-			return {}, peek_err
+			return {}, lexer_error(operator, lexer)
 		}
 		if operator.type != .Operator do break
 
@@ -334,10 +327,10 @@ parse_expr_bp :: proc(
 			return {}, bp_err
 		}
 		if bp.left < min_bp do break
-		_, consume_err := lexer_next(lexer)
-		if consume_err != "" {
+		consumed := lexer_next(lexer)
+		if consumed.type == .Invalid {
 			opt.destroy_compiled_expr(&lhs)
-			return {}, consume_err
+			return {}, lexer_error(consumed, lexer)
 		}
 
 		rhs, rhs_err := parse_expr_bp(parser, lexer, bp.right)
@@ -355,13 +348,13 @@ parse_expr_bp :: proc(
 }
 
 parse_expr :: proc(parser: ^Parser, text: string) -> (opt.Compiled_Expr, string) {
-	lexer := Lexer{input = text}
+	lexer := Lexer{data = text}
 	expr, err := parse_expr_bp(parser, &lexer, 0)
 	if err != "" do return {}, err
-	next, next_err := lexer_peek(&lexer)
-	if next_err != "" {
+	next := lexer_peek(&lexer)
+	if next.type == .Invalid {
 		opt.destroy_compiled_expr(&expr)
-		return {}, next_err
+		return {}, lexer_error(next, &lexer)
 	}
 	if next.type != .End {
 		opt.destroy_compiled_expr(&expr)
@@ -381,13 +374,13 @@ parse_constant :: proc(parser: ^Parser, text: string) -> (f64, string) {
 }
 
 parse_constraint :: proc(parser: ^Parser, text: string) -> (opt.Constraint, string) {
-	lexer := Lexer{input = text}
+	lexer := Lexer{data = text}
 	lhs, lhs_err := parse_expr_bp(parser, &lexer, 0)
 	if lhs_err != "" do return {}, lhs_err
 	defer opt.destroy_compiled_expr(&lhs)
 
-	cmp_token, cmp_err := lexer_next(&lexer)
-	if cmp_err != "" do return {}, cmp_err
+	cmp_token := lexer_next(&lexer)
+	if cmp_token.type == .Invalid do return {}, lexer_error(cmp_token, &lexer)
 	if cmp_token.type != .Cmp {
 		return {}, parser_error(
 			fmt.tprintf("Expected comparison operator, got '%s'", cmp_token.text),
@@ -402,8 +395,8 @@ parse_constraint :: proc(parser: ^Parser, text: string) -> (opt.Constraint, stri
 	rhs, rhs_err := parse_expr_bp(parser, &lexer, 0)
 	if rhs_err != "" do return {}, rhs_err
 	defer opt.destroy_compiled_expr(&rhs)
-	trailing, trailing_err := lexer_peek(&lexer)
-	if trailing_err != "" do return {}, trailing_err
+	trailing := lexer_peek(&lexer)
+	if trailing.type == .Invalid do return {}, lexer_error(trailing, &lexer)
 	if trailing.type != .End do return {}, parser_error("Unexpected trailing tokens", &lexer)
 
 	operator := Token{type = .Operator, text = "-"}

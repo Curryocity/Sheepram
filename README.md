@@ -241,7 +241,7 @@ make debug
 The system consists of three main components:
 
 - **Numerical optimization engine**: `src/optimizer/optimizer.odin`
-- **Shared DSL lexer and optimization problem compiler**: `src/parser/lexer.odin`, `src/parser/problem_dsl.odin`
+- **DSL package**: `src/dsl/` contains the shared lexer, optimization problem language, and Mothball movement language.
 - **Application startup and rendering loop**: `src/main.odin`
 - **GUI built with Dear ImGui**: `src/app/gui.odin`
 
