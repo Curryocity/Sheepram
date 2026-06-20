@@ -334,7 +334,7 @@ compute_aug_l :: proc(
 	return value
 }
 
-Line_Search_Context :: struct {
+Line_Search_Ctx :: struct {
 	thetas:    []f64,
 	problem:   ^Problem,
 	lamb:      []f64,
@@ -348,7 +348,7 @@ Line_Search_Context :: struct {
 	trial:     [dynamic]f64,
 }
 
-line_search_phi :: proc(ctx: ^Line_Search_Context, alpha: f64, grad_out: []f64) -> f64 {
+line_search_phi :: proc(ctx: ^Line_Search_Ctx, alpha: f64, grad_out: []f64) -> f64 {
 	for i in 0..<ctx.problem.n {
 		ctx.trial[i] = ctx.thetas[i]+alpha*ctx.step[i]
 	}
@@ -363,7 +363,7 @@ line_search_phi :: proc(ctx: ^Line_Search_Context, alpha: f64, grad_out: []f64) 
 	)
 }
 
-line_search_zoom :: proc(ctx: ^Line_Search_Context, lo_in, hi_in: f64) -> f64 {
+line_search_zoom :: proc(ctx: ^Line_Search_Ctx, lo_in, hi_in: f64) -> f64 {
 	c1 :: 1e-4
 	c2 :: 0.9
 	lo, hi := lo_in, hi_in
@@ -398,7 +398,7 @@ line_search :: proc(
 	val, deri: f64,
 	work: ^Workspace,
 ) -> f64 {
-	ctx := Line_Search_Context {
+	ctx := Line_Search_Ctx {
 		thetas    = thetas,
 		problem   = problem,
 		lamb      = lamb,
