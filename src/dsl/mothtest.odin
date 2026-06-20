@@ -70,7 +70,7 @@ c4_5p2p :: proc(t: ^testing.T) {
     state.n = 1
     append(&state.drag_x, 0.546)
     append(&state.drag_z, 0.546)
-    append(&state.accel, 0)
+    append(&state.accel, 0.3169516131491288)
     append(&state.angle_offset, 0)
 
     moth_to_model(&state, code[:])
@@ -87,7 +87,6 @@ c4_5p2p :: proc(t: ^testing.T) {
 	print_f64_array("angle_offset", state.angle_offset[:])
 
     model := opt.Model {
-        init_v = 0.3169516131491288,
         n = state.n,
         drag_x = state.drag_x,
         drag_z = state.drag_z,

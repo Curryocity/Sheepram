@@ -23,7 +23,8 @@ run_optimizer :: proc(state: ^Environment) {
 	}
 	compile_start := time.tick_now()
 
-	// 1. Define the internal n
+	// The UI stores one row per movement tick. The optimizer also stores the
+	// final position after those ticks, so its state-vector length is one larger.
 	n := state.n+1
 	model := opt.Model {
 		n      = n,
@@ -42,8 +43,7 @@ run_optimizer :: proc(state: ^Environment) {
 		delete(err)
 		return
 	}
-	model.init_v = init_v
-	dsl.define_init_v(&parser, model.init_v)
+	dsl.define_init_v(&parser, init_v)
 	for i in 0..<state.var_capacity {
 		err = dsl.add_variable(
 			&parser,
@@ -72,7 +72,9 @@ run_optimizer :: proc(state: ^Environment) {
 			return
 		}
 	}
-	for i in 1..<model.n-1 {
+	// accel[0] is initV
+	// accel[model.n - 1] doesn't contribute to the final state
+	for i in 0..<model.n-1 {
 		model.accel[i], err = dsl.parse_constant(&parser, buffer_string(state.accel[i][:]))
 		if err != "" {
 			set_error(state, fmt.tprintf("Error:\n%s", err))

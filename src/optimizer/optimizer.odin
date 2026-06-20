@@ -25,7 +25,6 @@ Constraint :: struct {
 Model :: struct {
 	// Require initialization
 	n:      int,
-	init_v: f64, // This makes accel[0] not used
 	drag_x: [dynamic]f64,
 	drag_z: [dynamic]f64,
 	accel:  [dynamic]f64,
@@ -186,9 +185,9 @@ compile_model :: proc(model: ^Model) {
 	}
 
 	// Generate Vx, Vz
-	// InitVx = initV * sin(F[0]), initVz = initV * cos(F[0])
-	model.vx[0].sin_coeff[0] = model.init_v
-	model.vz[0].cos_coeff[0] = model.init_v
+	// Initial velocity is stored in accel[0].
+	model.vx[0].sin_coeff[0] = model.accel[0]
+	model.vz[0].cos_coeff[0] = model.accel[0]
 	for t in 1..<n {
 		// v[t] = drag[t-1] * v[t-1] + accel[t] * trig(F[t])
 		add_scaled_expr(&model.vx[t], model.vx[t-1], model.drag_x[t-1])
