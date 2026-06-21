@@ -49,22 +49,22 @@ moth_to_model :: proc(state: ^Model_State, code: []Arg) {
 		case .MoveCall:
 			mf := ins.mvfunc
 
-			drag_x, drag_z: f64 = 0.91, 0.91
+			drag := f64(0.91)
 			base_accel: f64
 
 			if mf.airborne {
 				base_accel = 0.02
 			} else {
-				drag_x *= state.slip
-				drag_z *= state.slip
+				drag *= state.slip
 				base_accel = 0.1
-				drag := 0.91 * state.slip
 				base_accel *= 0.16277136 / (drag * drag * drag)
+
+				if state.speed > 0 do base_accel *= 1+0.2*f64(state.speed)
+				if state.slow > 0 do base_accel *= 1-0.15*f64(state.slow)
+				if base_accel < 0 do base_accel = 0
 			}
 
-			if state.speed > 0 do base_accel *= 1+0.2*f64(state.speed)
-			if state.slow > 0 do base_accel *= 1-0.15*f64(state.slow)
-			if base_accel < 0 do base_accel = 0
+			
 
 			if mf.sprint do base_accel *= 1.3
 
@@ -96,14 +96,14 @@ moth_to_model :: proc(state: ^Model_State, code: []Arg) {
 					append(&state.drag_x, 0)
 					state.ix_next = false
 				} else {
-					append(&state.drag_x, drag_x)
+					append(&state.drag_x, drag)
 				}
 
 				if i == 0 && state.iz_next {
 					append(&state.drag_z, 0)
 					state.iz_next = false
 				} else {
-					append(&state.drag_z, drag_z)
+					append(&state.drag_z, drag)
 				}
 
 				append(&state.accel, final_accel)
@@ -165,6 +165,20 @@ eval_moth_number :: proc(arg: Arg, description: string) -> (f64, string) {
 	return value, ""
 }
 
+eval_u8 :: proc(arg: Arg, command_name: string) -> (u8, string) {
+	value, err := eval_moth_number(arg, fmt.tprintf("%s(...) argument", command_name))
+	if err != "" do return 0, err
+
+	rounded := math.round(value)
+	if value != rounded || rounded < 0 || rounded > 255 {
+		return 0, fmt.tprintf(
+			"Error: %s(...) argument must be a whole number from 0 to 255",
+			command_name,
+		)
+	}
+	return u8(rounded), ""
+}
+
 exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 	if !state.ok do return
 	if cmd == nil {
@@ -188,6 +202,32 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 			return
 		}
 		state.slip = slip
+		return
+
+	case .SetSpeed:
+		if message, ok := expect_moth_args(cmd, 1, 1, false); !ok {
+			set_model_error(state, message)
+			return
+		}
+		level, err := eval_u8(cmd.args[0], "speed")
+		if err != "" {
+			set_model_error(state, err)
+			return
+		}
+		state.speed = level
+		return
+
+	case .SetSlow:
+		if message, ok := expect_moth_args(cmd, 1, 1, false); !ok {
+			set_model_error(state, message)
+			return
+		}
+		level, err := eval_u8(cmd.args[0], "slow")
+		if err != "" {
+			set_model_error(state, err)
+			return
+		}
+		state.slow = level
 		return
 
 	case .ForceInertiaX:

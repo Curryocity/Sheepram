@@ -29,6 +29,8 @@ CmdType :: enum {
 	ForceInertiaZ,
 
 	SetSlip,
+	SetSpeed,
+	SetSlow,
 	Loop,
 
 	Invalid,
@@ -326,6 +328,10 @@ get_command_type :: proc(name: string) -> CmdType {
 	switch name {
 	case "slip":
 		return .SetSlip
+	case "speed":
+		return .SetSpeed
+	case "slow", "slowness":
+		return .SetSlow
 	case "ix":
 		return .ForceInertiaX
 	case "iz":

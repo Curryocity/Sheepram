@@ -52,7 +52,6 @@ test1 :: proc(t: ^testing.T) {
 	testing.expect_value(t, state.n, len(state.accel))
 }
 
-
 @(test)
 c4_5p2p :: proc(t: ^testing.T) {
     code, err := parse_mothball("sj.w sa.wa(11)")
