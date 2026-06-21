@@ -21,11 +21,6 @@ Objective_Type :: enum {
 	Custom,
 }
 
-Offset_Type :: enum {
-	Facing,
-	Turn,
-}
-
 Separator_Type :: enum {
 	Comma,
 	Space,
@@ -45,8 +40,6 @@ Post_State :: struct {
 	x_add:              [CELL_CAPACITY]byte,
 	z_tick:             [CELL_CAPACITY]byte,
 	z_add:              [CELL_CAPACITY]byte,
-	angle_offset:       [N_MAX][CELL_CAPACITY]byte,
-	offset_mode:        Offset_Type,
 	copy_separator:     Separator_Type,
 	position_precision: int,
 }
@@ -59,13 +52,7 @@ Environment :: struct {
 	dir_z:     [CELL_CAPACITY]byte,
 	obj_script:[SCRIPT_CAPACITY]byte,
 
-	n:      int,
-	edit_n: int,
-
-	init_v: [CELL_CAPACITY]byte,
-	drag_x: [N_MAX][CELL_CAPACITY]byte,
-	drag_z: [N_MAX][CELL_CAPACITY]byte,
-	accel:  [N_MAX][CELL_CAPACITY]byte,
+	movement_script: [SCRIPT_CAPACITY]byte,
 
 	var_capacity: int,
 	global_names:  [MAX_GLOBALS][CELL_CAPACITY]byte,
@@ -75,7 +62,6 @@ Environment :: struct {
 	post:              Post_State,
 
 	last_solution: ^opt.Solution,
-	solution_n:    int,
 	compile_time_seconds:  f64,
 	optimize_time_seconds: f64,
 	x_index:       int,
@@ -97,11 +83,7 @@ Tab_State :: struct {
 	env:                 Environment,
 	left_width:          f32,
 	cons_editor_height:  f32,
-	prev_n:              int, // Exist to prevent table resize on every frame.
-	selected_model_tick_index: int,
 	selected_global_var_index: int,
-	model_region_min: [2]f32,
-	model_region_max: [2]f32,
 	optimizer_job: ^Optimizer_Job,
 }
 
@@ -122,7 +104,6 @@ clear_solution :: proc(state: ^Environment) {
 		free(state.last_solution)
 		state.last_solution = nil
 	}
-	state.solution_n = 0
 	state.compile_time_seconds = 0
 	state.optimize_time_seconds = 0
 }
@@ -140,41 +121,13 @@ destroy_app :: proc(app: ^App_State) {
 	app^ = {}
 }
 
-init_model :: proc(state: ^Environment) {
-	state.n = clamp(state.n, N_MIN, N_MAX)
-	// Defaults to delayed WAD
-	for i in 0..<state.n {
-		if i < 2 {
-			buffer_set(state.drag_x[i][:], "gnd")
-			buffer_set(state.drag_z[i][:], "gnd")
-		} else {
-			buffer_set(state.drag_x[i][:], "air")
-			buffer_set(state.drag_z[i][:], "air")
-		}
-
-		if i == 0 {
-			buffer_set(state.accel[i][:], "initV")
-		} else if i == 1 {
-			buffer_set(state.accel[i][:], "WAD")
-		} else {
-			buffer_set(state.accel[i][:], "sa45")
-		}
-	}
-}
-
 init_globals :: proc(state: ^Environment) {
-	// varCapacity defaults to 9
-	state.var_capacity = 9
-	default_names := [?]string{"gnd", "air", "s45", "sa45", "WAD", "WAWD", "m", "m2", ""}
+	state.var_capacity = 4
+	default_names := [?]string{"m", "m2", "bx", ""}
 	default_values := [?]string{
-		"0.546",
-		"0.91",
-		"0.13",
-		"0.026",
-		"0.3274",
-		"0.3060547988254277",
 		"2",
 		"8",
+		"0.6000000238418579",
 		"",
 	}
 	for i in 0..<state.var_capacity {
@@ -189,9 +142,6 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	buffer_set(tab.name[:], fmt.tprintf("Untitled %d", tab_id))
 	buffer_set(tab.name_draft[:], buffer_string(tab.name[:]))
 	tab.env.curr_obj = .X
-	tab.env.n = 12
-	tab.env.edit_n = 12
-	tab.env.var_capacity = 9
 	tab.env.post.position_precision = 6
 	buffer_set(tab.env.dir_x[:], "0")
 	buffer_set(tab.env.dir_z[:], "0")
@@ -199,7 +149,10 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 		tab.env.obj_script[:],
 		"Optimize along vec(a, b) := a * (X[t1] - X[t0]) + b * (Z[t1] - Z[t0])",
 	)
-	buffer_set(tab.env.init_v[:], "0.3169516131491288")
+	buffer_set(
+		tab.env.movement_script[:],
+		"initGnd(0.3169516131491288) sj.w sa.wa(11)",
+	)
 	buffer_set(
 		tab.env.constraint_script[:],
 		"// c4.5 p2p\n" +
@@ -211,11 +164,7 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	buffer_set(tab.env.post.x_add[:], "0")
 	buffer_set(tab.env.post.z_tick[:], "m-1")
 	buffer_set(tab.env.post.z_add[:], "0")
-	for i in 0..<tab.env.n do buffer_set(tab.env.post.angle_offset[i][:], "0")
-	init_model(&tab.env)
 	init_globals(&tab.env)
-	tab.prev_n = tab.env.n
-	tab.selected_model_tick_index = -1
 	tab.selected_global_var_index = -1
 	tab.cons_editor_height = 120
 	fingerprint := build_tab_fingerprint(tab)

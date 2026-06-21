@@ -66,6 +66,13 @@ moth_to_model :: proc(state: ^Model_State, code: []Arg) {
 		state.drag_x[0] = state.init_slip * 0.91
 		state.drag_z[0] = state.init_slip * 0.91
 	}
+
+	// The optimizer stores the terminal position after the final movement tick.
+	// Its drag/accel/offset values are unused, but the arrays share model.n.
+	append(&state.drag_x, 0)
+	append(&state.drag_z, 0)
+	append(&state.accel, 0)
+	append(&state.angle_offset, 0)
 }
 
 exe_code :: proc(state: ^Model_State, code: []Arg) {

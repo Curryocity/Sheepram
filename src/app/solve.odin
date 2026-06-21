@@ -14,36 +14,54 @@ set_error :: proc(state: ^Environment, message: string) {
 run_optimizer :: proc(state: ^Environment) {
 	clear_solution(state)
 	buffer_clear(state.last_error[:])
-	if state.n < N_MIN || state.n > N_MAX {
+	compile_start := time.tick_now()
+
+	code, movement_err := dsl.parse_mothball(buffer_string(state.movement_script[:]))
+	defer dsl.destroy_moth_code(&code)
+	if movement_err != "" {
+		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", movement_err))
+		return
+	}
+
+	movement := dsl.Model_State{}
+	defer dsl.destroy_moth_execution_state(&movement)
+	dsl.moth_to_model(&movement, code[:])
+	if !movement.ok {
+		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", movement.err))
+		return
+	}
+	if movement.n < N_MIN || movement.n > N_MAX {
 		set_error(
 			state,
-			fmt.tprintf("Error:\nInvalid n: %d (expected range: %d to %d)", state.n, N_MIN, N_MAX),
+			fmt.tprintf(
+				"Error:\nMovement script generated %d states; expected range: %d to %d",
+				movement.n,
+				N_MIN,
+				N_MAX,
+			),
 		)
 		return
 	}
-	compile_start := time.tick_now()
 
-	// The UI stores one row per movement tick. The optimizer also stores the
-	// final position after those ticks, so its state-vector length is one larger.
-	n := state.n+1
+	n := movement.n
 	model := opt.Model {
 		n      = n,
-		drag_x = make([dynamic]f64, n),
-		drag_z = make([dynamic]f64, n),
-		accel  = make([dynamic]f64, n),
+		drag_x = movement.drag_x,
+		drag_z = movement.drag_z,
+		accel  = movement.accel,
 	}
+	movement.drag_x = nil
+	movement.drag_z = nil
+	movement.accel = nil
 	defer opt.destroy_model(&model)
 
-	// 2. Initialize parser(varTables, Expr sizes)
+	for &offset in state.angle_offset do offset = 0
+	copy(state.angle_offset[:], movement.angle_offset[:])
+
+	// Initialize the optimization DSL and global variables.
 	parser := dsl.init_parser(&model)
 	defer dsl.destroy(&parser)
-	init_v, err := dsl.parse_constant(&parser, buffer_string(state.init_v[:]))
-	if err != "" {
-		set_error(state, fmt.tprintf("Error:\n%s", err))
-		delete(err)
-		return
-	}
-	dsl.define_init_v(&parser, init_v)
+	err: string
 	for i in 0..<state.var_capacity {
 		err = dsl.add_variable(
 			&parser,
@@ -57,33 +75,7 @@ run_optimizer :: proc(state: ^Environment) {
 		}
 	}
 
-	// 3. Evaluate drag/accel scripts to constants
-	for i in 0..<model.n-1 {
-		model.drag_x[i], err = dsl.parse_constant(&parser, buffer_string(state.drag_x[i][:]))
-		if err != "" {
-			set_error(state, fmt.tprintf("Error:\n%s", err))
-			delete(err)
-			return
-		}
-		model.drag_z[i], err = dsl.parse_constant(&parser, buffer_string(state.drag_z[i][:]))
-		if err != "" {
-			set_error(state, fmt.tprintf("Error:\n%s", err))
-			delete(err)
-			return
-		}
-	}
-	// accel[0] is initV
-	// accel[model.n - 1] doesn't contribute to the final state
-	for i in 0..<model.n-1 {
-		model.accel[i], err = dsl.parse_constant(&parser, buffer_string(state.accel[i][:]))
-		if err != "" {
-			set_error(state, fmt.tprintf("Error:\n%s", err))
-			delete(err)
-			return
-		}
-	}
-
-	// 4. Compile movement formulas
+	// Compile movement formulas.
 	opt.compile_model(&model)
 
 	// 5. Parse objective
@@ -136,7 +128,7 @@ run_optimizer :: proc(state: ^Environment) {
 		solution.optimum *= -1 // Invert solution again when maximizing
 	}
 
-	// 9. PostProcessor settings
+	// Postprocessor settings.
 	x_tick, post_err := dsl.parse_constant(&parser, buffer_string(state.post.x_tick[:]))
 	if post_err == "" {
 		state.x_index = int(math.round(x_tick))
@@ -149,22 +141,6 @@ run_optimizer :: proc(state: ^Environment) {
 	}
 	if post_err == "" {
 		state.z_add, post_err = dsl.parse_constant(&parser, buffer_string(state.post.z_add[:]))
-	}
-	if post_err == "" {
-		for i in 0..<state.n {
-			state.angle_offset[i], post_err = dsl.parse_constant(
-				&parser,
-				buffer_string(state.post.angle_offset[i][:]),
-			)
-			if post_err != "" do break
-		}
-	}
-	if post_err == "" && state.post.offset_mode == .Turn {
-		accumulation := 0.0
-		for i in 0..<state.n {
-			accumulation += state.angle_offset[i]
-			state.angle_offset[i] = accumulation
-		}
 	}
 	if post_err == "" &&
 	   (state.x_index < 0 || state.x_index >= n || state.z_index < 0 || state.z_index >= n) {
@@ -179,5 +155,4 @@ run_optimizer :: proc(state: ^Environment) {
 	}
 
 	state.last_solution = solution
-	state.solution_n = state.n
 }

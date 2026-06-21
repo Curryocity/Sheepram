@@ -236,72 +236,6 @@ draw_selection_rect :: proc(minimum, maximum: im.Vec2) {
 	im.DrawList_AddRect(draw_list, minimum, maximum, im.GetColorU32ImVec4({1, 1, 1, 0.4}), 3, {}, 2)
 }
 
-draw_model_table :: proc(tab: ^Tab_State) {
-	state := &tab.env
-	if state.n < N_MIN || state.n > N_MAX {
-		im.TextColored({0.95, 0.35, 0.35, 1}, "Refused to render the table: n must be in range [%d, %d].", N_MIN, N_MAX)
-		return
-	}
-	if state.n != tab.prev_n {
-		state.n = clamp(state.n, N_MIN, N_MAX)
-		start := max(0, tab.prev_n)
-		for i in start..<state.n {
-			source := max(0, i-1)
-			buffer_set(state.drag_x[i][:], buffer_string(state.drag_x[source][:]))
-			buffer_set(state.drag_z[i][:], buffer_string(state.drag_z[source][:]))
-			buffer_set(state.accel[i][:], buffer_string(state.accel[source][:]))
-			buffer_set(
-				state.post.angle_offset[i][:],
-				buffer_string(state.post.angle_offset[source][:]),
-			)
-		}
-		buffer_set(state.accel[0][:], "initV")
-		tab.prev_n = state.n
-	}
-
-	im.BeginChild("model_region", {0, ui_px(145)})
-	region_pos := im.GetWindowPos()
-	region_size := im.GetWindowSize()
-	tab.model_region_min = {region_pos.x, region_pos.y}
-	tab.model_region_max = {region_pos.x+region_size.x, region_pos.y+region_size.y}
-	flags := im.TableFlags_Borders | im.TableFlags_RowBg |
-	         im.TableFlags_ScrollX | im.TableFlags_ScrollY |
-	         im.TableFlags_SizingFixedFit
-	if im.BeginTable("model_table", c.int(state.n+1), flags) {
-		im.TableSetupScrollFreeze(1, 0)
-		for i in 0..<state.n+1 do im.TableSetupColumn("", {.WidthFixed}, 65)
-		im.TableNextRow({.Headers})
-		im.TableSetColumnIndex(0)
-		center_text("Tick")
-		for i in 0..<state.n {im.TableSetColumnIndex(c.int(i+1)); center_text(fmt.tprintf("%d", i))}
-		rows := [?]cstring{"DragX", "DragZ", "Accel"}
-		for row in 0..<3 {
-			im.TableNextRow()
-			im.TableSetColumnIndex(0)
-			center_text(string(rows[row]))
-			for tick in 0..<state.n {
-				im.TableSetColumnIndex(c.int(tick+1))
-				if row == 2 && tick == 0 {
-					center_text("initV")
-					continue
-				}
-				im.PushIDInt(c.int(row*1000+tick))
-				im.SetNextItemWidth(65)
-				switch row {
-				case 0: _ = input_text("##drag_x", state.drag_x[tick][:])
-				case 1: _ = input_text("##drag_z", state.drag_z[tick][:])
-				case 2: _ = input_text("##accel", state.accel[tick][:])
-				}
-				if im.IsItemActivated() || im.IsItemClicked() do tab.selected_model_tick_index = tick
-				if tab.selected_model_tick_index == tick do draw_selection_rect(im.GetItemRectMin(), im.GetItemRectMax())
-				im.PopID()
-			}
-		}
-		im.EndTable()
-	}
-	im.EndChild()
-}
-
 draw_global_table :: proc(tab: ^Tab_State) {
 	state := &tab.env
 	im.SeparatorText("Global Variables")
@@ -403,35 +337,6 @@ draw_postprocessor :: proc(state: ^Environment) {
 	pop_font(pushed)
 	state.post.position_precision = clamp(int(precision), 3, 10)
 
-	im.AlignTextToFramePadding(); im.Text("Angle Offset (Manual copying section):"); im.SameLine(0, 8)
-	offset_mode := c.int(state.post.offset_mode)
-	im.SetNextItemWidth(90)
-	items := [?]cstring{"Facing", "Turn"}
-	if combo_select("##offsetMode", &offset_mode, items[:]) do state.post.offset_mode = Offset_Type(offset_mode)
-	im.SameLine(0, 8)
-	if im.Button("Reset") {
-		for i in 0..<state.n do buffer_set(state.post.angle_offset[i][:], "0")
-	}
-
-	im.BeginChild("angle_offset_region", {0, ui_px(63)})
-	flags := im.TableFlags_Borders | im.TableFlags_RowBg | im.TableFlags_ScrollX | im.TableFlags_SizingFixedFit
-	if im.BeginTable("angle_offset_table", c.int(state.n+1), flags) {
-		im.TableSetupScrollFreeze(1, 0)
-		im.TableNextRow()
-		im.TableSetColumnIndex(0); center_text("Tick")
-		for i in 0..<state.n {im.TableSetColumnIndex(c.int(i+1)); center_text(fmt.tprintf("%d", i))}
-		im.TableNextRow()
-		im.TableSetColumnIndex(0); center_text("Offset")
-		for i in 0..<state.n {
-			im.TableSetColumnIndex(c.int(i+1))
-			im.PushIDInt(c.int(4000+i))
-			im.SetNextItemWidth(50)
-			_ = input_text("##angle_offset", state.post.angle_offset[i][:])
-			im.PopID()
-		}
-		im.EndTable()
-	}
-	im.EndChild()
 	im.PopStyleVar(3)
 }
 
@@ -494,69 +399,16 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	}
 	im.Spacing()
 
-	// === Model ===
-	im.SeparatorText("Model")
-	im.AlignTextToFramePadding(); im.Text("n ="); im.SameLine()
-	n_value := c.int(state.edit_n)
-	im.SetNextItemWidth(60)
-	_ = im.InputInt("##n", &n_value, 0, 0)
-	state.edit_n = int(n_value)
-	model_controls_min := im.GetItemRectMin()
-	model_controls_max := im.GetItemRectMax()
-	if im.IsItemDeactivatedAfterEdit() do state.n = state.edit_n
-	active_tick := state.n-1
-	if tab.selected_model_tick_index >= 0 && tab.selected_model_tick_index < state.n {
-		active_tick = tab.selected_model_tick_index
-	}
-	im.SameLine()
-	if im.Button("-", {30, im.GetFrameHeight()}) && state.n > 1 && active_tick > 0 {
-		for i in active_tick..<state.n-1 {
-			state.drag_x[i] = state.drag_x[i+1]
-			state.drag_z[i] = state.drag_z[i+1]
-			state.accel[i] = state.accel[i+1]
-			state.post.angle_offset[i] = state.post.angle_offset[i+1]
-		}
-		state.n -= 1; state.edit_n = state.n
-		buffer_set(state.accel[0][:], "initV")
-		tab.prev_n = state.n
-		tab.selected_model_tick_index = max(0, active_tick-1)
-	}
-	item_min, item_max := im.GetItemRectMin(), im.GetItemRectMax()
-	model_controls_min = {min(model_controls_min.x, item_min.x), min(model_controls_min.y, item_min.y)}
-	model_controls_max = {max(model_controls_max.x, item_max.x), max(model_controls_max.y, item_max.y)}
-	im.SameLine()
-	if im.Button("+", {30, im.GetFrameHeight()}) && state.n < N_MAX {
-		insert_index := active_tick+1
-		for i := state.n; i > insert_index; i -= 1 {
-			state.drag_x[i] = state.drag_x[i-1]
-			state.drag_z[i] = state.drag_z[i-1]
-			state.accel[i] = state.accel[i-1]
-			state.post.angle_offset[i] = state.post.angle_offset[i-1]
-		}
-		state.drag_x[insert_index] = state.drag_x[active_tick]
-		state.drag_z[insert_index] = state.drag_z[active_tick]
-		state.accel[insert_index] = state.accel[active_tick]
-		state.post.angle_offset[insert_index] = state.post.angle_offset[active_tick]
-		state.n += 1; state.edit_n = state.n
-		buffer_set(state.accel[0][:], "initV")
-		tab.prev_n = state.n
-		tab.selected_model_tick_index = insert_index
-	}
-	item_min, item_max = im.GetItemRectMin(), im.GetItemRectMax()
-	model_controls_min = {min(model_controls_min.x, item_min.x), min(model_controls_min.y, item_min.y)}
-	model_controls_max = {max(model_controls_max.x, item_max.x), max(model_controls_max.y, item_max.y)}
-
-	im.AlignTextToFramePadding(); im.Text("initV ="); im.SameLine()
-	im.SetNextItemWidth(160)
-	_ = input_text("##model_initV", state.init_v[:])
-	im.Spacing()
-	draw_model_table(tab)
-	mouse := im.GetMousePos()
-	inside_controls := mouse.x >= model_controls_min.x && mouse.x <= model_controls_max.x &&
-	                   mouse.y >= model_controls_min.y && mouse.y <= model_controls_max.y
-	inside_model := mouse.x >= tab.model_region_min[0] && mouse.x <= tab.model_region_max[0] &&
-	                mouse.y >= tab.model_region_min[1] && mouse.y <= tab.model_region_max[1]
-	if im.IsMouseClicked(.Left) && !inside_controls && !inside_model do tab.selected_model_tick_index = -1
+	// === Movement Model ===
+	im.SeparatorText("Movement Script")
+	model_font_pushed := push_font(code_font)
+	_ = input_multiline(
+		"##movement_script",
+		state.movement_script[:],
+		{-1, ui_px(86)},
+		{.AllowTabInput},
+	)
+	pop_font(model_font_pushed)
 	im.Spacing()
 
 	// === Core ===
@@ -570,18 +422,18 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	if im.Button("Maximize" if state.maximize else "Minimize") do state.maximize = !state.maximize
 	if state.curr_obj == .Custom {
 		im.SetNextItemWidth(-1)
-		pushed := push_font(code_font)
-		_ = input_text("##custom_objective_script", state.obj_script[:])
-		pop_font(pushed)
+			objective_font_pushed := push_font(code_font)
+			_ = input_text("##custom_objective_script", state.obj_script[:])
+			pop_font(objective_font_pushed)
 	}
 	draw_global_table(tab)
 
 	// === Constraints ===
 	im.SeparatorText("Constraints")
 	tab.cons_editor_height = clamp(tab.cons_editor_height, 80, 360)
-	pushed := push_font(code_font)
+	constraint_font_pushed := push_font(code_font)
 	_ = input_multiline("##constraint_script", state.constraint_script[:], {-1, tab.cons_editor_height}, {.AllowTabInput})
-	pop_font(pushed)
+	pop_font(constraint_font_pushed)
 	divider_pos := im.GetCursorScreenPos()
 	divider_height := ui_px(8)
 	im.InvisibleButton("##constraint_divider", {im.GetContentRegionAvail().x, divider_height}, {.MouseButtonLeft})
@@ -772,15 +624,15 @@ copy_separator :: proc(separator: Separator_Type) -> string {
 	return ","
 }
 
-format_angle_list :: proc(facings: []f64, offsets: []f64, turns: bool, separator: string) -> string {
+format_angle_list :: proc(facings: []f64, turns: bool, separator: string) -> string {
 	builder := strings.builder_make()
 	count := len(facings)-1
 	if turns do count -= 1
 	for i in 0..<max(0, count) {
 		if i > 0 do strings.write_string(&builder, separator)
-		value := facings[i]+offsets[i]
+		value := facings[i]
 		if turns {
-			value = wrap_degrees_180(facings[i+1]+offsets[i+1]-value)
+			value = wrap_degrees_180(facings[i+1]-value)
 		}
 		part := fmt.tprintf("%.3f", value)
 		strings.write_string(&builder, part)
@@ -860,7 +712,9 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 	count := len(solution.xs)
 	facings := make([dynamic]f64, count); defer delete(facings)
 	for i in 0..<len(solution.thetas) {
-		wrapped := wrap_degrees_180(solution.thetas[i]*180/math.PI)
+		wrapped := wrap_degrees_180(
+			solution.thetas[i]*180/math.PI-state.angle_offset[i],
+		)
 		facings[i] = math.round(200*wrapped)*0.005
 	}
 	turns := make([dynamic]string, count); defer delete(turns)
@@ -922,14 +776,13 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 	im.PopStyleVar()
 	im.Spacing(); im.Spacing()
 
-	solution_n := clamp(state.solution_n, 0, N_MAX)
-	display_facings := format_angle_list(facings[:], state.angle_offset[:solution_n], false, ", ")
+	display_facings := format_angle_list(facings[:], false, ", ")
 	defer delete(display_facings)
-	display_turns := format_angle_list(facings[:], state.angle_offset[:solution_n], true, ", ")
+	display_turns := format_angle_list(facings[:], true, ", ")
 	defer delete(display_turns)
-	copied_facings := format_angle_list(facings[:], state.angle_offset[:solution_n], false, copy_separator(state.post.copy_separator))
+	copied_facings := format_angle_list(facings[:], false, copy_separator(state.post.copy_separator))
 	defer delete(copied_facings)
-	copied_turns := format_angle_list(facings[:], state.angle_offset[:solution_n], true, copy_separator(state.post.copy_separator))
+	copied_turns := format_angle_list(facings[:], true, copy_separator(state.post.copy_separator))
 	defer delete(copied_turns)
 	read_only_block("Facing", display_facings, copied_facings)
 	im.Spacing()

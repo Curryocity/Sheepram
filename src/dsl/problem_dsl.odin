@@ -53,14 +53,6 @@ lexer_error :: proc(token: Token, lexer: ^Lexer) -> string {
 	return parser_error(token.text, lexer)
 }
 
-define_init_v :: proc(parser: ^Parser, init_v: f64) {
-	if old_key, found := map_key(parser.var_map, "initV"); found {
-		parser.var_map[old_key] = init_v
-	} else {
-		parser.var_map[strings.clone("initV")] = init_v
-	}
-}
-
 set_variable :: proc(parser: ^Parser, name: string, value: f64) {
 	if old_key, found := map_key(parser.var_map, name); found {
 		parser.var_map[old_key] = value
@@ -82,7 +74,7 @@ add_variable :: proc(parser: ^Parser, raw_name, value: string) -> string {
 	if !is_alpha(name[0]) && name[0] != '_' {
 		return fmt.aprintf("%s is an illegal name", name)
 	}
-	if name == "n" || name == "initV" || name == "X" || name == "Z" ||
+	if name == "n" || name == "X" || name == "Z" ||
 	   name == "F" || name == "Vx" || name == "Vz" || name == "T" {
 		return fmt.aprintf("%s is a reserved keyword", name)
 	}

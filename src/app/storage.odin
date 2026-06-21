@@ -15,8 +15,6 @@ Saved_Post :: struct {
 	x_add:              string   `json:"xAdd"`,
 	z_tick:             string   `json:"zTick"`,
 	z_add:              string   `json:"zAdd"`,
-	angle_offset:       []string `json:"angleOffset"`,
-	offset_mode:        int      `json:"offsetMode"`,
 	copy_separator:     int      `json:"copySeparator"`,
 	position_precision: int      `json:"positionPrecision"`,
 }
@@ -25,11 +23,7 @@ Saved_Tab :: struct {
 	title:             string     `json:"title"`,
 	maximize:          bool       `json:"maximize"`,
 	curr_obj:          int        `json:"currObj"`,
-	n:                 int        `json:"n"`,
-	init_v:            string     `json:"initV"`,
-	drag_x:            []string   `json:"dragX"`,
-	drag_z:            []string   `json:"dragZ"`,
-	accel:             []string   `json:"accel"`,
+	movement_script:   string     `json:"movementScript"`,
 	global_names:      []string   `json:"globalNames"`,
 	global_values:     []string   `json:"globalValues"`,
 	obj_script:        string     `json:"objScript"`,
@@ -43,17 +37,10 @@ Preferences :: struct {
 }
 
 free_saved_tab :: proc(saved: ^Saved_Tab) {
-	for value in saved.drag_x do delete(value)
-	for value in saved.drag_z do delete(value)
-	for value in saved.accel do delete(value)
 	for value in saved.global_names do delete(value)
 	for value in saved.global_values do delete(value)
-	for value in saved.post.angle_offset do delete(value)
 	delete(saved.title)
-	delete(saved.init_v)
-	delete(saved.drag_x)
-	delete(saved.drag_z)
-	delete(saved.accel)
+	delete(saved.movement_script)
 	delete(saved.global_names)
 	delete(saved.global_values)
 	delete(saved.obj_script)
@@ -62,7 +49,6 @@ free_saved_tab :: proc(saved: ^Saved_Tab) {
 	delete(saved.post.x_add)
 	delete(saved.post.z_tick)
 	delete(saved.post.z_add)
-	delete(saved.post.angle_offset)
 	saved^ = {}
 }
 
@@ -72,11 +58,7 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 		title             = buffer_string(tab.name[:]),
 		maximize          = env.maximize,
 		curr_obj          = int(env.curr_obj),
-		n                 = env.n,
-		init_v            = buffer_string(env.init_v[:]),
-		drag_x            = make([]string, env.n),
-		drag_z            = make([]string, env.n),
-		accel             = make([]string, env.n),
+		movement_script   = buffer_string(env.movement_script[:]),
 		global_names      = make([]string, env.var_capacity),
 		global_values     = make([]string, env.var_capacity),
 		obj_script        = buffer_string(env.obj_script[:]),
@@ -86,17 +68,9 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 			x_add              = buffer_string(env.post.x_add[:]),
 			z_tick             = buffer_string(env.post.z_tick[:]),
 			z_add              = buffer_string(env.post.z_add[:]),
-			angle_offset       = make([]string, env.n),
-			offset_mode        = int(env.post.offset_mode),
 			copy_separator     = int(env.post.copy_separator),
 			position_precision = env.post.position_precision,
 		},
-	}
-	for i in 0..<env.n {
-		saved.drag_x[i] = buffer_string(env.drag_x[i][:])
-		saved.drag_z[i] = buffer_string(env.drag_z[i][:])
-		saved.accel[i] = buffer_string(env.accel[i][:])
-		saved.post.angle_offset[i] = buffer_string(env.post.angle_offset[i][:])
 	}
 	for i in 0..<env.var_capacity {
 		saved.global_names[i] = buffer_string(env.global_names[i][:])
@@ -107,12 +81,8 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 
 free_saved_view :: proc(saved: ^Saved_Tab) {
 	// saved_from_tab only owns its slice containers; strings point into Tab_State.
-	delete(saved.drag_x)
-	delete(saved.drag_z)
-	delete(saved.accel)
 	delete(saved.global_names)
 	delete(saved.global_values)
-	delete(saved.post.angle_offset)
 	saved^ = {}
 }
 
@@ -154,15 +124,11 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	if saved.curr_obj < int(Objective_Type.X) || saved.curr_obj > int(Objective_Type.Custom) {
 		return strings.clone("Invalid field: currObj")
 	}
-	if len(saved.drag_x) != saved.n || len(saved.drag_z) != saved.n || len(saved.accel) != saved.n {
-		return strings.clone("dragX/dragZ/accel sizes must match n")
+	if strings.trim_space(saved.movement_script) == "" {
+		return strings.clone("movementScript cannot be empty")
 	}
 	if len(saved.global_names) != len(saved.global_values) {
 		return strings.clone("globalNames/globalValues size mismatch")
-	}
-	if saved.post.offset_mode < int(Offset_Type.Facing) ||
-	   saved.post.offset_mode > int(Offset_Type.Turn) {
-		return strings.clone("Invalid field: post.offsetMode")
 	}
 	if saved.post.copy_separator < int(Separator_Type.Comma) ||
 	   saved.post.copy_separator > int(Separator_Type.Newline) {
@@ -173,16 +139,9 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	env := &tab.env
 	env.maximize = saved.maximize
 	env.curr_obj = Objective_Type(saved.curr_obj)
-	env.n = clamp(saved.n, N_MIN, N_MAX)
-	env.edit_n = env.n
-	buffer_set(env.init_v[:], saved.init_v)
+	buffer_set(env.movement_script[:], saved.movement_script)
 	buffer_set(env.obj_script[:], saved.obj_script)
 	buffer_set(env.constraint_script[:], saved.constraint_script)
-	for i in 0..<env.n {
-		buffer_set(env.drag_x[i][:], saved.drag_x[i])
-		buffer_set(env.drag_z[i][:], saved.drag_z[i])
-		buffer_set(env.accel[i][:], saved.accel[i])
-	}
 
 	env.var_capacity = clamp(len(saved.global_names), 1, MAX_GLOBALS)
 	for i in 0..<env.var_capacity {
@@ -198,18 +157,8 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	buffer_set(env.post.x_add[:], saved.post.x_add)
 	buffer_set(env.post.z_tick[:], saved.post.z_tick)
 	buffer_set(env.post.z_add[:], saved.post.z_add)
-	env.post.offset_mode = Offset_Type(saved.post.offset_mode)
 	env.post.copy_separator = Separator_Type(saved.post.copy_separator)
 	env.post.position_precision = saved.post.position_precision
-	for i in 0..<env.n {
-		value := "0"
-		if i < len(saved.post.angle_offset) {
-			value = saved.post.angle_offset[i]
-		} else if len(saved.post.angle_offset) > 0 {
-			value = saved.post.angle_offset[len(saved.post.angle_offset)-1]
-		}
-		buffer_set(env.post.angle_offset[i][:], value)
-	}
 
 	title := strings.trim_space(saved.title)
 	if title == "" {
@@ -218,7 +167,6 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 		buffer_set(tab.name[:], title)
 	}
 	buffer_set(tab.name_draft[:], buffer_string(tab.name[:]))
-	tab.prev_n = env.n
 	buffer_clear(env.last_error[:])
 	buffer_clear(tab.inline_save_message[:])
 	tab.inline_save_is_error = false

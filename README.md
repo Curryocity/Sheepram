@@ -35,10 +35,19 @@ Sheepram is a tool for solving **Minecraft Onejump angle optimization problems**
 
 ## Guide
 
-### 1. Model (Drags & Accels Table)
+### 1. Movement Model
 
-The solver assumes you already know the movement state for each tick.
-Sheepram optimizes the **angles only**.
+Describe the movement timeline with the built-in Mothball-style DSL. The script
+generates the model length, drag, acceleration, and movement-relative angle
+offsets; Sheepram then optimizes the **facing angles only**.
+
+```Sheepram
+initGnd(0.3169516131491288) sj.w sa.wa(11)
+```
+
+Useful commands include `initGnd(...)`, `initAir(...)`, `slip(...)`,
+`speed(...)`, `slow(...)`, `ix`, `iz`, `custom(drag, accel[, duration])`,
+and `loop(count) {...}`.
 
 ### 2. Objective Function
 
@@ -93,7 +102,7 @@ Z[n] - Z[m-1] < 1.5625 + 0.6
 
 Vx[it] < 0.005/0.91
 // Means you hit inertia on X while tick = it in the air
-// You should also set dragX = 0 on that tick
+// Use ix before that movement tick in the movement script
 ```
 
 Nonlinear expressions such as `X[1] * X[2]` are not supported and will not compile.
@@ -104,39 +113,15 @@ The postprocessor lets you:
 
 * shift the coordinate origin (affects the output table and plot)
 * change table precision
-* change angle offsets (only affects the manual copy section)
 
 ## Tips
 
 ### Global variable declaration order
 
-Variables are declared in the following order:
-
-`n` → `initV` → table entries from left to right
+`n` is derived from the movement script before global variables are evaluated.
 
 A later variable may use previously defined variables.
 Redefining a variable overwrites the old value.
-
-### Optimizing initV (making initV an optimizable variable)
-
-1. In the model table, set the 1st column's `dragX/Z` to `1` and 2nd column's `accel` to $initV - \epsilon$, where $\epsilon$ is a small number like `1e-5` to prevent numerical instability.
-
-2. Now, you have basically made `initV` an optimizable variable $\delta$ that satisfies
-
- $$\epsilon \le \delta \le 2 \cdot initV - \epsilon$$
-
-3. **Explanation:** 
-  Setting `Drag = 1` makes velocities additive across ticks. 
-
-    Let $z$ be the added velocities (The real/imaginary parts are the X/Z components respectively): 
-
-    $$z = Ve^{i\alpha} + (V - \epsilon)e^{i\beta}$$
-
-    By Triangle Inequality: 
-
-    $$\epsilon \le |z| \le 2V - \epsilon$$
-
-    Also not difficult to see that $arg(z)$ could span a whole rotation. 
 
     In fact, when  $\epsilon = 0$:
 
@@ -584,15 +569,3 @@ static inline float cosr(float rad){
 ```
 
 Taking this discrete angle structure into account during optimization would be a very interesting direction. In fact, I already have many ideas for it, such as **simulated annealing**, **limited-window-size 2-opt**, and **coordinate descent**.
-
-2. **Integrating Mothball movement syntax**: [Mothball](https://github.com/CyrenArkade/mothball) is a language developed by CyrenArkade that can describe Minecraft player movement concisely, and it also includes many built-in functions commonly used in stratfinding. 
-
-I may replace the Drag / Accel table with Mothball syntax. For example, a table like this:
-
-![](readmeResource/modelTable.png)
-
-could be reduced to a single line of script:
-
-```Sheepram
-initV(0.3169516131491288) sj sa.wa(11)
-```
