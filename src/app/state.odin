@@ -11,6 +11,7 @@ MAX_GLOBALS :: 128
 CELL_CAPACITY :: 64
 NAME_CAPACITY :: 128
 SCRIPT_CAPACITY :: 8192
+MOVEMENT_SCRIPT_CAPACITY :: 32768
 ERROR_CAPACITY :: 8192
 STATUS_CAPACITY :: 512
 FINGERPRINT_CAPACITY :: 131072
@@ -52,7 +53,7 @@ Environment :: struct {
 	dir_z:     [CELL_CAPACITY]byte,
 	obj_script:[SCRIPT_CAPACITY]byte,
 
-	movement_script: [SCRIPT_CAPACITY]byte,
+	movement_script: [MOVEMENT_SCRIPT_CAPACITY]byte,
 
 	var_capacity: int,
 	global_names:  [MAX_GLOBALS][CELL_CAPACITY]byte,
@@ -82,6 +83,7 @@ Tab_State :: struct {
 	inline_save_is_error:bool,
 	env:                 Environment,
 	left_width:          f32,
+	movement_editor_height: f32,
 	cons_editor_height:  f32,
 	selected_global_var_index: int,
 	optimizer_job: ^Optimizer_Job,
@@ -158,7 +160,7 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 		"// c4.5 p2p\n" +
 		"X[m] - X[0] > 7/16\n" +
 		"X[m2] - X[0] > 7/16\n" +
-		"Z[m2] - Z[m-1] > 1 + 0.6000000238418579\n",
+		"Z[m2] - Z[m-1] > 1 + bx\n",
 	)
 	buffer_set(tab.env.post.x_tick[:], "0")
 	buffer_set(tab.env.post.x_add[:], "0")
@@ -166,6 +168,7 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	buffer_set(tab.env.post.z_add[:], "0")
 	init_globals(&tab.env)
 	tab.selected_global_var_index = -1
+	tab.movement_editor_height = 86
 	tab.cons_editor_height = 120
 	fingerprint := build_tab_fingerprint(tab)
 	buffer_set(tab.saved_fingerprint[:], fingerprint)

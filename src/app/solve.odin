@@ -25,6 +25,23 @@ run_optimizer :: proc(state: ^Environment) {
 
 	movement := dsl.Model_State{}
 	defer dsl.destroy_moth_execution_state(&movement)
+	global_names := make([dynamic]string, 0, state.var_capacity)
+	global_values := make([dynamic]string, 0, state.var_capacity)
+	defer delete(global_names)
+	defer delete(global_values)
+	for i in 0..<state.var_capacity {
+		append(&global_names, buffer_string(state.global_names[i][:]))
+		append(&global_values, buffer_string(state.global_values[i][:]))
+	}
+	if globals_err := dsl.add_moth_variables(
+		&movement,
+		global_names[:],
+		global_values[:],
+	); globals_err != "" {
+		set_error(state, fmt.tprintf("Error:\n%s", globals_err))
+		delete(globals_err)
+		return
+	}
 	dsl.moth_to_model(&movement, code[:])
 	if !movement.ok {
 		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", movement.err))

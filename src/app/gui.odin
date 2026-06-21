@@ -368,19 +368,10 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 
 	im.AlignTextToFramePadding(); im.Text("Title:"); im.SameLine()
 	im.SetNextItemWidth(220)
-	pressed_enter := input_text("##tab_name", tab.name_draft[:], {.EnterReturnsTrue})
-	if pressed_enter || im.IsItemDeactivatedAfterEdit() {
-		name := strings.trim_space(buffer_string(tab.name_draft[:]))
-		if name == "" do name = fmt.tprintf("Untitled %d", tab.id)
-		buffer_set(tab.name_draft[:], name)
-		buffer_set(tab.name[:], name)
-	}
+	_ = input_text("##tab_name", tab.name_draft[:])
+	if im.IsItemDeactivatedAfterEdit() do commit_tab_title(tab)
 	im.SameLine()
 	if im.Button("Save") {
-		name := strings.trim_space(buffer_string(tab.name_draft[:]))
-		if name == "" do name = fmt.tprintf("Untitled %d", tab.id)
-		buffer_set(tab.name_draft[:], name)
-		buffer_set(tab.name[:], name)
 		err := save_tab_to_file(tab)
 		if err != "" {
 			buffer_set(tab.inline_save_message[:], err)
@@ -400,15 +391,44 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	im.Spacing()
 
 	// === Movement Model ===
-	im.SeparatorText("Movement Script")
+	im.SeparatorText("Mothball Model")
+	tab.movement_editor_height = clamp(tab.movement_editor_height, 80, 360)
 	model_font_pushed := push_font(code_font)
 	_ = input_multiline(
 		"##movement_script",
 		state.movement_script[:],
-		{-1, ui_px(86)},
-		{.AllowTabInput},
+		{-1, tab.movement_editor_height},
+		{.AllowTabInput, .WordWrap},
 	)
 	pop_font(model_font_pushed)
+	movement_divider_pos := im.GetCursorScreenPos()
+	movement_divider_height := ui_px(8)
+	im.InvisibleButton(
+		"##movement_script_divider",
+		{im.GetContentRegionAvail().x, movement_divider_height},
+		{.MouseButtonLeft},
+	)
+	movement_divider_hovered := im.IsItemHovered()
+	movement_divider_active := im.IsItemActive()
+	if movement_divider_hovered || movement_divider_active do im.SetMouseCursor(.ResizeNS)
+	if movement_divider_active {
+		tab.movement_editor_height = clamp(
+			tab.movement_editor_height+im.GetIO().MouseDelta.y,
+			80,
+			360,
+		)
+	}
+	movement_divider_color := im.GetColorU32(.Separator)
+	if movement_divider_active do movement_divider_color = im.GetColorU32(.SeparatorActive)
+	else if movement_divider_hovered do movement_divider_color = im.GetColorU32(.SeparatorHovered)
+	movement_divider_y := movement_divider_pos.y+movement_divider_height*0.5
+	im.DrawList_AddLine(
+		im.GetWindowDrawList(),
+		{movement_divider_pos.x, movement_divider_y},
+		{movement_divider_pos.x+im.GetItemRectSize().x, movement_divider_y},
+		movement_divider_color,
+		2,
+	)
 	im.Spacing()
 
 	// === Core ===

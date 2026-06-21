@@ -19,6 +19,7 @@ MoveFunc :: struct {
 	w:         f32,
 	a:         f32,
 	t:         int,
+	t_variable:string,
 }
 
 CmdType :: enum {
@@ -29,7 +30,7 @@ CmdType :: enum {
 
 	SetSlip, SetSpeed, SetSlow,
 
-	CustomMove,
+	Move,
 
 	Loop,
 
@@ -336,8 +337,8 @@ get_command_type :: proc(name: string) -> CmdType {
 		return .ForceInertiaX
 	case "iz":
 		return .ForceInertiaZ
-	case "custom":
-		return .CustomMove
+	case "mv":
+		return .Move
 	case "r", "loop", "repeat":
 		return .Loop
 	case "initGnd":
@@ -463,34 +464,45 @@ parse_move_func :: proc(prs: ^ParserState, mf: ^MoveFunc, token: Token) -> Arg {
 		duration_arg := parse_moth_arg(prs, 0)
 		if !prs.ok do return {}
 		duration, duration_ok := eval_constant(duration_arg)
-		destroy_arg(&duration_arg)
 		if !duration_ok {
-			fail_parse(
-				prs,
-				fmt.tprintf("Error: duration in %s(...) must be a number", token.text),
-			)
-			return {}
-		}
-
-		rounded := math.round(duration)
-		if math.abs(duration-rounded) >= 1e-15 || rounded <= 0 {
-			fail_parse(
-				prs,
-				fmt.tprintf("Error: duration in %s(...) must be a positive whole number", token.text),
-			)
-			return {}
-		}
-			mf.t = int(rounded)
-
-			close := lexer_next(&prs.lex)
-			if close.type != .R_Paren {
+			if duration_arg.type != .Variable {
+				destroy_arg(&duration_arg)
 				fail_parse(
 					prs,
 					fmt.tprintf(
-						"Error: %s(...) accepts only a duration; expected ')', got '%s'",
+						"Error: duration in %s(...) must be a number or global variable",
 						token.text,
-						token_message(close),
 					),
+				)
+				return {}
+			}
+			mf.t_variable = duration_arg.text
+		} else {
+			rounded := math.round(duration)
+			if math.abs(duration-rounded) >= 1e-15 || rounded <= 0 {
+				destroy_arg(&duration_arg)
+				fail_parse(
+					prs,
+					fmt.tprintf(
+						"Error: duration in %s(...) must be a positive whole number",
+						token.text,
+					),
+				)
+				return {}
+			}
+			mf.t = int(rounded)
+		}
+		destroy_arg(&duration_arg)
+
+		close := lexer_next(&prs.lex)
+		if close.type != .R_Paren {
+			fail_parse(
+				prs,
+				fmt.tprintf(
+					"Error: %s(...) accepts only a duration; expected ')', got '%s'",
+					token.text,
+					token_message(close),
+				),
 			)
 			return {}
 		}

@@ -46,8 +46,10 @@ initGnd(0.3169516131491288) sj.w sa.wa(11)
 ```
 
 Useful commands include `initGnd(...)`, `initAir(...)`, `slip(...)`,
-`speed(...)`, `slow(...)`, `ix`, `iz`, `custom(drag, accel[, duration])`,
+`speed(...)`, `slow(...)`, `ix`, `iz`, `mv(drag, accel[, duration])`,
 and `loop(count) {...}`.
+Movement-command arguments and durations may reference variables from the
+global-variable table.
 
 ### 2. Objective Function
 

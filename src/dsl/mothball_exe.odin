@@ -3,6 +3,7 @@ package dsl
 import "core:fmt"
 import "core:math"
 import "core:strings"
+import opt "../optimizer"
 
 Model_State :: struct {
 	speed: u8,
@@ -24,6 +25,7 @@ Model_State :: struct {
 	drag_z: [dynamic]f64,
 	accel:  [dynamic]f64,
 	angle_offset: [dynamic]f64,
+	variables: map[string]f64,
 }
 
 
@@ -33,7 +35,37 @@ destroy_moth_execution_state :: proc(state: ^Model_State) {
 	delete(state.drag_z)
 	delete(state.accel)
 	delete(state.angle_offset)
+	for name in state.variables do delete(name)
+	delete(state.variables)
 	state^ = {}
+}
+
+add_moth_variables :: proc(
+	state: ^Model_State,
+	names, values: []string,
+) -> string {
+	if len(names) != len(values) {
+		return strings.clone("Variable name/value size mismatch")
+	}
+
+	model := opt.Model{n = 1}
+	parser := init_parser(&model)
+	defer destroy(&parser)
+	if err := add_variables(&parser, names, values); err != "" do return err
+
+	if state.variables == nil do state.variables = make(map[string]f64)
+	for raw_name in names {
+		name := trim(raw_name)
+		if name == "" do continue
+		value, found := parser.var_map[name]
+		if !found do continue
+		if old_name, exists := map_key(state.variables, name); exists {
+			state.variables[old_name] = value
+		} else {
+			state.variables[strings.clone(name)] = value
+		}
+	}
+	return ""
 }
 
 set_model_error :: proc(state: ^Model_State, message: string) {
@@ -82,6 +114,24 @@ exe_code :: proc(state: ^Model_State, code: []Arg) {
 		#partial switch ins.type {
 		case .MoveCall:
 			mf := ins.mvfunc
+			duration := mf.t
+			if mf.t_variable != "" {
+				duration_value, found := state.variables[mf.t_variable]
+				duration_rounded := math.round(duration_value)
+				if !found ||
+				   duration_value != duration_rounded ||
+				   duration_rounded <= 0 {
+					set_model_error(
+						state,
+						fmt.tprintf(
+							"Error: duration in %s(...) must be a defined positive whole-number global variable",
+							mf.name,
+						),
+					)
+					return
+				}
+				duration = int(duration_rounded)
+			}
 
 			drag := f64(0.91)
 			base_accel: f64
@@ -125,7 +175,7 @@ exe_code :: proc(state: ^Model_State, code: []Arg) {
 			final_accel := math.sqrt(forward*forward+strafe*strafe)
 			angle_offset := math.atan2(-strafe, forward)*180/math.PI
 
-			for i in 0..<mf.t {
+			for i in 0..<duration {
 				if i == 0 && state.ix_next {
 					append(&state.drag_x, 0)
 					state.ix_next = false
@@ -144,7 +194,7 @@ exe_code :: proc(state: ^Model_State, code: []Arg) {
 				append(&state.angle_offset, angle_offset)
 			}
 
-			state.n += mf.t
+			state.n += duration
 
 		case .Call:
 			exe_model_cmd(state, ins.expr)
@@ -188,10 +238,47 @@ expect_moth_args :: proc(
 	return "", true
 }
 
-eval_moth_number :: proc(arg: Arg, description: string) -> (f64, string) {
-	value, ok := eval_constant(arg)
+eval_moth_constant :: proc(state: ^Model_State, arg: Arg) -> (f64, bool) {
+	#partial switch arg.type {
+	case .Number:
+		return arg.value, true
+	case .Variable:
+		value, found := state.variables[arg.text]
+		return value, found
+	case .Call:
+		if arg.expr == nil || len(arg.expr.args) != 2 do return 0, false
+		lhs, lhs_ok := eval_moth_constant(state, arg.expr.args[0])
+		rhs, rhs_ok := eval_moth_constant(state, arg.expr.args[1])
+		if !lhs_ok || !rhs_ok do return 0, false
+		#partial switch arg.expr.type {
+		case .Plus:
+			return lhs+rhs, true
+		case .Minus:
+			return lhs-rhs, true
+		case .Mul:
+			return lhs*rhs, true
+		case .Div:
+			if rhs == 0 do return 0, false
+			return lhs/rhs, true
+		case:
+			return 0, false
+		}
+	case:
+		return 0, false
+	}
+}
+
+eval_moth_number :: proc(
+	state: ^Model_State,
+	arg: Arg,
+	description: string,
+) -> (f64, string) {
+	value, ok := eval_moth_constant(state, arg)
 	if !ok {
-		return 0, fmt.tprintf("Error: %s must be a constant number", description)
+		return 0, fmt.tprintf(
+			"Error: %s must be a number or defined global-variable expression",
+			description,
+		)
 	}
 	if math.is_nan(value) || math.is_inf(value, 0) {
 		return 0, fmt.tprintf("Error: %s must be finite", description)
@@ -199,8 +286,12 @@ eval_moth_number :: proc(arg: Arg, description: string) -> (f64, string) {
 	return value, ""
 }
 
-eval_u8 :: proc(arg: Arg, command_name: string) -> (u8, string) {
-	value, err := eval_moth_number(arg, fmt.tprintf("%s(...) argument", command_name))
+eval_u8 :: proc(state: ^Model_State, arg: Arg, command_name: string) -> (u8, string) {
+	value, err := eval_moth_number(
+		state,
+		arg,
+		fmt.tprintf("%s(...) argument", command_name),
+	)
 	if err != "" do return 0, err
 
 	rounded := math.round(value)
@@ -232,7 +323,7 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 			return
 		}
 
-		init_v, err := eval_moth_number(cmd.args[0], "initGnd/Air(...) argument")
+		init_v, err := eval_moth_number(state, cmd.args[0], "initGnd/Air(...) argument")
 		if err != "" {
 			set_model_error(state, err)
 			return
@@ -255,7 +346,7 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 			set_model_error(state, message)
 			return
 		}
-		slip, err := eval_moth_number(cmd.args[0], "slip(...) argument")
+		slip, err := eval_moth_number(state, cmd.args[0], "slip(...) argument")
 		if err != "" {
 			set_model_error(state, err)
 			return
@@ -272,7 +363,7 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 			set_model_error(state, message)
 			return
 		}
-		level, err := eval_u8(cmd.args[0], "speed")
+		level, err := eval_u8(state, cmd.args[0], "speed")
 		if err != "" {
 			set_model_error(state, err)
 			return
@@ -285,7 +376,7 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 			set_model_error(state, message)
 			return
 		}
-		level, err := eval_u8(cmd.args[0], "slow")
+		level, err := eval_u8(state, cmd.args[0], "slow")
 		if err != "" {
 			set_model_error(state, err)
 			return
@@ -309,18 +400,18 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 		state.iz_next = true
 		return
 
-	case .CustomMove:
+	case .Move:
 		if message, ok := expect_moth_args(cmd, 2, 3, false); !ok {
 			set_model_error(state, message)
 			return
 		}
 
-		drag, drag_err := eval_moth_number(cmd.args[0], "custom(...) drag")
+		drag, drag_err := eval_moth_number(state, cmd.args[0], "mv(...) drag")
 		if drag_err != "" {
 			set_model_error(state, drag_err)
 			return
 		}
-		accel, accel_err := eval_moth_number(cmd.args[1], "custom(...) acceleration")
+		accel, accel_err := eval_moth_number(state, cmd.args[1], "mv(...) acceleration")
 		if accel_err != "" {
 			set_model_error(state, accel_err)
 			return
@@ -328,8 +419,9 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 		duration := 1
 		if len(cmd.args) == 3 {
 			duration_value, duration_err := eval_moth_number(
+				state,
 				cmd.args[2],
-				"custom(...) duration",
+				"mv(...) duration",
 			)
 			if duration_err != "" {
 				set_model_error(state, duration_err)
@@ -340,7 +432,7 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 			if duration_value != duration_rounded || duration_rounded <= 0 {
 				set_model_error(
 					state,
-					"Error: custom(...) duration must be a positive whole number",
+					"Error: mv(...) duration must be a positive whole number",
 				)
 				return
 			}
@@ -377,7 +469,7 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 			return
 		}
 
-		count_value, err := eval_moth_number(cmd.args[0], "loop count")
+		count_value, err := eval_moth_number(state, cmd.args[0], "loop count")
 		if err != "" {
 			set_model_error(state, err)
 			return

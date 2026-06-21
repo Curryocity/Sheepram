@@ -23,6 +23,34 @@ wrap_degrees_180 :: proc(degrees: f64) -> f64 {
 }
 
 @(test)
+global_variables_in_mothball :: proc(t: ^testing.T) {
+	code, err := parse_mothball("initGnd(v) mv(drag, accel, ticks) st(ticks)")
+	defer destroy_moth_code(&code)
+	testing.expect_value(t, err, "")
+	if err != "" do return
+
+	state := Model_State{}
+	defer destroy_moth_execution_state(&state)
+	variable_err := add_moth_variables(
+		&state,
+		[]string{"v", "drag", "accel", "ticks"},
+		[]string{"0.3", "0.91", "0.02", "2"},
+	)
+	testing.expect_value(t, variable_err, "")
+	if variable_err != "" {
+		delete(variable_err)
+		return
+	}
+
+	moth_to_model(&state, code[:])
+	testing.expect(t, state.ok)
+	testing.expect_value(t, state.n, 5)
+	testing.expect_value(t, state.init_v, 0.3)
+	testing.expect_value(t, state.drag_x[1], 0.91)
+	testing.expect_value(t, state.accel[1], 0.02)
+}
+
+@(test)
 c4_5p2p :: proc(t: ^testing.T) {
     code, err := parse_mothball(" initGnd(0.3169516131491288) sj.w sa.wa(11)")
 	defer destroy_moth_code(&code)

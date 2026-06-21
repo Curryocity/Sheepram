@@ -114,12 +114,41 @@ is_tab_modified :: proc(tab: ^Tab_State) -> bool {
 	return fingerprint != buffer_string(tab.saved_fingerprint[:])
 }
 
+commit_tab_title :: proc(tab: ^Tab_State) {
+	trimmed := strings.trim_space(buffer_string(tab.name_draft[:]))
+	if trimmed == "" {
+		title := fmt.tprintf("Untitled %d", tab.id)
+		buffer_set(tab.name_draft[:], title)
+		buffer_set(tab.name[:], title)
+		return
+	}
+	title := strings.clone(trimmed)
+	defer delete(title)
+	buffer_set(tab.name_draft[:], title)
+	buffer_set(tab.name[:], title)
+}
+
 load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	saved: Saved_Tab
 	if err := json.unmarshal(data, &saved, allocator = context.allocator); err != nil {
 		return strings.clone("Invalid JSON file.")
 	}
 	defer free_saved_tab(&saved)
+
+	if strings.trim_space(saved.movement_script) == "" {
+		legacy: Legacy_Saved_Tab
+		if err := json.unmarshal(data, &legacy, allocator = context.allocator); err != nil {
+			return strings.clone("Invalid legacy JSON file.")
+		}
+		defer free_legacy_saved_tab(&legacy)
+
+		movement_script, migration_err := legacy_table_to_movement_script(&legacy)
+		if migration_err != "" do return migration_err
+		defer delete(movement_script)
+
+		free_saved_tab(&saved)
+		saved = legacy_to_saved_tab(&legacy, movement_script)
+	}
 
 	if saved.curr_obj < int(Objective_Type.X) || saved.curr_obj > int(Objective_Type.Custom) {
 		return strings.clone("Invalid field: currObj")
@@ -220,6 +249,8 @@ preference_path :: proc() -> (string, os.Error) {
 }
 
 save_tab_to_file :: proc(tab: ^Tab_State) -> string {
+	commit_tab_title(tab)
+
 	dir, dir_err := tabs_directory()
 	if dir_err != nil do return fmt.aprintf("Failed to find data directory: %v", dir_err)
 	defer delete(dir)
