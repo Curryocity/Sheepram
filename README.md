@@ -120,14 +120,59 @@ The postprocessor lets you:
 
 ### Global variable declaration order
 
-`n` is derived from the movement script before global variables are evaluated.
+Table entries are evaluated from top to bottom. A variable may reference
+previously defined variables. Redefining a user variable overwrites its
+previous value.
 
-A later variable may use previously defined variables.
-Redefining a variable overwrites the old value.
+`n` is predefined from the generated model when parsing the objective,
+constraints, and postprocessor. It cannot be redefined. Do not use `n` in
+variables referenced by the Mothball model, because its final value is not
+known until that model has been generated.
 
-    In fact, when  $\epsilon = 0$:
+### Optimizing initV (making initV an optimizable variable)
 
-    $$arg(z) = \frac{\alpha + \beta}{2}$$
+Define the base velocity and a small numerical-stability margin in the global
+variable table:
+
+```txt
+initV = 0.3169516131
+eps   = 1e-5
+```
+
+Then start the Mothball model with an additive movement tick:
+
+```txt
+initGnd(initV) mv(1, initV-eps)
+```
+
+Append the actual movement sequence after it, for example:
+
+```txt
+initGnd(initV) mv(1, initV-eps) sj.w sa.wa(11)
+```
+
+The two independently optimized facing angles make the resulting velocity
+magnitude $\delta$ satisfy:
+
+ $$\epsilon \le \delta \le 2 \cdot initV - \epsilon$$
+
+This technique inserts one additional movement tick, so indices in constraints
+may need to be shifted.
+
+**Explanation:** Setting `drag = 1` makes velocities additive across ticks.
+
+Let $z$ be the added velocities, with its real and imaginary parts representing
+the X and Z components:
+
+$$z = Ve^{i\alpha} + (V - \epsilon)e^{i\beta}$$
+
+By the triangle inequality:
+
+$$\epsilon \le |z| \le 2V - \epsilon$$
+
+The argument of $z$ can span a full rotation. When $\epsilon = 0$:
+
+$$arg(z) = \frac{\alpha + \beta}{2}$$
 
 
 ## Installation
