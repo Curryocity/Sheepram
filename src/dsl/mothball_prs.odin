@@ -13,7 +13,6 @@ MoveFunc :: struct {
 	name:      string,
 	sprint:    bool,
 	sneak:     bool,
-	strafe45:  bool,
 	jump:      bool,
 	airborne:  bool,
 	stop:      bool,
@@ -354,11 +353,6 @@ check_move_func :: proc(name: string) -> (MoveFunc, bool) {
 	mf := MoveFunc{name = name}
 	base := name
 
-	if len(base) >= 2 && base[len(base)-2:] == "45" {
-		mf.strafe45 = true
-		base = base[:len(base)-2]
-	}
-
 	if len(base) > 0 && base[len(base)-1] == 'a' {
 		mf.airborne = true
 		base = base[:len(base)-1]
@@ -378,7 +372,6 @@ check_move_func :: proc(name: string) -> (MoveFunc, bool) {
 		mf.sprint = true
 	case "st":
 		mf.stop = true
-		if mf.strafe45 do return mf, false
 	case:
 		return mf, false
 	}
@@ -439,10 +432,6 @@ parse_move_func :: proc(prs: ^ParserState, mf: ^MoveFunc, token: Token) -> Arg {
 	if lexer_peek(&prs.lex).type == .Dot {
 		if mf.stop {
 			fail_parse(prs, "Error: stop movement functions cannot have appended inputs")
-			return {}
-		}
-		if mf.strafe45 {
-			fail_parse(prs, "Error: 45 movement functions cannot have appended inputs")
 			return {}
 		}
 		lexer_next(&prs.lex)
