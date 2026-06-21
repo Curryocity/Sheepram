@@ -302,6 +302,64 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 		state.iz_next = true
 		return
 
+	case .CustomMove:
+		if message, ok := expect_moth_args(cmd, 2, 3, false); !ok {
+			set_model_error(state, message)
+			return
+		}
+
+		drag, drag_err := eval_moth_number(cmd.args[0], "custom(...) drag")
+		if drag_err != "" {
+			set_model_error(state, drag_err)
+			return
+		}
+		accel, accel_err := eval_moth_number(cmd.args[1], "custom(...) acceleration")
+		if accel_err != "" {
+			set_model_error(state, accel_err)
+			return
+		}
+		duration := 1
+		if len(cmd.args) == 3 {
+			duration_value, duration_err := eval_moth_number(
+				cmd.args[2],
+				"custom(...) duration",
+			)
+			if duration_err != "" {
+				set_model_error(state, duration_err)
+				return
+			}
+
+			duration_rounded := math.round(duration_value)
+			if duration_value != duration_rounded || duration_rounded <= 0 {
+				set_model_error(
+					state,
+					"Error: custom(...) duration must be a positive whole number",
+				)
+				return
+			}
+			duration = int(duration_rounded)
+		}
+
+		for i in 0..<duration {
+			drag_x := drag
+			drag_z := drag
+			if i == 0 && state.ix_next {
+				drag_x = 0
+				state.ix_next = false
+			}
+			if i == 0 && state.iz_next {
+				drag_z = 0
+				state.iz_next = false
+			}
+
+			append(&state.drag_x, drag_x)
+			append(&state.drag_z, drag_z)
+			append(&state.accel, accel)
+			append(&state.angle_offset, 0)
+		}
+		state.n += duration
+		return
+
 	case .Loop:
 		if message, ok := expect_moth_args(cmd, 1, 1, true); !ok {
 			set_model_error(state, message)
