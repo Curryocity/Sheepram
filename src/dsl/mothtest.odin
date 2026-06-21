@@ -54,7 +54,7 @@ test1 :: proc(t: ^testing.T) {
 
 @(test)
 c4_5p2p :: proc(t: ^testing.T) {
-    code, err := parse_mothball("sj.w sa.wa(11)")
+    code, err := parse_mothball("init(0.3169516131491288) sj.w sa.wa(11)")
 	defer destroy_moth_code(&code)
 
 	if err != "" {
@@ -69,7 +69,7 @@ c4_5p2p :: proc(t: ^testing.T) {
     state.n = 1
     append(&state.drag_x, 0.546)
     append(&state.drag_z, 0.546)
-    append(&state.accel, 0.3169516131491288)
+    append(&state.accel, 0)
     append(&state.angle_offset, 0)
 
     moth_to_model(&state, code[:])
@@ -78,8 +78,11 @@ c4_5p2p :: proc(t: ^testing.T) {
 		testing.expect(t, false)
 		return
 	}
+    state.accel[0] = state.init_v
 
     fmt.println("n: ", state.n)
+    fmt.println("Has init_v? ", state.has_init_v)
+    fmt.println("init_v: ", state.init_v)
 	print_f64_array("drag_x", state.drag_x[:])
 	print_f64_array("drag_z", state.drag_z[:])
 	print_f64_array("accel", state.accel[:])

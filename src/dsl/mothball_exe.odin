@@ -12,6 +12,8 @@ Model_State :: struct {
 	iz_next: bool,
 	ok: bool,
 	err: string,
+	has_init_v: bool,
+	init_v: f64,
 	n: int,
 	drag_x: [dynamic]f64,
 	drag_z: [dynamic]f64,
@@ -120,6 +122,11 @@ moth_to_model :: proc(state: ^Model_State, code: []Arg) {
 			return
 		}
 	}
+
+	if !state.has_init_v {
+		set_model_error(state, "Error: init(...) is required")
+		return
+	}
 }
 
 expect_moth_args :: proc(
@@ -187,6 +194,31 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 	}
 
 	switch cmd.type {
+	case .SetInitVel:
+		if state.has_init_v {
+			set_model_error(state, "init(...) can only be called once")
+			return
+		}
+
+		if message, ok := expect_moth_args(cmd, 1, 1, false); !ok {
+			set_model_error(state, message)
+			return
+		}
+
+		init_v, err := eval_moth_number(cmd.args[0], "init(...) argument")
+		if err != "" {
+			set_model_error(state, err)
+			return
+		}
+		if init_v < 0 {
+			set_model_error(state, "Error: init(...) argument cannot be negative")
+			return
+		}
+		state.init_v = init_v
+		state.has_init_v = true
+
+		return
+
 	case .SetSlip:
 		if message, ok := expect_moth_args(cmd, 1, 1, false); !ok {
 			set_model_error(state, message)
