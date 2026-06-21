@@ -10,10 +10,15 @@ Model_State :: struct {
 	slip: f64,
 	ix_next: bool,
 	iz_next: bool,
+
 	ok: bool,
 	err: string,
+
 	has_init_v: bool,
 	init_v: f64,
+	init_airborne: bool,
+	init_slip: f64,
+
 	n: int,
 	drag_x: [dynamic]f64,
 	drag_z: [dynamic]f64,
@@ -21,12 +26,6 @@ Model_State :: struct {
 	angle_offset: [dynamic]f64,
 }
 
-init_moth_execution_state :: proc() -> Model_State {
-	return Model_State {
-		slip = 0.6,
-		ok = true,
-	}
-}
 
 destroy_moth_execution_state :: proc(state: ^Model_State) {
 	delete(state.err)
@@ -44,6 +43,32 @@ set_model_error :: proc(state: ^Model_State, message: string) {
 }
 
 moth_to_model :: proc(state: ^Model_State, code: []Arg) {
+	state.slip = 0.6
+	state.ok = true
+	state.n = 1
+    append(&state.drag_x, 0)
+    append(&state.drag_z, 0)
+    append(&state.accel, 0)
+    append(&state.angle_offset, 0)
+
+	exe_code(state, code)
+
+	if !state.has_init_v {
+		set_model_error(state, "Error: initial velocity missing")
+		return
+	}
+
+	state.accel[0] = state.init_v
+	if state.init_airborne {
+		state.drag_x[0] = 0.91
+		state.drag_z[0] = 0.91
+	}else {
+		state.drag_x[0] = state.init_slip * 0.91
+		state.drag_z[0] = state.init_slip * 0.91
+	}
+}
+
+exe_code :: proc(state: ^Model_State, code: []Arg) {
 	if !state.ok do return
 
 	for ins in code {
@@ -122,11 +147,6 @@ moth_to_model :: proc(state: ^Model_State, code: []Arg) {
 			return
 		}
 	}
-
-	if !state.has_init_v {
-		set_model_error(state, "Error: init(...) is required")
-		return
-	}
 }
 
 expect_moth_args :: proc(
@@ -194,9 +214,9 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 	}
 
 	switch cmd.type {
-	case .SetInitVel:
+	case .SetInitGroundVel, .SetInitAirVel:
 		if state.has_init_v {
-			set_model_error(state, "init(...) can only be called once")
+			set_model_error(state, "init command can only be called once")
 			return
 		}
 
@@ -205,17 +225,21 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 			return
 		}
 
-		init_v, err := eval_moth_number(cmd.args[0], "init(...) argument")
+		init_v, err := eval_moth_number(cmd.args[0], "initGnd/Air(...) argument")
 		if err != "" {
 			set_model_error(state, err)
 			return
 		}
 		if init_v < 0 {
-			set_model_error(state, "Error: init(...) argument cannot be negative")
+			set_model_error(state, "Error: init velocity cannot be negative")
 			return
 		}
+
 		state.init_v = init_v
 		state.has_init_v = true
+		state.init_slip = state.slip
+
+		if cmd.type == .SetInitAirVel do state.init_airborne = true
 
 		return
 
@@ -300,7 +324,7 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 		}
 
 		for _ in 0..<int(rounded) {
-			moth_to_model(state, cmd.code[:])
+			exe_code(state, cmd.code[:])
 			if !state.ok do return
 		}
 		return

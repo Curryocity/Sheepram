@@ -25,7 +25,7 @@ MoveFunc :: struct {
 CmdType :: enum {
 	Plus, Minus, Mul, Div,
 
-	SetInitVel,
+	SetInitGroundVel, SetInitAirVel,
 	ForceInertiaX, ForceInertiaZ,
 
 	SetSlip,
@@ -338,8 +338,10 @@ get_command_type :: proc(name: string) -> CmdType {
 		return .ForceInertiaZ
 	case "r", "loop", "repeat":
 		return .Loop
-	case "init":
-		return .SetInitVel
+	case "initGnd":
+		return .SetInitGroundVel
+	case "initAir":
+		return .SetInitAirVel
 	case:
 		return .Invalid
 	}
