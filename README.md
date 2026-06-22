@@ -17,9 +17,9 @@ For the movement mathematics, expression representation, and optimization
 algorithm, see the [Technical Guide](TECHNICAL.md).
 
 
-### Preview (`low Z h2h.json` by HammSamichz)
+### Preview ([Click here to see what it is trying to solve](https://youtu.be/0tYHrP3-yiY))
 
-![Preview](readmeResource/showcase.png)
+![Preview](readmeResource/preview.png)
 
 ## Guide
 
@@ -43,7 +43,8 @@ initGnd(0.3169516131491288) sj.w sa.wa(11)
 | `sns` | Sneaking while sprinting |
 | `st` | No movement input|
 
-> [!NOTE] Sheepram does not do sprint delay.
+> [!NOTE]
+> Sheepram does not have sprint delay.
 
 Movement functions support these modifiers:
 
@@ -68,18 +69,16 @@ r(3) { s.w sa.w }
 
 | Command | Description |
 | --- | --- |
-| `initGnd(vel)` | Sets the initial velocity and applies the current ground slip. It must appear exactly once and should normally be the first command. |
-| `initAir(vel)` | Sets the initial velocity using air drag (`0.91`). It must appear exactly once and should normally be the first command. |
+| `initGnd(vel)`/ `initAir(vel)` | Sets the initial velocity. Two variants differs by previous slip (initGnd takes the current slip when it is executed). One of them must appear exactly once and should normally be the first command. |
 | `slip(value)` | Sets the ground slipperiness used by subsequent ground movements. The default is `0.6`. |
-| `speed(level)` | Sets the Speed effect level. The level must be a whole number from `0` to `255`. |
-| `slow(level)` | Sets the Slowness effect level. `slowness(...)` is an alias. |
+| `speed(level)`/`slow(level)` | Sets the Speed/Slowness effect level. The level must be a whole number from `0` to `255`. |
 | `ix` | Forces X inertia on the first tick of the next movement by setting its X drag to zero. |
 | `iz` | Forces Z inertia on the first tick of the next movement by setting its Z drag to zero. |
-| `mv(drag, accel, duration = 1)` | Adds some custom movement ticks with the given drag and acceleration. |
+| `mv(drag, accel, duration = 1)` | Adds a custom movement segment with the given drag, acceleration and optional duration. |
 | `r(count) { ... }` | Repeats a non-empty block of movement functions and commands. `loop(...)` and `repeat(...)` are aliases. |
 
 Command arguments may use arithmetic and variables from the global-variable
-table. `r` counts and durations must evaluate to whole numbers.
+table.
 
 
 
@@ -297,6 +296,8 @@ Sheepram stores preferences and presets in the user data directory:
 make imgui-deps
 make debug
 ```
+
+( do`make release`for more performant build )
 
 **Run:**
 ```sh
