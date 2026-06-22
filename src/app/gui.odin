@@ -759,6 +759,24 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 	}
 	defer for i in 0..<count-1 {delete(vxvals[i]); delete(vzvals[i])}
 
+	pushed_ui := push_font(ui_font)
+	im.Text("Visualization")
+	pop_font(pushed_ui)
+	viewport_size := compute_plot_viewport_size(xvals[:], zvals[:])
+	layout := compute_xz_plot_layout(xvals[:], zvals[:], viewport_size)
+	canvas_width := max(viewport_size.x, layout.content_width)
+	viewport_size.x += 25
+	viewport_size.y += 50
+	im.BeginChild("PlotScroll", {viewport_size.x, viewport_size.y+20}, {.Borders}, {.HorizontalScrollbar})
+	if im.IsWindowAppearing() do im.SetScrollX(max(0, 0.5*(canvas_width-viewport_size.x)))
+	draw_xz_plot(xvals[:], zvals[:], facings[:], vxvals[:], vzvals[:], {canvas_width, viewport_size.y}, position_precision, angle_precision)
+	im.EndChild()
+	im.Spacing(); im.Spacing()
+
+	pushed_ui = push_font(ui_font)
+	im.Text("Log")
+	pop_font(pushed_ui)
+
 	im.PushStyleVarImVec2(.CellPadding, {ui_px(10), ui_px(3)})
 	available := im.GetContentRegionAvail()
 	table_width := min(f32(877), available.x)
@@ -809,7 +827,7 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 	read_only_block("Turn", display_turns, copied_turns)
 
 	im.AlignTextToFramePadding()
-	pushed_ui := push_font(ui_font)
+	pushed_ui = push_font(ui_font)
 	im.Text("Separator for copied angles:")
 	im.SameLine(0, 8)
 	separator := c.int(state.post.copy_separator)
@@ -817,20 +835,6 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 	items := [?]cstring{"comma", "space", "\\n"}
 	if combo_select("##copySeparator", &separator, items[:]) do state.post.copy_separator = Separator_Type(separator)
 	pop_font(pushed_ui)
-
-	im.Spacing(); im.Spacing()
-	pushed_ui = push_font(ui_font)
-	im.Text("Visualization")
-	pop_font(pushed_ui)
-	viewport_size := compute_plot_viewport_size(xvals[:], zvals[:])
-	layout := compute_xz_plot_layout(xvals[:], zvals[:], viewport_size)
-	canvas_width := max(viewport_size.x, layout.content_width)
-	viewport_size.x += 25
-	viewport_size.y += 50
-	im.BeginChild("PlotScroll", {viewport_size.x, viewport_size.y+20}, {.Borders}, {.HorizontalScrollbar})
-	if im.IsWindowAppearing() do im.SetScrollX(max(0, 0.5*(canvas_width-viewport_size.x)))
-	draw_xz_plot(xvals[:], zvals[:], facings[:], vxvals[:], vzvals[:], {canvas_width, viewport_size.y}, position_precision, angle_precision)
-	im.EndChild()
 	im.Spacing()
 
 	pop_font(pushed_code)

@@ -131,33 +131,38 @@ known until that model has been generated.
 
 ### Optimizing initV (making initV an optimizable variable)
 
-Define the base velocity and a small numerical-stability margin in the global
-variable table:
+Define the maximum initial velocity and a small margin in the global-variable
+table:
 
 ```txt
 initV = 0.3169516131
 eps   = 1e-5
 ```
 
-Then start the Mothball model with an additive movement tick:
+Then construct the two-vector sum explicitly. Set the initial ground slip so
+the first drag is exactly `1`, restore the normal slip, and choose the drag
+that should follow the combined velocity:
 
 ```txt
-initGnd(initV) mv(1, initV-eps)
+slip(1/0.91) initGnd(initV) slip(0.6) mv(0.546, initV-eps)
 ```
 
-Append the actual movement sequence after it, for example:
+Append the actual movement sequence after it:
 
 ```txt
-initGnd(initV) mv(1, initV-eps) sj.w sa.wa(11)
+slip(1/0.91) initGnd(initV) slip(0.6) mv(0.546, initV-eps) sj.w sa.wa(11)
 ```
+
+Use `0.91` instead of `0.546` in `mv(...)` when the combined velocity should
+be followed by air drag.
 
 The two independently optimized facing angles make the resulting velocity
 magnitude $\delta$ satisfy:
 
  $$\epsilon \le \delta \le 2 \cdot initV - \epsilon$$
 
-This technique inserts one additional movement tick, so indices in constraints
-may need to be shifted.
+This inserts an ordinary movement tick. It is visible in the result table and
+counts normally in objective, constraint, and postprocessor indices.
 
 **Explanation:** Setting `drag = 1` makes velocities additive across ticks.
 

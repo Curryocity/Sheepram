@@ -170,7 +170,6 @@ resolve_indexed :: proc(
 	bound_error := proc(name: string, requested: int, lexer: ^Lexer) -> string {
 		return parser_error(fmt.tprintf("%s[%d] is out of range", name, requested), lexer)
 	}
-
 	if name == "X" {
 		if index < 0 || index >= len(parser.model.x) do return {}, bound_error(name, index, lexer)
 		return opt.clone_compiled_expr(parser.model.x[index]), ""

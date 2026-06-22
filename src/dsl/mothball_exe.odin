@@ -94,7 +94,7 @@ moth_to_model :: proc(state: ^Model_State, code: []Arg) {
 	if state.init_airborne {
 		state.drag_x[0] = 0.91
 		state.drag_z[0] = 0.91
-	}else {
+	} else {
 		state.drag_x[0] = state.init_slip * 0.91
 		state.drag_z[0] = state.init_slip * 0.91
 	}
