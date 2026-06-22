@@ -742,10 +742,14 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 	zvals := make([dynamic]f64, count); defer delete(zvals)
 	vxvals := make([dynamic]string, count); defer delete(vxvals)
 	vzvals := make([dynamic]string, count); defer delete(vzvals)
+	speedvals := make([dynamic]string, count); defer delete(speedvals)
+	directionvals := make([dynamic]string, count); defer delete(directionvals)
 	for i in 0..<count {
 		turns[i] = "-"
 		vxvals[i] = "-"
 		vzvals[i] = "-"
+		speedvals[i] = "-"
+		directionvals[i] = "-"
 		xvals[i] = solution.xs[i]-solution.xs[state.x_index]-state.x_add
 		zvals[i] = solution.zs[i]-solution.zs[state.z_index]-state.z_add
 	}
@@ -754,10 +758,22 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 	}
 	defer for i in 0..<count-2 do delete(turns[i])
 	for i in 0..<count-1 {
-		vxvals[i] = fmt.aprintf("%.*f", position_precision, xvals[i+1]-xvals[i])
-		vzvals[i] = fmt.aprintf("%.*f", position_precision, zvals[i+1]-zvals[i])
+		vx := xvals[i+1]-xvals[i]
+		vz := zvals[i+1]-zvals[i]
+		vxvals[i] = fmt.aprintf("%.*f", position_precision, vx)
+		vzvals[i] = fmt.aprintf("%.*f", position_precision, vz)
+		speedvals[i] = fmt.aprintf("%.*f", position_precision, math.sqrt(vx*vx+vz*vz))
+		directionvals[i] = fmt.aprintf(
+			"%.3f",
+			wrap_degrees_180(math.atan2(vx, vz)*180/math.PI),
+		)
 	}
-	defer for i in 0..<count-1 {delete(vxvals[i]); delete(vzvals[i])}
+	defer for i in 0..<count-1 {
+		delete(vxvals[i])
+		delete(vzvals[i])
+		delete(speedvals[i])
+		delete(directionvals[i])
+	}
 
 	pushed_ui := push_font(ui_font)
 	im.Text("Visualization")
@@ -774,7 +790,7 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 	im.Spacing(); im.Spacing()
 
 	pushed_ui = push_font(ui_font)
-	im.Text("Log")
+	im.Text("Movement Log")
 	pop_font(pushed_ui)
 
 	im.PushStyleVarImVec2(.CellPadding, {ui_px(10), ui_px(3)})
@@ -785,13 +801,23 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 	table_flags := im.TableFlags_RowBg | im.TableFlags_BordersOuter | im.TableFlags_BordersV |
 	               im.TableFlags_ScrollY | im.TableFlags_ScrollX | im.TableFlags_SizingFixedFit |
 	               im.TableFlags_NoHostExtendX
-	if im.BeginTable("ResultTable", 7, table_flags, {table_width, table_height}) {
-		im.TableSetupScrollFreeze(0, 1)
-		headers := [?]cstring{"Tick", "Facing", "Turn", "X", "Z", "Vx", "Vz"}
-		widths := [?]f32{50, 100, 100, 120, 120, 120, 120}
-		for i in 0..<7 do im.TableSetupColumn(headers[i], {.WidthFixed}, widths[i])
+	if im.BeginTable("ResultTable", 9, table_flags, {table_width, table_height}) {
+		im.TableSetupScrollFreeze(1, 1)
+		headers := [?]cstring{
+			"Tick",
+			"Facing",
+			"Turn",
+			"X",
+			"Z",
+			"Vx",
+			"Vz",
+			"Speed",
+			"Direction",
+		}
+		widths := [?]f32{50, 100, 100, 120, 120, 120, 120, 120, 100}
+		for i in 0..<9 do im.TableSetupColumn(headers[i], {.WidthFixed}, widths[i])
 		im.TableNextRow({.Headers}, 20)
-		for i in 0..<7 {im.TableSetColumnIndex(c.int(i)); center_text(string(headers[i]))}
+		for i in 0..<9 {im.TableSetColumnIndex(c.int(i)); center_text(string(headers[i]))}
 		for tick in 0..<count {
 			im.TableNextRow({}, 20)
 			angle := "-" if tick >= count-1 else fmt.tprintf("%.3f", facings[tick])
@@ -803,8 +829,10 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 				fmt.tprintf("%.*f", position_precision, zvals[tick]),
 				vxvals[tick],
 				vzvals[tick],
+				speedvals[tick],
+				directionvals[tick],
 			}
-			for column in 0..<7 {
+			for column in 0..<9 {
 				im.TableSetColumnIndex(c.int(column))
 				center_text(values[column])
 			}

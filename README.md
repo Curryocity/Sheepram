@@ -39,7 +39,7 @@ Sheepram is a tool for solving **Minecraft Onejump angle optimization problems**
 
 Describe the movement timeline with the built-in Mothball-style DSL. The script
 generates the model length, drag, acceleration, and movement-relative angle
-offsets; Sheepram then optimizes the **facing angles only**.
+offsets. Sheepram then optimizes the **facing angles only**.
 
 ```Sheepram
 initGnd(0.3169516131491288) sj.w sa.wa(11)
