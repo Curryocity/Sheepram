@@ -129,56 +129,50 @@ constraints, and postprocessor. It cannot be redefined. Do not use `n` in
 variables referenced by the Mothball model, because its final value is not
 known until that model has been generated.
 
-### Optimizing initV (making initV an optimizable variable)
+### Double Rotator Trick: Optimizing Initial Velocity
 
-Define the maximum initial velocity and a small margin in the global-variable
-table:
+The double rotator trick represents the initial velocity as the sum of two
+velocity vectors with independently optimized directions. To cover an exact
+speed range $[min, max]$, define:
 
-```txt
-initV = 0.3169516131
-eps   = 1e-5
-```
+$$A = \frac{min+max}{2}, \qquad B = \frac{max-min}{2}$$
 
-Then construct the two-vector sum explicitly. Set the initial ground slip so
-the first drag is exactly `1`, restore the normal slip, and choose the drag
-that should follow the combined velocity:
+Then:
 
-```txt
-slip(1/0.91) initGnd(initV) slip(0.6) mv(0.546, initV-eps)
-```
+$$z = Ae^{i\alpha}+Be^{i\beta}$$
 
-Append the actual movement sequence after it:
+By the triangle inequality, the resulting speed satisfies:
+
+$$min \le |z| \le max$$
+
+For a normal ground tick with slip `0.6`:
 
 ```txt
-slip(1/0.91) initGnd(initV) slip(0.6) mv(0.546, initV-eps) sj.w sa.wa(11)
+slip(1/0.91)
+initGnd((min+max)/2)
+mv(0.91*0.6, (max-min)/2)
+slip(0.6)
 ```
 
-Use `0.91` instead of `0.546` in `mv(...)` when the combined velocity should
-be followed by air drag.
+For an air tick:
 
-The two independently optimized facing angles make the resulting velocity
-magnitude $\delta$ satisfy:
+```txt
+slip(1/0.91)
+initGnd((min+max)/2)
+mv(0.91, (max-min)/2)
+slip(0.6)
+```
 
- $$\epsilon \le \delta \le 2 \cdot initV - \epsilon$$
+Setting the initial drag to `1` makes the two velocities additive. The
+`mv(...)` drag controls whether the combined velocity receives ground or air
+drag on the following tick. The `mv(...)` tick is visible in the result table
+and counts normally in all indices.
 
-This inserts an ordinary movement tick. It is visible in the result table and
-counts normally in objective, constraint, and postprocessor indices.
-
-**Explanation:** Setting `drag = 1` makes velocities additive across ticks.
-
-Let $z$ be the added velocities, with its real and imaginary parts representing
-the X and Z components:
-
-$$z = Ve^{i\alpha} + (V - \epsilon)e^{i\beta}$$
-
-By the triangle inequality:
-
-$$\epsilon \le |z| \le 2V - \epsilon$$
-
-The argument of $z$ can span a full rotation. When $\epsilon = 0$:
-
-$$arg(z) = \frac{\alpha + \beta}{2}$$
-
+> **Numerical stability:** Avoid choosing a `min` that is extremely small
+> relative to `max`. This makes $A$ and $B$ nearly equal, so reaching the lower
+> speed bound requires near-perfect cancellation. In that region, tiny changes
+> to either facing angle can cause large changes in the resulting direction
+> and make optimization less reliable.
 
 ## Installation
 
