@@ -23,6 +23,9 @@ algorithm, see the [Technical Guide](TECHNICAL.md).
 
 ## Guide
 
+For a detailed, complete example of modelling and solving a c4.5 p2p neo, see
+the [P2P example](P2P.md).
+
 ### 1. Movement Model
 
 Describe the movement timeline with the built-in Mothball-style DSL. The script
