@@ -605,21 +605,52 @@ draw_xz_plot :: proc(
 	}
 	im.DrawList_PopClipRect(draw_list)
 
-	if hovered_index >= 0 && im.BeginTooltip() {
-		im.Text("Tick %d", hovered_index)
+	if hovered_index >= 0 &&
+	   hovered_index < len(facings) &&
+	   hovered_index < len(vxs) &&
+	   hovered_index < len(vzs) &&
+	   im.BeginTooltip() {
+		tick_text := fmt.aprintf("Tick %d", hovered_index)
+		defer delete(tick_text)
+		tick_c := strings.clone_to_cstring(tick_text)
+		defer delete(tick_c)
+		im.TextUnformatted(tick_c)
 		im.Separator()
-		im.Text("Facing:  %.*f", angle_precision, facings[hovered_index])
-		im.Text("Pos:  (%.*f, %.*f)", position_precision, xs[hovered_index], position_precision, zs[hovered_index])
-		vx_c := strings.clone_to_cstring(vxs[hovered_index]); defer delete(vx_c)
-		vz_c := strings.clone_to_cstring(vzs[hovered_index]); defer delete(vz_c)
-		im.Text("Vel: (%s, %s)", vx_c, vz_c)
+
+		tooltip := strings.builder_make()
 		if hovered_index < len(xs)-1 {
+			fmt.sbprintf(&tooltip, "Facing: %.*f\n", angle_precision, facings[hovered_index])
+		} else {
+			strings.write_string(&tooltip, "Facing: -\n")
+		}
+		fmt.sbprintf(
+			&tooltip,
+			"Pos: (%.*f, %.*f)",
+			position_precision,
+			xs[hovered_index],
+			position_precision,
+			zs[hovered_index],
+		)
+		if hovered_index < len(xs)-1 {
+			fmt.sbprintf(&tooltip, "\nVel: (%s, %s)", vxs[hovered_index], vzs[hovered_index])
 			vx := xs[hovered_index+1]-xs[hovered_index]
 			vz := zs[hovered_index+1]-zs[hovered_index]
 			magnitude := math.sqrt(vx*vx+vz*vz)
-			direction := math.atan2(vx, vz)*180/math.PI
-			im.Text("SpeedVec: (%.*f, %.*f°)", position_precision, magnitude, position_precision, direction)
+			direction := wrap_degrees_180(math.atan2(vx, vz)*180/math.PI)
+			fmt.sbprintf(
+				&tooltip,
+				"\nSpeed: %.*f\nDirection: %.*f deg",
+				position_precision,
+				magnitude,
+				angle_precision,
+				direction,
+			)
 		}
+		tooltip_text := strings.to_string(tooltip)
+		defer delete(tooltip_text)
+		tooltip_c := strings.clone_to_cstring(tooltip_text)
+		defer delete(tooltip_c)
+		im.TextUnformatted(tooltip_c)
 		im.EndTooltip()
 	}
 }
