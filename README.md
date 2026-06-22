@@ -178,6 +178,19 @@ and counts normally in all indices.
 
 Download the `.zip` for your platform from the latest release.
 
+### Release versioning
+
+The package version is stored in the repository's `VERSION` file. Update that
+single file before running the packaging workflow:
+
+```txt
+v0.5.0
+```
+
+Manual workflow runs and local `make package-*` commands use this value for
+package directories, archives, and GitHub artifact names. When packaging from
+a Git tag, the workflow also verifies that the tag matches `VERSION`.
+
 ### macOS
 
 1. Unzip the downloaded file.

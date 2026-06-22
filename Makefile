@@ -1,7 +1,7 @@
 ODIN ?= odin
 PYTHON ?= python3
 TARGET ?= Sheepram
-VERSION ?= dev
+VERSION ?= $(shell tr -d '\r\n' < VERSION)
 UNAME_S := $(shell uname -s)
 ODIN_LINK_FLAGS :=
 EXE_EXT :=
