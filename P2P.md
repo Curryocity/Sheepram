@@ -7,7 +7,7 @@
 ```text
 initGnd(0.31695) sj.w sa.wa(11)
 ```
-- `initGnd(0.31695)` sets an initial ground speed of `0.31695 b/t`, based on the maximum-speed c4.5 strategy.
+- `initGnd(0.31695)` sets an initial ground speed of `0.31695 b/t`, based on the max c4.5 strat.
 - `sj.w` performs a sprint jump while holding W. (for 1 tick implicitly)
 - `sa.wa(11)` sprints in the air while holding W+A for 11 ticks.
 
@@ -37,7 +37,7 @@ Simply minimizing X would make the player face left and move as quickly as possi
    ```text
    X[m2] > 0.4375
    ```
-3. Between these clearance points, the player must travel far enough along Z to clear the one-block obstacle plus the player’s `0.6`-block hitbox:
+3. Between these clearance points, the player must travel far enough along Z to clear the one-block obstacle plus the player’s `0.6b` hitbox:
    ```text
    Z[m2] - Z[m-1] > 1 + 0.6
    ```
@@ -48,3 +48,5 @@ For this example, `m = 2` and `m2 = 8` are the best ticks to clear the blockage,
 Minimum X[n]: -0.005078
 ```
 The c4.5 p2p neo is solved.
+
+![p2pSolved](readmeResource/p2pResult.png)
