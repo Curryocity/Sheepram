@@ -25,6 +25,8 @@ MoveFunc :: struct {
 CmdType :: enum {
 	Plus, Minus, Mul, Div,
 
+	MarkX, MarkZ, MarkVx, MarkVz, MarkF, MarkTurn,
+
 	SetInitGroundVel, SetInitAirVel,
 	ForceInertiaX, ForceInertiaZ,
 
@@ -345,6 +347,18 @@ get_command_type :: proc(name: string) -> CmdType {
 		return .SetInitGroundVel
 	case "initAir":
 		return .SetInitAirVel
+	case "X":
+		return .MarkX
+	case "Z":
+		return .MarkZ
+	case "Vx":
+		return .MarkVx
+	case "Vz":
+		return .MarkVz
+	case "F":
+		return .MarkF
+	case "T":
+		return .MarkTurn
 	case:
 		return .Invalid
 	}

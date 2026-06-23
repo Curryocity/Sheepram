@@ -8,21 +8,66 @@ import opt "../optimizer"
 Parser :: struct {
 	model:   ^opt.Model,
 	var_map: map[string]f64,
+	expr_map: map[string]opt.Compiled_Expr,
 }
 
 init_parser :: proc(model: ^opt.Model) -> Parser {
+	parser := init_parser_without_n(model)
+	parser.var_map[strings.clone("n")] = f64(model.n-1)
+	return parser
+}
+
+init_parser_without_n :: proc(model: ^opt.Model) -> Parser {
 	parser := Parser {
 		model   = model,
 		var_map = make(map[string]f64),
+		expr_map = make(map[string]opt.Compiled_Expr),
 	}
-	parser.var_map[strings.clone("n")] = f64(model.n-1)
 	return parser
+}
+
+resolveMarkers :: proc(parser: ^Parser, markers: [dynamic]Marker) -> bool{
+	for m in markers {
+		expr: opt.Compiled_Expr
+		if m.tick > parser.model.n || m.tick < 0 {
+			return false
+		}
+		if m.tick >= parser.model.n && (m.type == .Vx || m.type == .Vz || m.type == .T){
+			return false
+		}
+
+		switch m.type {
+			case .X:
+				expr = parser.model.x[m.tick]
+			case .Z:
+				expr = parser.model.z[m.tick]
+			case .F:
+				expr = opt.make_compiled_expr(parser.model.n)
+				expr.theta_coeff[m.tick] = 180/math.PI
+			case .Vx:
+				expr = parser.model.vx[m.tick]
+			case .Vz:
+				expr = parser.model.vz[m.tick]
+			case .T:
+				expr = opt.make_compiled_expr(parser.model.n)
+				expr.theta_coeff[m.tick+1] = 180/math.PI
+				expr.theta_coeff[m.tick] = -180/math.PI
+		}
+
+		parser.expr_map[m.name] = expr
+	}
+	return true
 }
 
 destroy :: proc(parser: ^Parser) {
 	for key in parser.var_map do delete(key)
 	delete(parser.var_map)
 	parser^ = {}
+	for _, expr in parser.expr_map {
+		e := expr
+		opt.destroy_compiled_expr(&e)
+	}
+	delete(parser.expr_map)
 }
 
 destroy_constraints :: proc(constraints: ^[dynamic]opt.Constraint) {
@@ -54,18 +99,17 @@ lexer_error :: proc(token: Token, lexer: ^Lexer) -> string {
 }
 
 set_variable :: proc(parser: ^Parser, name: string, value: f64) {
-	if old_key, found := map_key(parser.var_map, name); found {
-		parser.var_map[old_key] = value
+	if name in parser.var_map {
+		parser.var_map[name] = value
 	} else {
 		parser.var_map[strings.clone(name)] = value
 	}
 }
 
-map_key :: proc(values: map[string]f64, wanted: string) -> (string, bool) {
-	for key in values {
-		if key == wanted do return key, true
+add_resolved_variables :: proc(parser: ^Parser, variables: map[string]f64) {
+	for name, value in variables {
+		set_variable(parser, name, value)
 	}
-	return "", false
 }
 
 add_variable :: proc(parser: ^Parser, raw_name, value: string) -> string {
@@ -254,11 +298,16 @@ parse_identifier :: proc(
 		return resolve_indexed(parser, name, index, lexer)
 	}
 
-	if key, found := map_key(parser.var_map, name); found {
+	if value, found := parser.var_map[name]; found {
 		expr := opt.make_compiled_expr(parser.model.n)
-		expr.constant = parser.var_map[key]
+		expr.constant = value
 		return expr, ""
 	}
+
+	if expr, found := parser.expr_map[name]; found {
+		return opt.clone_compiled_expr(expr), ""
+	}
+
 	return {}, parser_error(fmt.tprintf("Identifier %s is undefined.", name), lexer)
 }
 

@@ -158,10 +158,15 @@ Table entries are evaluated from top to bottom. A variable may reference
 previously defined variables. Redefining a user variable overwrites its
 previous value.
 
-`n` is predefined from the generated model when parsing the objective,
-constraints, and postprocessor. It cannot be redefined. Do not use `n` in
-variables referenced by the Mothball model, because its final value is not
-known until that model has been generated.
+The declaration order is:
+
+```text
+global variables → Mothball model → n
+```
+
+Global variables cannot reference `n`. After Mothball generates the model,
+`n` becomes available to the objective, constraints, and postprocessor. It is
+reserved and cannot be redefined.
 
 ### Double Rotator Trick: Optimizing Initial Velocity
 

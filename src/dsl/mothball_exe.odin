@@ -26,6 +26,18 @@ Model_State :: struct {
 	accel:  [dynamic]f64,
 	angle_offset: [dynamic]f64,
 	variables: map[string]f64,
+
+	markers: [dynamic]Marker,
+}
+
+Marker :: struct {
+	name: string,
+	type: Marker_Type,
+	tick: int,
+}
+
+Marker_Type :: enum {
+	X, Z, Vx, Vz, F, T,
 }
 
 
@@ -37,7 +49,19 @@ destroy_moth_execution_state :: proc(state: ^Model_State) {
 	delete(state.angle_offset)
 	for name in state.variables do delete(name)
 	delete(state.variables)
+	for marker in state.markers do delete(marker.name)
+	delete(state.markers)
 	state^ = {}
+}
+
+marker_name_exists :: proc(state: ^Model_State, name: string) -> bool {
+	for marker in state.markers {
+		if marker.name == name do return true
+	}
+	if _, found := state.variables[name]; found {
+		return true
+	}
+	return false
 }
 
 add_moth_variables :: proc(
@@ -49,7 +73,7 @@ add_moth_variables :: proc(
 	}
 
 	model := opt.Model{n = 1}
-	parser := init_parser(&model)
+	parser := init_parser_without_n(&model)
 	defer destroy(&parser)
 	if err := add_variables(&parser, names, values); err != "" do return err
 
@@ -59,8 +83,8 @@ add_moth_variables :: proc(
 		if name == "" do continue
 		value, found := parser.var_map[name]
 		if !found do continue
-		if old_name, exists := map_key(state.variables, name); exists {
-			state.variables[old_name] = value
+		if name in state.variables {
+			state.variables[name] = value
 		} else {
 			state.variables[strings.clone(name)] = value
 		}
@@ -484,6 +508,56 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 			exe_code(state, cmd.code[:])
 			if !state.ok do return
 		}
+		return
+
+	case .MarkX, .MarkZ, .MarkVx, .MarkVz, .MarkF, .MarkTurn:
+		if message, ok := expect_moth_args(cmd, 1, 1, false); !ok {
+			set_model_error(state, message)
+			return
+		}
+
+		marker_type: Marker_Type
+		#partial switch cmd.type {
+		case .MarkX:    marker_type = .X
+		case .MarkZ:    marker_type = .Z
+		case .MarkVx:   marker_type = .Vx
+		case .MarkVz:   marker_type = .Vz
+		case .MarkF:    marker_type = .F
+		case .MarkTurn: marker_type = .T
+		}
+
+		tick := state.n-1
+		arg := cmd.args[0]
+		if arg.type != .Variable || arg.text == "" {
+				set_model_error(
+					state,
+					fmt.tprintf(
+						"Error: %s(...) accepts only marker name",
+						cmd.name,
+					),
+				)
+				return
+			}
+			if marker_name_exists(state, arg.text) {
+				set_model_error(
+					state,
+					fmt.tprintf(
+						"Error: marker/variable '%s' is already defined",
+						arg.text,
+					),
+				)
+				return
+			}
+
+			append(
+				&state.markers,
+				Marker {
+					type = marker_type,
+					tick = tick,
+					name = strings.clone(arg.text),
+				},
+			)
+
 		return
 
 	case .Plus, .Minus, .Mul, .Div:

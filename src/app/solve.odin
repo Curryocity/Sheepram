@@ -16,6 +16,7 @@ run_optimizer :: proc(state: ^Environment) {
 	buffer_clear(state.last_error[:])
 	compile_start := time.tick_now()
 
+	// Parse mothball script into a list of commands
 	code, movement_err := dsl.parse_mothball(buffer_string(state.movement_script[:]))
 	defer dsl.destroy_moth_code(&code)
 	if movement_err != "" {
@@ -23,8 +24,7 @@ run_optimizer :: proc(state: ^Environment) {
 		return
 	}
 
-	movement := dsl.Model_State{}
-	defer dsl.destroy_moth_execution_state(&movement)
+	// Create global variables table
 	global_names := make([dynamic]string, 0, state.var_capacity)
 	global_values := make([dynamic]string, 0, state.var_capacity)
 	defer delete(global_names)
@@ -33,6 +33,10 @@ run_optimizer :: proc(state: ^Environment) {
 		append(&global_names, buffer_string(state.global_names[i][:]))
 		append(&global_values, buffer_string(state.global_values[i][:]))
 	}
+
+	// Add globals context to mothball_to_model converter
+	movement := dsl.Model_State{}
+	defer dsl.destroy_moth_execution_state(&movement)
 	if globals_err := dsl.add_moth_variables(
 		&movement,
 		global_names[:],
@@ -42,6 +46,8 @@ run_optimizer :: proc(state: ^Environment) {
 		delete(globals_err)
 		return
 	}
+
+	// Convert parsed mothball to opt.model
 	dsl.moth_to_model(&movement, code[:])
 	if !movement.ok {
 		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", movement.err))
@@ -75,25 +81,17 @@ run_optimizer :: proc(state: ^Environment) {
 	for &offset in state.angle_offset do offset = 0
 	copy(state.angle_offset[:], movement.angle_offset[:])
 
-	// Initialize the optimization DSL and global variables.
+	// Initialize the optimization DSL parser and global variables.
 	parser := dsl.init_parser(&model)
 	defer dsl.destroy(&parser)
+	dsl.add_resolved_variables(&parser, movement.variables)
 	err: string
-	for i in 0..<state.var_capacity {
-		err = dsl.add_variable(
-			&parser,
-			buffer_string(state.global_names[i][:]),
-			buffer_string(state.global_values[i][:]),
-		)
-		if err != "" {
-			set_error(state, fmt.tprintf("Error:\n%s", err))
-			delete(err)
-			return
-		}
-	}
 
 	// Compile movement formulas.
 	opt.compile_model(&model)
+
+	// Resolve Markers
+	dsl.resolveMarkers(&parser, movement.markers)
 
 	// 5. Parse objective
 	objective: opt.Compiled_Expr

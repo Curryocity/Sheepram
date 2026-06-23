@@ -51,6 +51,42 @@ global_variables_in_mothball :: proc(t: ^testing.T) {
 }
 
 @(test)
+global_variables_cannot_use_n :: proc(t: ^testing.T) {
+	state := Model_State{}
+	defer destroy_moth_execution_state(&state)
+
+	err := add_moth_variables(
+		&state,
+		[]string{"bad"},
+		[]string{"n+1"},
+	)
+	defer delete(err)
+	testing.expect(t, err != "")
+}
+
+@(test)
+mothball_markers_capture_current_tick :: proc(t: ^testing.T) {
+	code, err := parse_mothball("initGnd(0.3) sj.w X(x1) sa.w(5) X(x2)")
+	defer destroy_moth_code(&code)
+	testing.expect_value(t, err, "")
+	if err != "" do return
+
+	state := Model_State{}
+	defer destroy_moth_execution_state(&state)
+	moth_to_model(&state, code[:])
+
+	testing.expect(t, state.ok)
+	testing.expect_value(t, len(state.markers), 2)
+	if len(state.markers) != 2 do return
+	testing.expect_value(t, state.markers[0].name, "x1")
+	testing.expect_value(t, state.markers[0].type, Marker_Type.X)
+	testing.expect_value(t, state.markers[0].tick, 1)
+	testing.expect_value(t, state.markers[1].name, "x2")
+	testing.expect_value(t, state.markers[1].type, Marker_Type.X)
+	testing.expect_value(t, state.markers[1].tick, 6)
+}
+
+@(test)
 c4_5p2p :: proc(t: ^testing.T) {
     code, err := parse_mothball(" initGnd(0.3169516131491288) sj.w sa.wa(11)")
 	defer destroy_moth_code(&code)

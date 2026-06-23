@@ -107,7 +107,7 @@ legacy_table_to_movement_script :: proc(saved: ^Legacy_Saved_Tab) -> (string, st
 		return "", strings.clone("Legacy globalNames/globalValues size mismatch")
 	}
 	model := opt.Model{n = saved.n+1}
-	parser := dsl.init_parser(&model)
+	parser := dsl.init_parser_without_n(&model)
 	defer dsl.destroy(&parser)
 
 	if err := dsl.add_variable(&parser, "initV", saved.init_v); err != "" {
