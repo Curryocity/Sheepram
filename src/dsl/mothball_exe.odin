@@ -54,7 +54,11 @@ destroy_moth_execution_state :: proc(state: ^Model_State) {
 	state^ = {}
 }
 
-marker_name_exists :: proc(state: ^Model_State, name: string) -> bool {
+marker_name_conflicts :: proc(state: ^Model_State, name: string) -> bool {
+	if name == "n" || name == "X" || name == "Z" ||
+	   name == "F" || name == "Vx" || name == "Vz" || name == "T" {
+		return true
+	}
 	for marker in state.markers {
 		if marker.name == name do return true
 	}
@@ -538,7 +542,7 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 				)
 				return
 			}
-			if marker_name_exists(state, arg.text) {
+			if marker_name_conflicts(state, arg.text) {
 				set_model_error(
 					state,
 					fmt.tprintf(

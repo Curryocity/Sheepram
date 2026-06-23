@@ -91,7 +91,11 @@ run_optimizer :: proc(state: ^Environment) {
 	opt.compile_model(&model)
 
 	// Resolve Markers
-	dsl.resolveMarkers(&parser, movement.markers)
+	if marker_err := dsl.resolve_markers(&parser, movement.markers[:]); marker_err != "" {
+		set_error(state, fmt.tprintf("Error:\nMovement markers:\n%s", marker_err))
+		delete(marker_err)
+		return
+	}
 
 	// 5. Parse objective
 	objective: opt.Compiled_Expr

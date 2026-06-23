@@ -26,48 +26,66 @@ init_parser_without_n :: proc(model: ^opt.Model) -> Parser {
 	return parser
 }
 
-resolveMarkers :: proc(parser: ^Parser, markers: [dynamic]Marker) -> bool{
-	for m in markers {
-		expr: opt.Compiled_Expr
-		if m.tick > parser.model.n || m.tick < 0 {
-			return false
+resolve_markers :: proc(parser: ^Parser, markers: []Marker) -> string {
+	for marker in markers {
+		if marker.tick < 0 || marker.tick >= parser.model.n {
+			return fmt.aprintf(
+				"Marker '%s' references out-of-range tick %d",
+				marker.name,
+				marker.tick,
+			)
 		}
-		if m.tick >= parser.model.n && (m.type == .Vx || m.type == .Vz || m.type == .T){
-			return false
+		if (marker.type == .Vx || marker.type == .Vz || marker.type == .T) &&
+		   marker.tick >= parser.model.n-1 {
+			return fmt.aprintf(
+				"Marker '%s' requires a tick before the terminal tick",
+				marker.name,
+			)
+		}
+		if _, found := parser.var_map[marker.name]; found {
+			return fmt.aprintf(
+				"Marker '%s' conflicts with an existing variable",
+				marker.name,
+			)
+		}
+		if _, found := parser.expr_map[marker.name]; found {
+			return fmt.aprintf("Marker '%s' is already defined", marker.name)
 		}
 
-		switch m.type {
+		expr: opt.Compiled_Expr
+		switch marker.type {
 			case .X:
-				expr = parser.model.x[m.tick]
+				expr = opt.clone_compiled_expr(parser.model.x[marker.tick])
 			case .Z:
-				expr = parser.model.z[m.tick]
+				expr = opt.clone_compiled_expr(parser.model.z[marker.tick])
 			case .F:
 				expr = opt.make_compiled_expr(parser.model.n)
-				expr.theta_coeff[m.tick] = 180/math.PI
+				expr.theta_coeff[marker.tick] = 180/math.PI
 			case .Vx:
-				expr = parser.model.vx[m.tick]
+				expr = opt.clone_compiled_expr(parser.model.vx[marker.tick])
 			case .Vz:
-				expr = parser.model.vz[m.tick]
+				expr = opt.clone_compiled_expr(parser.model.vz[marker.tick])
 			case .T:
 				expr = opt.make_compiled_expr(parser.model.n)
-				expr.theta_coeff[m.tick+1] = 180/math.PI
-				expr.theta_coeff[m.tick] = -180/math.PI
+				expr.theta_coeff[marker.tick+1] = 180/math.PI
+				expr.theta_coeff[marker.tick] = -180/math.PI
 		}
 
-		parser.expr_map[m.name] = expr
+		parser.expr_map[strings.clone(marker.name)] = expr
 	}
-	return true
+	return ""
 }
 
 destroy :: proc(parser: ^Parser) {
 	for key in parser.var_map do delete(key)
 	delete(parser.var_map)
-	parser^ = {}
-	for _, expr in parser.expr_map {
+	for key, expr in parser.expr_map {
 		e := expr
 		opt.destroy_compiled_expr(&e)
+		delete(key)
 	}
 	delete(parser.expr_map)
+	parser^ = {}
 }
 
 destroy_constraints :: proc(constraints: ^[dynamic]opt.Constraint) {

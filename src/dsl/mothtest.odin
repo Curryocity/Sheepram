@@ -87,6 +87,105 @@ mothball_markers_capture_current_tick :: proc(t: ^testing.T) {
 }
 
 @(test)
+mothball_markers_resolve_to_expressions :: proc(t: ^testing.T) {
+	code, err := parse_mothball("initGnd(0.3) sj.w X(x1)")
+	defer destroy_moth_code(&code)
+	testing.expect_value(t, err, "")
+	if err != "" do return
+
+	state := Model_State{}
+	defer destroy_moth_execution_state(&state)
+	moth_to_model(&state, code[:])
+	testing.expect(t, state.ok)
+	if !state.ok do return
+
+	model := opt.Model {
+		n = state.n,
+		drag_x = state.drag_x,
+		drag_z = state.drag_z,
+		accel = state.accel,
+	}
+	state.drag_x = nil
+	state.drag_z = nil
+	state.accel = nil
+	defer opt.destroy_model(&model)
+	opt.compile_model(&model)
+
+	parser := init_parser(&model)
+	defer destroy(&parser)
+	marker_err := resolve_markers(&parser, state.markers[:])
+	defer delete(marker_err)
+	testing.expect_value(t, marker_err, "")
+	if marker_err != "" do return
+
+	marked, parse_err := parse_expr(&parser, "x1")
+	defer opt.destroy_compiled_expr(&marked)
+	testing.expect_value(t, parse_err, "")
+	if parse_err != "" {
+		delete(parse_err)
+		return
+	}
+	testing.expect_value(t, marked.sin_coeff[0], model.x[1].sin_coeff[0])
+	testing.expect_value(t, marked.cos_coeff[0], model.x[1].cos_coeff[0])
+}
+
+@(test)
+terminal_turn_marker_is_rejected :: proc(t: ^testing.T) {
+	code, err := parse_mothball("initGnd(0.3) st T(last)")
+	defer destroy_moth_code(&code)
+	testing.expect_value(t, err, "")
+	if err != "" do return
+
+	state := Model_State{}
+	defer destroy_moth_execution_state(&state)
+	moth_to_model(&state, code[:])
+	testing.expect(t, state.ok)
+	if !state.ok do return
+
+	model := opt.Model {
+		n = state.n,
+		drag_x = state.drag_x,
+		drag_z = state.drag_z,
+		accel = state.accel,
+	}
+	state.drag_x = nil
+	state.drag_z = nil
+	state.accel = nil
+	defer opt.destroy_model(&model)
+	opt.compile_model(&model)
+
+	parser := init_parser(&model)
+	defer destroy(&parser)
+	marker_err := resolve_markers(&parser, state.markers[:])
+	defer delete(marker_err)
+	testing.expect(t, marker_err != "")
+}
+
+@(test)
+marker_names_cannot_conflict_with_globals :: proc(t: ^testing.T) {
+	code, err := parse_mothball("initGnd(0.3) X(place)")
+	defer destroy_moth_code(&code)
+	testing.expect_value(t, err, "")
+	if err != "" do return
+
+	state := Model_State{}
+	defer destroy_moth_execution_state(&state)
+	variable_err := add_moth_variables(
+		&state,
+		[]string{"place"},
+		[]string{"1"},
+	)
+	testing.expect_value(t, variable_err, "")
+	if variable_err != "" {
+		delete(variable_err)
+		return
+	}
+
+	moth_to_model(&state, code[:])
+	testing.expect(t, !state.ok)
+}
+
+@(test)
 c4_5p2p :: proc(t: ^testing.T) {
     code, err := parse_mothball(" initGnd(0.3169516131491288) sj.w sa.wa(11)")
 	defer destroy_moth_code(&code)
