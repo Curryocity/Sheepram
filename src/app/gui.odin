@@ -303,30 +303,36 @@ draw_global_table :: proc(tab: ^Tab_State) {
 	im.EndChild()
 }
 
-input_text_auto_width :: proc(label: cstring, buffer: []byte, minimum: f32 = 10) {
-	text := buffer_string(buffer)
-	text_c := strings.clone_to_cstring(text); defer delete(text_c)
-	width := max(minimum, im.CalcTextSize(text_c).x+im.GetStyle().FramePadding.x*2)
-	im.SetNextItemWidth(width)
-	_ = input_text(label, buffer)
-}
-
 draw_postprocessor :: proc(state: ^Environment) {
 	if !im.CollapsingHeader("Postprocessor", {.DefaultOpen}) do return
 	im.PushStyleVarImVec2(.FramePadding, {ui_px(4), ui_px(2)})
 	im.PushStyleVar(.FrameBorderSize, 0)
 	im.PushStyleVar(.FrameRounding, 2)
 
-	im.AlignTextToFramePadding(); im.Text("X Origin:"); im.SameLine(0, 0)
+	row_y := im.GetCursorPosY()
 	pushed := push_font(code_font)
-	im.Text(" X["); im.SameLine(0, 0); input_text_auto_width("##xTick", state.post.x_tick[:])
-	im.SameLine(0, 0); im.Text("] + "); im.SameLine(0, 0); input_text_auto_width("##xAdd", state.post.x_add[:])
+	field_height := im.GetFrameHeight()
+	pop_font(pushed)
+	im.SetCursorPosY(row_y+(field_height-im.GetTextLineHeight())/2)
+	im.Text("X Origin:")
+	im.SameLine(0, ui_px(8))
+	im.SetCursorPosY(row_y)
+	pushed = push_font(code_font)
+	im.SetNextItemWidth(-1)
+	_ = input_text("##xOrigin", state.post.x_origin[:])
 	pop_font(pushed)
 
-	im.AlignTextToFramePadding(); im.Text("Z Origin:"); im.SameLine(0, 0)
+	row_y = im.GetCursorPosY()
 	pushed = push_font(code_font)
-	im.Text(" Z["); im.SameLine(0, 0); input_text_auto_width("##zTick", state.post.z_tick[:])
-	im.SameLine(0, 0); im.Text("] + "); im.SameLine(0, 0); input_text_auto_width("##zAdd", state.post.z_add[:])
+	field_height = im.GetFrameHeight()
+	pop_font(pushed)
+	im.SetCursorPosY(row_y+(field_height-im.GetTextLineHeight())/2)
+	im.Text("Z Origin:")
+	im.SameLine(0, ui_px(8))
+	im.SetCursorPosY(row_y)
+	pushed = push_font(code_font)
+	im.SetNextItemWidth(-1)
+	_ = input_text("##zOrigin", state.post.z_origin[:])
 	pop_font(pushed)
 
 	im.AlignTextToFramePadding(); im.Text("X/Z precision:"); im.SameLine(0, 8)
@@ -781,8 +787,8 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 		vzvals[i] = "-"
 		speedvals[i] = "-"
 		directionvals[i] = "-"
-		xvals[i] = solution.xs[i]-solution.xs[state.x_index]-state.x_add
-		zvals[i] = solution.zs[i]-solution.zs[state.z_index]-state.z_add
+		xvals[i] = solution.xs[i]-state.x_origin
+		zvals[i] = solution.zs[i]-state.z_origin
 	}
 	for i in 0..<count-2 {
 		turns[i] = fmt.aprintf("%.3f", wrap_degrees_180(facings[i+1]-facings[i]))

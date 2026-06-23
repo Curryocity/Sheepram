@@ -154,6 +154,18 @@ eval :: proc(expr: Compiled_Expr, thetas: []f64, work: ^Workspace) -> f64 {
 	return val
 }
 
+eval_compiled_expr :: proc(expr: Compiled_Expr, thetas: []f64) -> f64 {
+	work := Workspace {
+		sin_cache = make([dynamic]f64, len(thetas)),
+		cos_cache = make([dynamic]f64, len(thetas)),
+	}
+	defer delete(work.sin_cache)
+	defer delete(work.cos_cache)
+
+	update_trig_cache(&work, thetas)
+	return eval(expr, thetas, &work)
+}
+
 grad :: proc(expr: Compiled_Expr, thetas: []f64, out: []f64, work: ^Workspace) {
 	for &value in out do value = 0
 	for i in 0..<len(thetas) {

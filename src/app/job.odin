@@ -48,10 +48,8 @@ poll_optimizer_job :: proc(tab: ^Tab_State) -> bool {
 	result.last_solution = nil
 	state.compile_time_seconds = result.compile_time_seconds
 	state.optimize_time_seconds = result.optimize_time_seconds
-	state.x_index = result.x_index
-	state.z_index = result.z_index
-	state.x_add = result.x_add
-	state.z_add = result.z_add
+	state.x_origin = result.x_origin
+	state.z_origin = result.z_origin
 	state.angle_offset = result.angle_offset
 	state.last_error = result.last_error
 

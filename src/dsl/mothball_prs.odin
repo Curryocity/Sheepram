@@ -5,6 +5,7 @@ import "core:math"
 
 ParserState :: struct {
 	lex:     Lexer,
+	variables: map[string]f64,
 	ok:      bool,
 	err_msg: string,
 }
@@ -19,7 +20,6 @@ MoveFunc :: struct {
 	w:         f32,
 	a:         f32,
 	t:         int,
-	t_variable:string,
 }
 
 CmdType :: enum {
@@ -103,10 +103,14 @@ is_call :: proc(arg: ^Arg) -> bool {
 
 // Parses a Mothball movement script into top-level commands and movements.
 // The caller owns code and must eventually call destroy_moth_code.
-parse_mothball :: proc(input: string) -> ([dynamic]Arg, string) {
+parse_mothball :: proc(
+	input: string,
+	variables: map[string]f64 = nil,
+) -> ([dynamic]Arg, string) {
 	prs := ParserState {
-		lex = Lexer{data = input},
-		ok = true,
+		lex       = Lexer{data = input},
+		variables = variables,
+		ok        = true,
 	}
 	code: [dynamic]Arg
 
@@ -416,14 +420,17 @@ wasd_to_vec :: proc(input: string) -> (w, a: f32, ok: bool) {
 	return w, a, w != 0 || a != 0
 }
 
-eval_constant :: proc(arg: Arg) -> (f64, bool) {
+eval_constant :: proc(arg: Arg, variables: map[string]f64 = nil) -> (f64, bool) {
 	#partial switch arg.type {
 	case .Number:
 		return arg.value, true
+	case .Variable:
+		value, found := variables[arg.text]
+		return value, found
 	case .Call:
 		if arg.expr == nil || len(arg.expr.args) != 2 do return 0, false
-		lhs, lhs_ok := eval_constant(arg.expr.args[0])
-		rhs, rhs_ok := eval_constant(arg.expr.args[1])
+		lhs, lhs_ok := eval_constant(arg.expr.args[0], variables)
+		rhs, rhs_ok := eval_constant(arg.expr.args[1], variables)
 		if !lhs_ok || !rhs_ok do return 0, false
 		#partial switch arg.expr.type {
 		case .Plus:
@@ -477,35 +484,31 @@ parse_move_func :: proc(prs: ^ParserState, mf: ^MoveFunc, token: Token) -> Arg {
 		lexer_next(&prs.lex)
 		duration_arg := parse_moth_arg(prs, 0)
 		if !prs.ok do return {}
-		duration, duration_ok := eval_constant(duration_arg)
+		duration, duration_ok := eval_constant(duration_arg, prs.variables)
 		if !duration_ok {
-			if duration_arg.type != .Variable {
-				destroy_arg(&duration_arg)
-				fail_parse(
-					prs,
-					fmt.tprintf(
-						"Error: duration in %s(...) must be a number or global variable",
-						token.text,
-					),
-				)
-				return {}
-			}
-			mf.t_variable = duration_arg.text
-		} else {
-			rounded := math.round(duration)
-			if math.abs(duration-rounded) >= 1e-15 || rounded <= 0 {
-				destroy_arg(&duration_arg)
-				fail_parse(
-					prs,
-					fmt.tprintf(
-						"Error: duration in %s(...) must be a positive whole number",
-						token.text,
-					),
-				)
-				return {}
-			}
-			mf.t = int(rounded)
+			destroy_arg(&duration_arg)
+			fail_parse(
+				prs,
+				fmt.tprintf(
+					"Error: duration in %s(...) must use defined global variables",
+					token.text,
+				),
+			)
+			return {}
 		}
+		rounded := math.round(duration)
+		if math.abs(duration-rounded) >= 1e-15 || rounded <= 0 {
+			destroy_arg(&duration_arg)
+			fail_parse(
+				prs,
+				fmt.tprintf(
+					"Error: duration in %s(...) must be a positive whole number",
+					token.text,
+				),
+			)
+			return {}
+		}
+		mf.t = int(rounded)
 		destroy_arg(&duration_arg)
 
 		close := lexer_next(&prs.lex)

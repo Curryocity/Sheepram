@@ -1,7 +1,6 @@
 package app
 
 import "core:fmt"
-import "core:math"
 import "core:time"
 import dsl "../dsl"
 import opt "../optimizer"
@@ -15,14 +14,6 @@ run_optimizer :: proc(state: ^Environment) {
 	clear_solution(state)
 	buffer_clear(state.last_error[:])
 	compile_start := time.tick_now()
-
-	// Parse mothball script into a list of commands
-	code, movement_err := dsl.parse_mothball(buffer_string(state.movement_script[:]))
-	defer dsl.destroy_moth_code(&code)
-	if movement_err != "" {
-		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", movement_err))
-		return
-	}
 
 	// Create global variables table
 	global_names := make([dynamic]string, 0, state.var_capacity)
@@ -44,6 +35,17 @@ run_optimizer :: proc(state: ^Environment) {
 	); globals_err != "" {
 		set_error(state, fmt.tprintf("Error:\n%s", globals_err))
 		delete(globals_err)
+		return
+	}
+
+	// Parse Mothball after globals so movement durations become concrete.
+	code, movement_err := dsl.parse_mothball(
+		buffer_string(state.movement_script[:]),
+		movement.variables,
+	)
+	defer dsl.destroy_moth_code(&code)
+	if movement_err != "" {
+		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", movement_err))
 		return
 	}
 
@@ -133,6 +135,31 @@ run_optimizer :: proc(state: ^Environment) {
 	}
 	defer dsl.destroy_constraints(&constraints)
 
+	// Compile postprocessor origins. These may reference globals, markers,
+	// model expressions, and n just like the objective and constraints.
+	x_origin_expr, post_err := dsl.parse_expr(
+		&parser,
+		buffer_string(state.post.x_origin[:]),
+	)
+	if post_err != "" {
+		set_error(state, fmt.tprintf("Error:\nPostprocessor X Origin:\n%s", post_err))
+		delete(post_err)
+		return
+	}
+	defer opt.destroy_compiled_expr(&x_origin_expr)
+
+	z_origin_expr: opt.Compiled_Expr
+	z_origin_expr, post_err = dsl.parse_expr(
+		&parser,
+		buffer_string(state.post.z_origin[:]),
+	)
+	if post_err != "" {
+		set_error(state, fmt.tprintf("Error:\nPostprocessor Z Origin:\n%s", post_err))
+		delete(post_err)
+		return
+	}
+	defer opt.destroy_compiled_expr(&z_origin_expr)
+
 	// 7. Build problem
 	problem := opt.build_problem(&model, objective, constraints[:])
 	defer opt.destroy_problem(&problem)
@@ -147,31 +174,8 @@ run_optimizer :: proc(state: ^Environment) {
 		solution.optimum *= -1 // Invert solution again when maximizing
 	}
 
-	// Postprocessor settings.
-	x_tick, post_err := dsl.parse_constant(&parser, buffer_string(state.post.x_tick[:]))
-	if post_err == "" {
-		state.x_index = int(math.round(x_tick))
-		state.x_add, post_err = dsl.parse_constant(&parser, buffer_string(state.post.x_add[:]))
-	}
-	if post_err == "" {
-		z_tick: f64
-		z_tick, post_err = dsl.parse_constant(&parser, buffer_string(state.post.z_tick[:]))
-		state.z_index = int(math.round(z_tick))
-	}
-	if post_err == "" {
-		state.z_add, post_err = dsl.parse_constant(&parser, buffer_string(state.post.z_add[:]))
-	}
-	if post_err == "" &&
-	   (state.x_index < 0 || state.x_index >= n || state.z_index < 0 || state.z_index >= n) {
-		post_err = fmt.aprintf("Out of bound access")
-	}
-	if post_err != "" {
-		opt.destroy_solution(solution)
-		free(solution)
-		set_error(state, fmt.tprintf("Error:\nPostprocessor:\n%s", post_err))
-		delete(post_err)
-		return
-	}
+	state.x_origin = opt.eval_compiled_expr(x_origin_expr, solution.thetas[:])
+	state.z_origin = opt.eval_compiled_expr(z_origin_expr, solution.thetas[:])
 
 	state.last_solution = solution
 }

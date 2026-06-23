@@ -37,10 +37,8 @@ Theme :: enum {
 }
 
 Post_State :: struct {
-	x_tick:             [CELL_CAPACITY]byte,
-	x_add:              [CELL_CAPACITY]byte,
-	z_tick:             [CELL_CAPACITY]byte,
-	z_add:              [CELL_CAPACITY]byte,
+	x_origin:           [SCRIPT_CAPACITY]byte,
+	z_origin:           [SCRIPT_CAPACITY]byte,
 	copy_separator:     Separator_Type,
 	position_precision: int,
 }
@@ -65,10 +63,8 @@ Environment :: struct {
 	last_solution: ^opt.Solution,
 	compile_time_seconds:  f64,
 	optimize_time_seconds: f64,
-	x_index:       int,
-	z_index:       int,
-	x_add:         f64,
-	z_add:         f64,
+	x_origin:      f64,
+	z_origin:      f64,
 	angle_offset:  [N_MAX]f64,
 	last_error:    [ERROR_CAPACITY]byte,
 }
@@ -162,10 +158,8 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 		"X[m2] - X[0] > 7/16\n" +
 		"Z[m2] - Z[m-1] > 1 + bx\n",
 	)
-	buffer_set(tab.env.post.x_tick[:], "0")
-	buffer_set(tab.env.post.x_add[:], "0")
-	buffer_set(tab.env.post.z_tick[:], "m-1")
-	buffer_set(tab.env.post.z_add[:], "0")
+	buffer_set(tab.env.post.x_origin[:], "X[0]")
+	buffer_set(tab.env.post.z_origin[:], "Z[m-1]")
 	init_globals(&tab.env)
 	tab.selected_global_var_index = -1
 	tab.movement_editor_height = 86

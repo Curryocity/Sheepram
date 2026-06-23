@@ -61,6 +61,14 @@ legacy_values_equal :: proc(a, b: f64) -> bool {
 	return math.abs(a-b) <= 1e-12
 }
 
+legacy_origin_expr :: proc(axis, tick, add: string) -> string {
+	clean_tick := strings.trim_space(tick)
+	clean_add := strings.trim_space(add)
+	if clean_tick == "" do clean_tick = "0"
+	if clean_add == "" do clean_add = "0"
+	return fmt.aprintf("%s[%s] + (%s)", axis, clean_tick, clean_add)
+}
+
 write_legacy_number :: proc(builder: ^strings.Builder, value: f64) {
 	rounded := math.round(value*100000)/100000
 	fmt.sbprintf(builder, "%.5f", rounded)
@@ -261,10 +269,16 @@ legacy_to_saved_tab :: proc(legacy: ^Legacy_Saved_Tab, movement_script: string) 
 		obj_script        = strings.clone(legacy.obj_script),
 		constraint_script = strings.clone(legacy.constraint_script),
 		post = {
-			x_tick             = strings.clone(legacy.post.x_tick),
-			x_add              = strings.clone(legacy.post.x_add),
-			z_tick             = strings.clone(legacy.post.z_tick),
-			z_add              = strings.clone(legacy.post.z_add),
+			x_origin           = legacy_origin_expr(
+				"X",
+				legacy.post.x_tick,
+				legacy.post.x_add,
+			),
+			z_origin           = legacy_origin_expr(
+				"Z",
+				legacy.post.z_tick,
+				legacy.post.z_add,
+			),
 			copy_separator     = legacy.post.copy_separator,
 			position_precision = legacy.post.position_precision,
 		},

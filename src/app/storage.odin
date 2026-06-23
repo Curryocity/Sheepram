@@ -11,10 +11,12 @@ PREFERENCE_FILE :: "preference.json"
 PRESET_FOLDER :: "presets/saves"
 
 Saved_Post :: struct {
-	x_tick:             string   `json:"xTick"`,
-	x_add:              string   `json:"xAdd"`,
-	z_tick:             string   `json:"zTick"`,
-	z_add:              string   `json:"zAdd"`,
+	x_origin:           string   `json:"xOrigin"`,
+	z_origin:           string   `json:"zOrigin"`,
+	x_tick:             string   `json:"xTick,omitempty"`,
+	x_add:              string   `json:"xAdd,omitempty"`,
+	z_tick:             string   `json:"zTick,omitempty"`,
+	z_add:              string   `json:"zAdd,omitempty"`,
 	copy_separator:     int      `json:"copySeparator"`,
 	position_precision: int      `json:"positionPrecision"`,
 }
@@ -45,6 +47,8 @@ free_saved_tab :: proc(saved: ^Saved_Tab) {
 	delete(saved.global_values)
 	delete(saved.obj_script)
 	delete(saved.constraint_script)
+	delete(saved.post.x_origin)
+	delete(saved.post.z_origin)
 	delete(saved.post.x_tick)
 	delete(saved.post.x_add)
 	delete(saved.post.z_tick)
@@ -64,10 +68,8 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 		obj_script        = buffer_string(env.obj_script[:]),
 		constraint_script = buffer_string(env.constraint_script[:]),
 		post = {
-			x_tick             = buffer_string(env.post.x_tick[:]),
-			x_add              = buffer_string(env.post.x_add[:]),
-			z_tick             = buffer_string(env.post.z_tick[:]),
-			z_add              = buffer_string(env.post.z_add[:]),
+			x_origin           = buffer_string(env.post.x_origin[:]),
+			z_origin           = buffer_string(env.post.z_origin[:]),
 			copy_separator     = int(env.post.copy_separator),
 			position_precision = env.post.position_precision,
 		},
@@ -163,6 +165,14 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	   saved.post.copy_separator > int(Separator_Type.Newline) {
 		return strings.clone("Invalid field: post.copySeparator")
 	}
+	if strings.trim_space(saved.post.x_origin) == "" {
+		delete(saved.post.x_origin)
+		saved.post.x_origin = legacy_origin_expr("X", saved.post.x_tick, saved.post.x_add)
+	}
+	if strings.trim_space(saved.post.z_origin) == "" {
+		delete(saved.post.z_origin)
+		saved.post.z_origin = legacy_origin_expr("Z", saved.post.z_tick, saved.post.z_add)
+	}
 
 	clear_solution(&tab.env)
 	env := &tab.env
@@ -182,10 +192,8 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 		buffer_clear(env.global_values[0][:])
 	}
 
-	buffer_set(env.post.x_tick[:], saved.post.x_tick)
-	buffer_set(env.post.x_add[:], saved.post.x_add)
-	buffer_set(env.post.z_tick[:], saved.post.z_tick)
-	buffer_set(env.post.z_add[:], saved.post.z_add)
+	buffer_set(env.post.x_origin[:], saved.post.x_origin)
+	buffer_set(env.post.z_origin[:], saved.post.z_origin)
 	env.post.copy_separator = Separator_Type(saved.post.copy_separator)
 	env.post.position_precision = saved.post.position_precision
 

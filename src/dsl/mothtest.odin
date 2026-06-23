@@ -24,11 +24,6 @@ wrap_degrees_180 :: proc(degrees: f64) -> f64 {
 
 @(test)
 global_variables_in_mothball :: proc(t: ^testing.T) {
-	code, err := parse_mothball("initGnd(v) mv(drag, accel, ticks) st(ticks)")
-	defer destroy_moth_code(&code)
-	testing.expect_value(t, err, "")
-	if err != "" do return
-
 	state := Model_State{}
 	defer destroy_moth_execution_state(&state)
 	variable_err := add_moth_variables(
@@ -42,9 +37,17 @@ global_variables_in_mothball :: proc(t: ^testing.T) {
 		return
 	}
 
+	code, err := parse_mothball(
+		"initGnd(v) mv(drag, accel, ticks) st(ticks+1)",
+		state.variables,
+	)
+	defer destroy_moth_code(&code)
+	testing.expect_value(t, err, "")
+	if err != "" do return
+
 	moth_to_model(&state, code[:])
 	testing.expect(t, state.ok)
-	testing.expect_value(t, state.n, 5)
+	testing.expect_value(t, state.n, 6)
 	testing.expect_value(t, state.init_v, 0.3)
 	testing.expect_value(t, state.drag_x[1], 0.91)
 	testing.expect_value(t, state.accel[1], 0.02)
@@ -118,13 +121,14 @@ mothball_markers_resolve_to_expressions :: proc(t: ^testing.T) {
 	testing.expect_value(t, marker_err, "")
 	if marker_err != "" do return
 
-	marked, parse_err := parse_expr(&parser, "x1")
+	marked, parse_err := parse_expr(&parser, "x1 + 0.3")
 	defer opt.destroy_compiled_expr(&marked)
 	testing.expect_value(t, parse_err, "")
 	if parse_err != "" {
 		delete(parse_err)
 		return
 	}
+	testing.expect_value(t, marked.constant, model.x[1].constant+0.3)
 	testing.expect_value(t, marked.sin_coeff[0], model.x[1].sin_coeff[0])
 	testing.expect_value(t, marked.cos_coeff[0], model.x[1].cos_coeff[0])
 }

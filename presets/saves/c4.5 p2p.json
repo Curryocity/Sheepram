@@ -18,10 +18,8 @@
   "objScript": "Optimize along vec(a, b) := a * (X[t1] - X[t0]) + b * (Z[t1] - Z[t0])",
   "constraintScript": "// c4.5 p2p\nX[m] - X[0] > 7/16\nX[m2] - X[0] > 7/16\nZ[m2] - Z[m-1] > 1 + bx\n",
   "post": {
-    "xTick": "0",
-    "xAdd": "0",
-    "zTick": "m-1",
-    "zAdd": "0",
+    "xOrigin": "X[0]",
+    "zOrigin": "Z[m-1]",
     "copySeparator": 0,
     "positionPrecision": 6
   }

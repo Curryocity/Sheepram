@@ -143,23 +143,6 @@ exe_code :: proc(state: ^Model_State, code: []Arg) {
 		case .MoveCall:
 			mf := ins.mvfunc
 			duration := mf.t
-			if mf.t_variable != "" {
-				duration_value, found := state.variables[mf.t_variable]
-				duration_rounded := math.round(duration_value)
-				if !found ||
-				   duration_value != duration_rounded ||
-				   duration_rounded <= 0 {
-					set_model_error(
-						state,
-						fmt.tprintf(
-							"Error: duration in %s(...) must be a defined positive whole-number global variable",
-							mf.name,
-						),
-					)
-					return
-				}
-				duration = int(duration_rounded)
-			}
 
 			drag := f64(0.91)
 			base_accel: f64

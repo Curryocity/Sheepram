@@ -150,6 +150,15 @@ The postprocessor lets you:
 * shift the coordinate origin (affects the output table and plot)
 * change table precision
 
+X Origin and Z Origin are full expression fields. They accept the same
+variables, markers, and model expressions as the objective and constraints.
+For example, a marker declared with `X(x1)` in Mothball can be used as:
+
+```text
+X Origin: x1 + 0.3
+Z Origin: Z[m-1]
+```
+
 ## Tips
 
 ### Global variable declaration order

@@ -66,11 +66,8 @@ test_legacy_preset_migration :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(script, "mv(air, a, 2)"))
 	testing.expect(t, strings.contains(script, "ix mv(air, a)"))
 	testing.expect(t, strings.has_suffix(script, " st"))
-
-	code, parse_err := dsl.parse_mothball(script)
-	defer dsl.destroy_moth_code(&code)
-	testing.expect_value(t, parse_err, "")
-	if parse_err != "" do return
+	testing.expect_value(t, buffer_string(tab.env.post.x_origin[:]), "X[0] + (0)")
+	testing.expect_value(t, buffer_string(tab.env.post.z_origin[:]), "Z[0] + (0)")
 
 	state := dsl.Model_State{}
 	defer dsl.destroy_moth_execution_state(&state)
@@ -84,12 +81,42 @@ test_legacy_preset_migration :: proc(t: ^testing.T) {
 		delete(globals_err)
 		return
 	}
+	code, parse_err := dsl.parse_mothball(script, state.variables)
+	defer dsl.destroy_moth_code(&code)
+	testing.expect_value(t, parse_err, "")
+	if parse_err != "" do return
+
 	dsl.moth_to_model(&state, code[:])
 	testing.expect(t, state.ok)
 	testing.expect_value(t, state.n, 5)
 	testing.expect_value(t, state.drag_x[3], 0.0)
 	testing.expect_value(t, state.drag_z[3], 0.91)
 	testing.expect_value(t, state.accel[4], 0.0)
+}
+
+@(test)
+test_current_postprocessor_origins_round_trip :: proc(t: ^testing.T) {
+	tab := make_default_tab(101)
+	defer destroy_tab(tab)
+
+	buffer_set(tab.env.post.x_origin[:], "x1 + 0.3")
+	buffer_set(tab.env.post.z_origin[:], "Z[n] - 0.6")
+
+	data, save_err := build_tab_json(tab)
+	defer delete(data)
+	defer delete(save_err)
+	testing.expect_value(t, save_err, "")
+	if save_err != "" do return
+
+	loaded := make_default_tab(102)
+	defer destroy_tab(loaded)
+	load_err := load_tab_from_json(loaded, data)
+	defer delete(load_err)
+	testing.expect_value(t, load_err, "")
+	if load_err != "" do return
+
+	testing.expect_value(t, buffer_string(loaded.env.post.x_origin[:]), "x1 + 0.3")
+	testing.expect_value(t, buffer_string(loaded.env.post.z_origin[:]), "Z[n] - 0.6")
 }
 
 @(test)
