@@ -114,7 +114,7 @@ z2 - z1 > 1.6
 In this case, equivalent to: 
 
 ```text
-z[8] - z[1] > 1.6
+Z[8] - Z[1] > 1.6
 ```
 
 A marker name cannot conflict with a global variable, reserved name, or
