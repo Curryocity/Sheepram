@@ -100,15 +100,21 @@ Each marker command accepts exactly one name:
 For example:
 
 ```Sheepram
-initGnd(0.31695) sj.w Z(z1) sa.wa(6) Z(z2)
+initGnd(0.31695) sj.w Z(z1) sa.wa(7) Z(z2)
 ```
 
 This records the Z position after `sj.w` as `z1`, and the Z position after the
-following six air ticks as `z2`. Marker names can then be used as expressions
+following seven air ticks as `z2`. Marker names can then be used as expressions
 in the objective, constraints, and postprocessor:
 
 ```text
-z1 - Z[0] > 1.6
+z2 - z1 > 1.6
+```
+
+In this case, equivalent to: 
+
+```text
+z[8] - z[1] > 1.6
 ```
 
 A marker name cannot conflict with a global variable, reserved name, or
