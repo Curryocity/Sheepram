@@ -83,6 +83,37 @@ r(3) { s.w sa.w }
 Command arguments may use arithmetic and variables from the global-variable
 table.
 
+#### Markers
+
+Markers give a name to a value at the current point in the Mothball timeline.
+Each marker command accepts exactly one name:
+
+| Command | Marked value |
+| --- | --- |
+| `X(name)` | X position |
+| `Z(name)` | Z position |
+| `Vx(name)` | X velocity |
+| `Vz(name)` | Z velocity |
+| `F(name)` | Facing angle |
+| `T(name)` | Turn to the next tick |
+
+For example:
+
+```Sheepram
+initGnd(0.31695) sj.w Z(z1) sa.wa(6) Z(z2)
+```
+
+This records the Z position after `sj.w` as `z1`, and the Z position after the
+following six air ticks as `z2`. Marker names can then be used as expressions
+in the objective, constraints, and postprocessor:
+
+```text
+z1 - Z[0] > 1.6
+```
+
+A marker name cannot conflict with a global variable, reserved name, or
+another marker. `Vx()`, `Vz()`, and `T()` cannot mark the terminal tick because
+they require a following tick.
 
 
 ### 2. Objective Function

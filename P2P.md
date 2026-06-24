@@ -50,3 +50,33 @@ Minimum X[n]: -0.005078
 The c4.5 p2p neo is solved.
 
 ![p2pSolved](readmeResource/p2pResult.png)
+
+### Alternative: Using Markers
+
+Markers can name the important positions directly in the movement script:
+
+```text
+initGnd(0.31695) sj.w Z(z_start) sa.wa X(x_first) sa.wa(6) X(x_second) Z(z_second) sa.wa(4)
+```
+
+The movement is unchanged: the air movement durations still add up to 11
+ticks. The markers capture the values previously written as explicit indices:
+
+| Marker | Equivalent expression |
+| --- | --- |
+| `z_start` | `Z[1]` |
+| `x_first` | `X[2]` |
+| `x_second` | `X[8]` |
+| `z_second` | `Z[8]` |
+
+The constraints can then be written as:
+
+```text
+x_first > 0.4375
+x_second > 0.4375
+z_second - z_start > 1 + 0.6
+```
+
+This produces the same problem while making each important checkpoint easier
+to identify. It also removes the need to define `m` and `m2` in the global
+variable table.
