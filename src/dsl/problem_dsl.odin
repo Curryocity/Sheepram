@@ -91,6 +91,7 @@ destroy :: proc(parser: ^Parser) {
 destroy_constraints :: proc(constraints: ^[dynamic]opt.Constraint) {
 	for i in 0..<len(constraints) {
 		opt.destroy_compiled_expr(&constraints[i].lhs)
+		delete(constraints[i].source)
 	}
 	delete(constraints^)
 	constraints^ = nil
@@ -473,7 +474,11 @@ parse_constraint :: proc(parser: ^Parser, text: string) -> (opt.Constraint, stri
 		cmp = .Equal
 	}
 	if combine_err != "" do return {}, combine_err
-	return opt.Constraint{lhs = standard, cmp = cmp}, ""
+	return opt.Constraint {
+		lhs    = standard,
+		cmp    = cmp,
+		source = strings.clone(text),
+	}, ""
 }
 
 index_byte :: proc(text, needle: string) -> int {

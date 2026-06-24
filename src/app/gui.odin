@@ -6,6 +6,7 @@ import "core:math"
 import "core:strings"
 
 import nfd "../nfd"
+import opt "../optimizer"
 import im "../../third_party/odin-imgui"
 
 code_font: ^im.Font
@@ -726,6 +727,74 @@ read_only_block :: proc(label: cstring, text: string, copy_text: string) {
 	pop_font(pushed_code)
 }
 
+draw_constraint_results :: proc(solution: ^opt.Solution) {
+	pushed_ui := push_font(ui_font)
+	im.Text("Constraint Results")
+	pop_font(pushed_ui)
+
+	if len(solution.constraints) == 0 {
+		im.TextDisabled("No constraints.")
+		return
+	}
+
+	im.PushStyleVarImVec2(.CellPadding, {ui_px(10), ui_px(3)})
+	table_flags := im.TableFlags_RowBg | im.TableFlags_BordersOuter |
+	               im.TableFlags_BordersV | im.TableFlags_SizingFixedFit |
+	               im.TableFlags_NoHostExtendX
+	if im.BeginTable("ConstraintResults", 3, table_flags) {
+		im.TableSetupColumn("Constraint", {.WidthFixed}, ui_px(430))
+		im.TableSetupColumn("Margin / Error", {.WidthFixed}, ui_px(130))
+		im.TableSetupColumn("Status", {.WidthFixed}, ui_px(100))
+		im.TableNextRow({.Headers}, 20)
+		headers := [?]string{"Constraint", "Margin / Error", "Status"}
+		for header, i in headers {
+			im.TableSetColumnIndex(c.int(i))
+			center_text(header)
+		}
+
+		for result in solution.constraints {
+			metric_text := fmt.aprintf("%+.6g", result.margin)
+			status := "Inactive"
+			color := im.Vec4{0.45, 0.85, 0.55, 1}
+
+			if result.cmp == .Equal {
+				delete(metric_text)
+				metric_text = fmt.aprintf("%.6g", result.margin)
+				if result.margin > opt.CONSTRAINT_TOLERANCE {
+					status = "Violated"
+					color = {1, 0.4, 0.4, 1}
+				} else {
+					status = "Active"
+					color = {1, 0.75, 0.3, 1}
+				}
+			} else {
+				if result.margin < -opt.CONSTRAINT_TOLERANCE {
+					status = "Violated"
+					color = {1, 0.4, 0.4, 1}
+				} else if result.margin <= opt.CONSTRAINT_TOLERANCE {
+					status = "Active"
+					color = {1, 0.75, 0.3, 1}
+				}
+			}
+
+			im.TableNextRow({}, 20)
+			im.TableSetColumnIndex(0)
+			source_c := strings.clone_to_cstring(result.source)
+			im.TextUnformatted(source_c)
+			delete(source_c)
+			im.TableSetColumnIndex(1)
+			center_text(metric_text)
+			im.TableSetColumnIndex(2)
+			status_c := strings.clone_to_cstring(status)
+			im.TextColored(color, "%s", status_c)
+			delete(status_c)
+			delete(metric_text)
+		}
+		im.EndTable()
+	}
+	im.PopStyleVar()
+}
+
 draw_output_panel :: proc(tab: ^Tab_State) {
 	state := &tab.env
 	im.BeginChild("OutputPanel", {0, 0}, {.Borders})
@@ -824,6 +893,9 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 	if im.IsWindowAppearing() do im.SetScrollX(max(0, 0.5*(canvas_width-viewport_size.x)))
 	draw_xz_plot(xvals[:], zvals[:], facings[:], vxvals[:], vzvals[:], {canvas_width, viewport_size.y}, position_precision, angle_precision)
 	im.EndChild()
+	im.Spacing(); im.Spacing()
+
+	draw_constraint_results(solution)
 	im.Spacing(); im.Spacing()
 
 	pushed_ui = push_font(ui_font)

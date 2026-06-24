@@ -3,6 +3,7 @@ package optimizer
 import "core:math"
 
 EPS :: 1e-12
+CONSTRAINT_TOLERANCE :: 1e-5
 
 Compiled_Expr :: struct {
 	constant:    f64,
@@ -12,14 +13,21 @@ Compiled_Expr :: struct {
 }
 
 Constraint_Comparison :: enum {
-	Equal,
 	Less,
+	Equal,
 }
 
 Constraint :: struct {
 	// Enforce lhs < 0 or lhs = 0
-	lhs: Compiled_Expr,
-	cmp: Constraint_Comparison,
+	lhs:    Compiled_Expr,
+	cmp:    Constraint_Comparison,
+	source: string,
+}
+
+Constraint_Result :: struct {
+	source: string,
+	margin: f64,
+	cmp:    Constraint_Comparison,
 }
 
 Model :: struct {
@@ -50,6 +58,7 @@ Solution :: struct {
 	thetas:  [dynamic]f64,
 	xs:      [dynamic]f64,
 	zs:      [dynamic]f64,
+	constraints: [dynamic]Constraint_Result,
 }
 
 Workspace :: struct {
@@ -110,6 +119,8 @@ destroy_solution :: proc(solution: ^Solution) {
 	delete(solution.thetas)
 	delete(solution.xs)
 	delete(solution.zs)
+	for result in solution.constraints do delete(result.source)
+	delete(solution.constraints)
 	solution^ = {}
 }
 
@@ -473,7 +484,6 @@ optimize :: proc(model: ^Model, problem: ^Problem) -> Solution {
 	defer delete(nu)
 	pen := 1.0 // Penalty for "A" in "ALM"
 
-	tar_vio :: 1e-5 // Constraint violation threshold; below? -> Leave Outer Loop
 	max_vio := math.INF_F64
 	prev_max_vio := max_vio
 
@@ -500,7 +510,7 @@ optimize :: proc(model: ^Model, problem: ^Problem) -> Solution {
 		max_vio = max(max_gi, max_hj)
 
 		// Check Feasibility
-		if max_vio < tar_vio do break
+		if max_vio < CONSTRAINT_TOLERANCE do break
 
 		// Increase penalty if violation didn't decrease enough
 		// The exact parameters here are questionable but works fine at the moment

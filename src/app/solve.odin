@@ -1,6 +1,8 @@
 package app
 
 import "core:fmt"
+import "core:math"
+import "core:strings"
 import "core:time"
 import dsl "../dsl"
 import opt "../optimizer"
@@ -172,6 +174,19 @@ run_optimizer :: proc(state: ^Environment) {
 	state.optimize_time_seconds = time.duration_seconds(time.tick_since(optimize_start))
 	if state.maximize {
 		solution.optimum *= -1 // Invert solution again when maximizing
+	}
+
+	for constraint in constraints {
+		residual := opt.eval_compiled_expr(constraint.lhs, solution.thetas[:])
+		margin := math.abs(residual) if constraint.cmp == .Equal else -residual
+		append(
+			&solution.constraints,
+			opt.Constraint_Result {
+				source = strings.clone(constraint.source),
+				margin = margin,
+				cmp    = constraint.cmp,
+			},
+		)
 	}
 
 	state.x_origin = opt.eval_compiled_expr(x_origin_expr, solution.thetas[:])

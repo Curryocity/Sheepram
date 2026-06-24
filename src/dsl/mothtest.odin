@@ -68,6 +68,26 @@ global_variables_cannot_use_n :: proc(t: ^testing.T) {
 }
 
 @(test)
+constraint_keeps_source_and_normalized_margin :: proc(t: ^testing.T) {
+	model := opt.Model{n = 1}
+	parser := init_parser(&model)
+	defer destroy(&parser)
+
+	constraint, err := parse_constraint(&parser, "1 + 2 < 4")
+	constraints: [dynamic]opt.Constraint
+	append(&constraints, constraint)
+	defer destroy_constraints(&constraints)
+	defer delete(err)
+	testing.expect_value(t, err, "")
+	if err != "" do return
+
+	thetas := []f64{0}
+	testing.expect_value(t, constraint.source, "1 + 2 < 4")
+	testing.expect_value(t, constraint.cmp, opt.Constraint_Comparison.Less)
+	testing.expect_value(t, -opt.eval_compiled_expr(constraint.lhs, thetas), 1.0)
+}
+
+@(test)
 mothball_markers_capture_current_tick :: proc(t: ^testing.T) {
 	code, err := parse_mothball("initGnd(0.3) sj.w X(x1) sa.w(5) X(x2)")
 	defer destroy_moth_code(&code)
