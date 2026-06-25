@@ -25,6 +25,9 @@ Model_State :: struct {
 	drag_z: [dynamic]f64,
 	accel:  [dynamic]f64,
 	angle_offset: [dynamic]f64,
+	init_drag: f64,
+	exact_movement: [dynamic]opt.Exact_Movement,
+	discrete_supported: bool,
 	variables: map[string]f64,
 
 	markers: [dynamic]Marker,
@@ -47,6 +50,7 @@ destroy_moth_execution_state :: proc(state: ^Model_State) {
 	delete(state.drag_z)
 	delete(state.accel)
 	delete(state.angle_offset)
+	delete(state.exact_movement)
 	for name in state.variables do delete(name)
 	delete(state.variables)
 	for marker in state.markers do delete(marker.name)
@@ -105,6 +109,7 @@ set_model_error :: proc(state: ^Model_State, message: string) {
 moth_to_model :: proc(state: ^Model_State, code: []Arg) {
 	state.slip = 0.6
 	state.ok = true
+	state.discrete_supported = true
 	state.n = 1
     append(&state.drag_x, 0)
     append(&state.drag_z, 0)
@@ -122,9 +127,11 @@ moth_to_model :: proc(state: ^Model_State, code: []Arg) {
 	if state.init_airborne {
 		state.drag_x[0] = 0.91
 		state.drag_z[0] = 0.91
+		state.init_drag = f64(f32(0.91))
 	} else {
 		state.drag_x[0] = state.init_slip * 0.91
 		state.drag_z[0] = state.init_slip * 0.91
+		state.init_drag = f64(f32(0.91)*f32(state.init_slip))
 	}
 
 	// The optimizer stores the terminal position after the final movement tick.
@@ -185,16 +192,30 @@ exe_code :: proc(state: ^Model_State, code: []Arg) {
 
 			final_accel := math.sqrt(forward*forward+strafe*strafe)
 			angle_offset := math.atan2(-strafe, forward)*180/math.PI
+			exact_base := opt.make_exact_player_movement(
+				mf.w,
+				mf.a,
+				f32(state.slip),
+				mf.airborne,
+				mf.sprint,
+				mf.sneak,
+				mf.jump,
+				mf.stop,
+				state.speed,
+				state.slow,
+			)
 
 			for i in 0..<duration {
-				if i == 0 && state.ix_next {
+				force_ix := i == 0 && state.ix_next
+				force_iz := i == 0 && state.iz_next
+				if force_ix {
 					append(&state.drag_x, 0)
 					state.ix_next = false
 				} else {
 					append(&state.drag_x, drag)
 				}
 
-				if i == 0 && state.iz_next {
+				if force_iz {
 					append(&state.drag_z, 0)
 					state.iz_next = false
 				} else {
@@ -203,6 +224,10 @@ exe_code :: proc(state: ^Model_State, code: []Arg) {
 
 				append(&state.accel, final_accel)
 				append(&state.angle_offset, angle_offset)
+				exact_cur := exact_base
+				if force_ix do exact_cur.drag_x = 0
+				if force_iz do exact_cur.drag_z = 0
+				append(&state.exact_movement, exact_cur)
 			}
 
 			state.n += duration
@@ -427,6 +452,7 @@ exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
 			set_model_error(state, accel_err)
 			return
 		}
+		state.discrete_supported = false
 		duration := 1
 		if len(cmd.args) == 3 {
 			duration_value, duration_err := eval_moth_number(

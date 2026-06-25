@@ -16,6 +16,9 @@
   - [Inner Loop](#inner-loop)
   - [Pseudocode](#pseudocode)
 - [Future Prospects](#future-prospects)
+  - [Significant Angles](#significant-angles)
+  - [Global Search and Solver Reliability](#global-search-and-solver-reliability)
+  - [Discrete Movement Decisions](#discrete-movement-decisions)
 
 ## Project Components
 
@@ -365,4 +368,39 @@ static inline float cosr(float rad){
 }
 ```
 
-Taking this discrete angle structure into account during optimization would be a very interesting direction. In fact, I already have many ideas for it, such as **simulated annealing**, **limited-window-size 2-opt**, and **coordinate descent**.
+Therefore, the movement produced by an angle is piecewise constant with respect
+to that angle. Two nearby yaw values may use the same table entry, while
+crossing a lookup boundary causes a small discontinuous change. The effective
+angular resolution of the table is
+
+$$
+\frac{360^\circ}{65536} \approx 0.005493^\circ.
+$$
+
+The current optimizer deliberately ignores this quantization and solves a
+smooth, continuous relaxation using `sin` and `cos`. This is useful for finding
+the overall shape of a strategy, but simply rounding every resulting angle to
+its nearest lookup-table entry is not always sufficient. A tiny change at one
+tick propagates through all later velocities and positions, and may turn a
+barely feasible solution into one that clips the obstacle.
+
+A promising approach is therefore a **hybrid continuous-discrete solver**:
+
+1. Solve the continuous relaxation with ALM and BFGS.
+2. Convert the continuous solution into nearby lookup-table indices.
+3. Refine those indices with a discrete local search.
+4. Re-evaluate the final candidate with Minecraft-compatible `f32` arithmetic
+   and lookup-table trigonometry.
+
+Several discrete refinement methods are worth exploring:
+
+- **Coordinate descent**: change one tick's angle at a time and keep an
+  improvement.
+- **Limited-window 2-opt**: jointly search pairs of angles within a small tick
+  window, capturing interactions that single-angle updates miss.
+- **Simulated annealing**: occasionally accept a worse candidate so the search
+  can escape local optima created by quantization.
+
+The continuous solution would act as a strong starting point rather than being
+discarded. This keeps the discrete search concentrated around strategically
+meaningful routes instead of searching all $65536^n$ angle sequences.

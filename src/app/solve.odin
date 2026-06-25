@@ -28,10 +28,10 @@ run_optimizer :: proc(state: ^Environment) {
 	}
 
 	// Add globals context to mothball_to_model converter
-	movement := dsl.Model_State{}
-	defer dsl.destroy_moth_execution_state(&movement)
+	m := dsl.Model_State{}
+	defer dsl.destroy_moth_execution_state(&m)
 	if globals_err := dsl.add_moth_variables(
-		&movement,
+		&m,
 		global_names[:],
 		global_values[:],
 	); globals_err != "" {
@@ -43,7 +43,7 @@ run_optimizer :: proc(state: ^Environment) {
 	// Parse Mothball after globals so movement durations become concrete.
 	code, movement_err := dsl.parse_mothball(
 		buffer_string(state.movement_script[:]),
-		movement.variables,
+		m.variables,
 	)
 	defer dsl.destroy_moth_code(&code)
 	if movement_err != "" {
@@ -52,17 +52,17 @@ run_optimizer :: proc(state: ^Environment) {
 	}
 
 	// Convert parsed mothball to opt.model
-	dsl.moth_to_model(&movement, code[:])
-	if !movement.ok {
-		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", movement.err))
+	dsl.moth_to_model(&m, code[:])
+	if !m.ok {
+		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", m.err))
 		return
 	}
-	if movement.n < N_MIN || movement.n > N_MAX {
+	if m.n < N_MIN || m.n > N_MAX {
 		set_error(
 			state,
 			fmt.tprintf(
 				"Error:\nMovement script generated %d states; expected range: %d to %d",
-				movement.n,
+				m.n,
 				N_MIN,
 				N_MAX,
 			),
@@ -70,32 +70,36 @@ run_optimizer :: proc(state: ^Environment) {
 		return
 	}
 
-	n := movement.n
+	n := m.n
 	model := opt.Model {
 		n      = n,
-		drag_x = movement.drag_x,
-		drag_z = movement.drag_z,
-		accel  = movement.accel,
+		drag_x = m.drag_x,
+		drag_z = m.drag_z,
+		accel  = m.accel,
+		init_drag = m.init_drag,
+		exact_movement = m.exact_movement,
+		discrete_supported = m.discrete_supported,
 	}
-	movement.drag_x = nil
-	movement.drag_z = nil
-	movement.accel = nil
+	m.drag_x = nil
+	m.drag_z = nil
+	m.accel = nil
+	m.exact_movement = nil
 	defer opt.destroy_model(&model)
 
 	for &offset in state.angle_offset do offset = 0
-	copy(state.angle_offset[:], movement.angle_offset[:])
+	copy(state.angle_offset[:], m.angle_offset[:])
 
 	// Initialize the optimization DSL parser and global variables.
 	parser := dsl.init_parser(&model)
 	defer dsl.destroy(&parser)
-	dsl.add_resolved_variables(&parser, movement.variables)
+	dsl.add_resolved_variables(&parser, m.variables)
 	err: string
 
 	// Compile movement formulas.
 	opt.compile_model(&model)
 
 	// Resolve Markers
-	if marker_err := dsl.resolve_markers(&parser, movement.markers[:]); marker_err != "" {
+	if marker_err := dsl.resolve_markers(&parser, m.markers[:]); marker_err != "" {
 		set_error(state, fmt.tprintf("Error:\nMovement markers:\n%s", marker_err))
 		delete(marker_err)
 		return

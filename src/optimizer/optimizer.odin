@@ -42,6 +42,11 @@ Model :: struct {
 	vz: [dynamic]Compiled_Expr,
 	x:  [dynamic]Compiled_Expr,
 	z:  [dynamic]Compiled_Expr,
+
+	// Part II optimization
+	init_drag: f64,
+	exact_movement: [dynamic]Exact_Movement,
+	discrete_supported: bool,
 }
 
 Problem :: struct {
@@ -95,6 +100,7 @@ destroy_model :: proc(model: ^Model) {
 	delete(model.drag_x)
 	delete(model.drag_z)
 	delete(model.accel)
+	delete(model.exact_movement)
 	for i in 0..<len(model.vx) do destroy_compiled_expr(&model.vx[i])
 	for i in 0..<len(model.vz) do destroy_compiled_expr(&model.vz[i])
 	for i in 0..<len(model.x)  do destroy_compiled_expr(&model.x[i])
@@ -530,5 +536,6 @@ optimize :: proc(model: ^Model, problem: ^Problem) -> Solution {
 		solution.xs[i] = eval(model.x[i], thetas[:], &work)
 		solution.zs[i] = eval(model.z[i], thetas[:], &work)
 	}
+
 	return solution
 }
