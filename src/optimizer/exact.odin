@@ -73,40 +73,43 @@ make_exact_player_movement :: proc(
 }
 
 exact_simulation :: proc(
-	model: ^Model,
-	initial_theta: f64,
-	angle_indices: []u16,
+	discrete: ^Discrete_Model,
+	state: Discrete_State,
 	xs, zs: []f64,
 ) {
-	assert(model.discrete_supported, "Exact replay does not support mv(...)")
-	assert(len(angle_indices) == model.n-1)
-	assert(len(model.exact_movement) == model.n-1)
-	assert(len(xs) >= model.n)
-	assert(len(zs) >= model.n)
-	if model.n == 0 do return
+	assert_discrete_state(discrete, state)
+	assert(len(discrete.exact_movement) >= discrete_angle_count(discrete))
+	assert(len(xs) >= discrete.n)
+	assert(len(zs) >= discrete.n)
+	if discrete.n == 0 do return
 
 	xs[0] = 0
 	zs[0] = 0
 
 	// Initial velocity remains continuous and is not part of the bucket search.
-	vx := model.accel[0] * math.sin(initial_theta)
-	vz := model.accel[0] * math.cos(initial_theta)
+	vx := discrete.init_v * math.sin(state.initial_theta)
+	vz := discrete.init_v * math.cos(state.initial_theta)
 
-	for t in 1..<model.n {
+	for t in 1..<discrete.n {
 		xs[t] = xs[t-1]+vx
 		zs[t] = zs[t-1]+vz
 
+		// Updating the outgoing terminal velocity cannot affect any recorded
+		// position, so the final movement angle is deliberately not a search
+		// variable.
+		if t == discrete.n-1 do break
+
 		if t == 1 {
-			vx *= model.init_drag
-			vz *= model.init_drag
+			vx *= discrete.init_drag
+			vz *= discrete.init_drag
 		} else {
-			previous := model.exact_movement[t-2]
+			previous := discrete.exact_movement[t-2]
 			vx *= previous.drag_x
 			vz *= previous.drag_z
 		}
 
-		m := model.exact_movement[t-1]
-		angle_index := angle_indices[t-1]
+		m := discrete.exact_movement[t-1]
+		angle_index := state.angle_indices[t-1]
 		sin_value := sin_index(angle_index)
 		cos_value := cos_index(angle_index)
 

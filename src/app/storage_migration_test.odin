@@ -69,8 +69,8 @@ test_legacy_preset_migration :: proc(t: ^testing.T) {
 	testing.expect_value(t, buffer_string(tab.env.post.x_origin[:]), "X[0] + (0)")
 	testing.expect_value(t, buffer_string(tab.env.post.z_origin[:]), "Z[0] + (0)")
 
-	state := dsl.Model_State{}
-	defer dsl.destroy_moth_execution_state(&state)
+	state := dsl.Moth_Compiler{}
+	defer dsl.destroy_moth_compiler(&state)
 	globals_err := dsl.add_moth_variables(
 		&state,
 		[]string{"gnd", "air", "a"},
@@ -86,7 +86,7 @@ test_legacy_preset_migration :: proc(t: ^testing.T) {
 	testing.expect_value(t, parse_err, "")
 	if parse_err != "" do return
 
-	dsl.moth_to_model(&state, code[:])
+	dsl.compile_mothball(&state, code[:])
 	testing.expect(t, state.ok)
 	testing.expect_value(t, state.n, 5)
 	testing.expect_value(t, state.drag_x[3], 0.0)

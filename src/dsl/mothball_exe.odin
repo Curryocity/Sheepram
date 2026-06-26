@@ -5,7 +5,7 @@ import "core:math"
 import "core:strings"
 import opt "../optimizer"
 
-Model_State :: struct {
+Moth_Compiler :: struct {
 	speed: u8,
 	slow: u8,
 	slip: f64,
@@ -44,7 +44,7 @@ Marker_Type :: enum {
 }
 
 
-destroy_moth_execution_state :: proc(state: ^Model_State) {
+destroy_moth_compiler :: proc(state: ^Moth_Compiler) {
 	delete(state.err)
 	delete(state.drag_x)
 	delete(state.drag_z)
@@ -58,7 +58,7 @@ destroy_moth_execution_state :: proc(state: ^Model_State) {
 	state^ = {}
 }
 
-marker_name_conflicts :: proc(state: ^Model_State, name: string) -> bool {
+marker_name_conflicts :: proc(state: ^Moth_Compiler, name: string) -> bool {
 	if name == "n" || name == "X" || name == "Z" ||
 	   name == "F" || name == "Vx" || name == "Vz" || name == "T" {
 		return true
@@ -73,7 +73,7 @@ marker_name_conflicts :: proc(state: ^Model_State, name: string) -> bool {
 }
 
 add_moth_variables :: proc(
-	state: ^Model_State,
+	state: ^Moth_Compiler,
 	names, values: []string,
 ) -> string {
 	if len(names) != len(values) {
@@ -100,13 +100,13 @@ add_moth_variables :: proc(
 	return ""
 }
 
-set_model_error :: proc(state: ^Model_State, message: string) {
+set_model_error :: proc(state: ^Moth_Compiler, message: string) {
 	if !state.ok do return
 	state.ok = false
 	state.err = strings.clone(message)
 }
 
-moth_to_model :: proc(state: ^Model_State, code: []Arg) {
+compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 	state.slip = 0.6
 	state.ok = true
 	state.discrete_supported = true
@@ -142,7 +142,7 @@ moth_to_model :: proc(state: ^Model_State, code: []Arg) {
 	append(&state.angle_offset, 0)
 }
 
-exe_code :: proc(state: ^Model_State, code: []Arg) {
+exe_code :: proc(state: ^Moth_Compiler, code: []Arg) {
 	if !state.ok do return
 
 	for ins in code {
@@ -274,7 +274,7 @@ expect_moth_args :: proc(
 	return "", true
 }
 
-eval_moth_constant :: proc(state: ^Model_State, arg: Arg) -> (f64, bool) {
+eval_moth_constant :: proc(state: ^Moth_Compiler, arg: Arg) -> (f64, bool) {
 	#partial switch arg.type {
 	case .Number:
 		return arg.value, true
@@ -305,7 +305,7 @@ eval_moth_constant :: proc(state: ^Model_State, arg: Arg) -> (f64, bool) {
 }
 
 eval_moth_number :: proc(
-	state: ^Model_State,
+	state: ^Moth_Compiler,
 	arg: Arg,
 	description: string,
 ) -> (f64, string) {
@@ -322,7 +322,7 @@ eval_moth_number :: proc(
 	return value, ""
 }
 
-eval_u8 :: proc(state: ^Model_State, arg: Arg, command_name: string) -> (u8, string) {
+eval_u8 :: proc(state: ^Moth_Compiler, arg: Arg, command_name: string) -> (u8, string) {
 	value, err := eval_moth_number(
 		state,
 		arg,
@@ -340,7 +340,7 @@ eval_u8 :: proc(state: ^Model_State, arg: Arg, command_name: string) -> (u8, str
 	return u8(rounded), ""
 }
 
-exe_model_cmd :: proc(state: ^Model_State, cmd: ^Command) {
+exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 	if !state.ok do return
 	if cmd == nil {
 		set_model_error(state, "Error: null command")

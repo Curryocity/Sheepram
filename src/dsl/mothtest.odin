@@ -34,11 +34,11 @@ c4_5p2p :: proc(t: ^testing.T) {
 		return
 	}
 
-    state := dsl.Model_State{}
-	defer destroy_moth_execution_state(&state)
+    state := Moth_Compiler{}
+	defer destroy_moth_compiler(&state)
 
 
-    moth_to_model(&state, code[:])
+    compile_mothball(&state, code[:])
 	if !state.ok {
 		fmt.printf("Model error: %s\n", state.err)
 		testing.expect(t, false)

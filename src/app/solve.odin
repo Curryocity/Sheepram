@@ -13,11 +13,12 @@ set_error :: proc(state: ^Environment, message: string) {
 }
 
 run_optimizer :: proc(state: ^Environment) {
+	// 0. Reset optimizer
 	clear_solution(state)
 	buffer_clear(state.last_error[:])
 	compile_start := time.tick_now()
 
-	// Create global variables table
+	// 1. Collect global variable from table
 	global_names := make([dynamic]string, 0, state.var_capacity)
 	global_values := make([dynamic]string, 0, state.var_capacity)
 	defer delete(global_names)
@@ -27,9 +28,9 @@ run_optimizer :: proc(state: ^Environment) {
 		append(&global_values, buffer_string(state.global_values[i][:]))
 	}
 
-	// Add globals context to mothball_to_model converter
-	m := dsl.Model_State{}
-	defer dsl.destroy_moth_execution_state(&m)
+	// 2. Resolve globals
+	m := dsl.Moth_Compiler{}
+	defer dsl.destroy_moth_compiler(&m)
 	if globals_err := dsl.add_moth_variables(
 		&m,
 		global_names[:],
@@ -40,7 +41,7 @@ run_optimizer :: proc(state: ^Environment) {
 		return
 	}
 
-	// Parse Mothball after globals so movement durations become concrete.
+	// 3. Parse Mothball into a command tree
 	code, movement_err := dsl.parse_mothball(
 		buffer_string(state.movement_script[:]),
 		m.variables,
@@ -51,8 +52,8 @@ run_optimizer :: proc(state: ^Environment) {
 		return
 	}
 
-	// Convert parsed mothball to opt.model
-	dsl.moth_to_model(&m, code[:])
+	// 4. Convert movement script into optimizer model arrays
+	dsl.compile_mothball(&m, code[:])
 	if !m.ok {
 		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", m.err))
 		return
@@ -76,36 +77,31 @@ run_optimizer :: proc(state: ^Environment) {
 		drag_x = m.drag_x,
 		drag_z = m.drag_z,
 		accel  = m.accel,
-		init_drag = m.init_drag,
-		exact_movement = m.exact_movement,
-		discrete_supported = m.discrete_supported,
 	}
 	m.drag_x = nil
 	m.drag_z = nil
 	m.accel = nil
-	m.exact_movement = nil
 	defer opt.destroy_model(&model)
 
 	for &offset in state.angle_offset do offset = 0
 	copy(state.angle_offset[:], m.angle_offset[:])
 
-	// Initialize the optimization DSL parser and global variables.
+	// 5. Compile the continuous movement recurrence
 	parser := dsl.init_parser(&model)
 	defer dsl.destroy(&parser)
 	dsl.add_resolved_variables(&parser, m.variables)
 	err: string
 
-	// Compile movement formulas.
 	opt.compile_model(&model)
 
-	// Resolve Markers
+	// 6. Resolve markers against the compiled movement expressions
 	if marker_err := dsl.resolve_markers(&parser, m.markers[:]); marker_err != "" {
 		set_error(state, fmt.tprintf("Error:\nMovement markers:\n%s", marker_err))
 		delete(marker_err)
 		return
 	}
 
-	// 5. Parse objective
+	// 7. Parse objective expression
 	objective: opt.Compiled_Expr
 	switch state.curr_obj {
 	case .X:
@@ -122,14 +118,14 @@ run_optimizer :: proc(state: ^Environment) {
 	}
 	defer opt.destroy_compiled_expr(&objective)
 
-	// Invert objective when maximizing
+	// The optimizer minimizes, so maximizing is represented by minimizing -f.
 	if state.maximize {
 		inverted := dsl.scale_expr(objective, -1)
 		opt.destroy_compiled_expr(&objective)
 		objective = inverted
 	}
 
-	// 6. Parse constraints
+	// 8. Parse constraints
 	constraints, constraint_err := dsl.parse_multi_constraints(
 		&parser,
 		buffer_string(state.constraint_script[:]),
@@ -141,6 +137,7 @@ run_optimizer :: proc(state: ^Environment) {
 	}
 	defer dsl.destroy_constraints(&constraints)
 
+	// 9. Parse postprocessor origin expressions
 	// Compile postprocessor origins. These may reference globals, markers,
 	// model expressions, and n just like the objective and constraints.
 	x_origin_expr, post_err := dsl.parse_expr(
@@ -166,16 +163,34 @@ run_optimizer :: proc(state: ^Environment) {
 	}
 	defer opt.destroy_compiled_expr(&z_origin_expr)
 
-	// 7. Build problem
+	// 10. Build the continuous constrained optimization problem
 	problem := opt.build_problem(&model, objective, constraints[:])
 	defer opt.destroy_problem(&problem)
 	state.compile_time_seconds = time.duration_seconds(time.tick_since(compile_start))
 
-	// 8. Optimize
+	// 11. Phase I: solve the continuous problem
 	solution := new(opt.Solution)
 	optimize_start := time.tick_now()
 	solution^ = opt.optimize(&model, &problem)
 	state.optimize_time_seconds = time.duration_seconds(time.tick_since(optimize_start))
+
+	// 12. Prepare phase II
+	discrete_model := opt.Discrete_Model {
+		n = n,
+		init_v = m.init_v,
+		init_drag = m.init_drag,
+		exact_movement = m.exact_movement,
+		supported = m.discrete_supported,
+	}
+	m.exact_movement = nil
+	defer opt.destroy_discrete_model(&discrete_model)
+	opt.copy_discrete_exprs(&discrete_model, &model)
+
+	// 13. Phase II: optimize discrete/exact model
+
+	opt.polish(&discrete_model)
+
+	// 14. Convert optimizer-space results back into UI/reporting-space results
 	if state.maximize {
 		solution.optimum *= -1 // Invert solution again when maximizing
 	}
