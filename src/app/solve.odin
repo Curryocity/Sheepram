@@ -174,23 +174,22 @@ run_optimizer :: proc(state: ^Environment) {
 	solution^ = opt.optimize(&model, &problem)
 	state.optimize_time_seconds = time.duration_seconds(time.tick_since(optimize_start))
 
-	// 12. Prepare phase II
-	discrete_model := opt.Discrete_Model {
-		n = n,
-		init_v = m.init_v,
-		init_drag = m.init_drag,
-		exact_movement = m.exact_movement,
-		supported = m.discrete_supported,
+	// 12. Phase II: optimize the discrete/exact model when supported
+	if m.discrete_supported {
+		discrete_model := opt.Discrete_Model {
+			n = n,
+			init_v = m.init_v,
+			init_drag = m.init_drag,
+			exact_movement = m.exact_movement,
+		}
+		m.exact_movement = nil
+		defer opt.destroy_discrete_model(&discrete_model)
+		opt.copy_discrete_exprs(&discrete_model, &model)
+
+		opt.polish(&discrete_model, &problem, solution)
 	}
-	m.exact_movement = nil
-	defer opt.destroy_discrete_model(&discrete_model)
-	opt.copy_discrete_exprs(&discrete_model, &model)
 
-	// 13. Phase II: optimize discrete/exact model
-
-	opt.polish(&discrete_model)
-
-	// 14. Convert optimizer-space results back into UI/reporting-space results
+	// 13. Convert optimizer-space results back into UI/reporting-space results
 	if state.maximize {
 		solution.optimum *= -1 // Invert solution again when maximizing
 	}

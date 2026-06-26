@@ -8,7 +8,6 @@ Discrete_Model :: struct {
 	init_v: f64,
 	init_drag: f64,
 	exact_movement: [dynamic]Exact_Movement,
-	supported: bool,
 
 	vx: [dynamic]Compiled_Expr,
 	vz: [dynamic]Compiled_Expr,
@@ -48,7 +47,6 @@ discrete_angle_count :: proc(model: ^Discrete_Model) -> int {
 }
 
 assert_discrete_state :: proc(model: ^Discrete_Model, state: Discrete_State) {
-	assert(model.supported, "Discrete optimization does not support mv(...)")
 	assert(len(state.angle_indices) == discrete_angle_count(model))
 }
 
@@ -92,6 +90,6 @@ eval_discrete_expr :: proc(
 	return value
 }
 
-polish :: proc(discrete: ^Discrete_Model) {
+polish :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 
 }
