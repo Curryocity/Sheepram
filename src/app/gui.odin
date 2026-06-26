@@ -75,6 +75,10 @@ ui_px :: proc(value: f32) -> f32 {
 	return value*ui_scale
 }
 
+ui_pad :: proc(value: f32) -> f32 {
+	return value*max(ui_scale, f32(1))
+}
+
 apply_ui_size :: proc(level: int, theme: Theme) {
 	clamped_level := clamp(level, 1, 3)
 	new_scale := ui_scale_for_level(clamped_level)
@@ -196,7 +200,7 @@ apply_theme :: proc(theme: Theme) {
 	style.ScrollbarRounding = ui_px(6)
 	style.WindowBorderSize = ui_px(1)
 	style.FrameBorderSize = 0
-	style.WindowPadding = {ui_px(12), ui_px(10)}
+	style.WindowPadding = {ui_pad(12), ui_pad(10)}
 	style.FramePadding = {ui_px(9), ui_px(6)}
 	style.ItemSpacing = {ui_px(9), ui_px(8)}
 
@@ -234,7 +238,7 @@ center_text :: proc(text: string) {
 
 draw_selection_rect :: proc(minimum, maximum: im.Vec2) {
 	draw_list := im.GetForegroundDrawList()
-	im.DrawList_AddRect(draw_list, minimum, maximum, im.GetColorU32ImVec4({1, 1, 1, 0.4}), 3, {}, 2)
+	im.DrawList_AddRect(draw_list, minimum, maximum, im.GetColorU32ImVec4({1, 1, 1, 0.4}), ui_px(3), {}, ui_px(2))
 }
 
 draw_global_table :: proc(tab: ^Tab_State) {
@@ -249,7 +253,7 @@ draw_global_table :: proc(tab: ^Tab_State) {
 		active_index = tab.selected_global_var_index
 	}
 	im.BeginGroup()
-	if im.Button("+", {26, im.GetFrameHeight()}) && state.var_capacity < MAX_GLOBALS {
+	if im.Button("+", {ui_px(26), im.GetFrameHeight()}) && state.var_capacity < MAX_GLOBALS {
 		insert_index := active_index+1
 		for i := state.var_capacity; i > insert_index; i -= 1 {
 			state.global_names[i] = state.global_names[i-1]
@@ -260,7 +264,7 @@ draw_global_table :: proc(tab: ^Tab_State) {
 		state.var_capacity += 1
 		tab.selected_global_var_index = insert_index
 	}
-	if im.Button("-", {26, im.GetFrameHeight()}) && state.var_capacity > 1 {
+	if im.Button("-", {ui_px(26), im.GetFrameHeight()}) && state.var_capacity > 1 {
 		for i in active_index..<state.var_capacity-1 {
 			state.global_names[i] = state.global_names[i+1]
 			state.global_values[i] = state.global_values[i+1]
@@ -273,9 +277,9 @@ draw_global_table :: proc(tab: ^Tab_State) {
 	flags := im.TableFlags_Borders | im.TableFlags_RowBg |
 	         im.TableFlags_ScrollX | im.TableFlags_ScrollY | im.TableFlags_SizingFixedFit
 	if im.BeginTable("global_table", c.int(state.var_capacity+1), flags) {
-		im.TableSetupColumn("", {.WidthFixed}, 60)
+		im.TableSetupColumn("", {.WidthFixed}, ui_px(60))
 		for i in 0..<state.var_capacity {
-			im.TableSetupColumn("", {.WidthFixed}, 70)
+			im.TableSetupColumn("", {.WidthFixed}, ui_px(70))
 		}
 		for row in 0..<2 {
 			im.TableNextRow()
@@ -284,7 +288,7 @@ draw_global_table :: proc(tab: ^Tab_State) {
 			for i in 0..<state.var_capacity {
 				im.TableSetColumnIndex(c.int(i+1))
 				im.PushIDInt(c.int(row*1000+i))
-				im.SetNextItemWidth(70)
+				im.SetNextItemWidth(ui_px(70))
 				if row == 0 {
 					_ = input_text("##name", state.global_names[i][:])
 				} else {
@@ -308,7 +312,7 @@ draw_postprocessor :: proc(state: ^Environment) {
 	if !im.CollapsingHeader("Postprocessor", {.DefaultOpen}) do return
 	im.PushStyleVarImVec2(.FramePadding, {ui_px(4), ui_px(2)})
 	im.PushStyleVar(.FrameBorderSize, 0)
-	im.PushStyleVar(.FrameRounding, 2)
+	im.PushStyleVar(.FrameRounding, ui_px(2))
 
 	row_y := im.GetCursorPosY()
 	pushed := push_font(code_font)
@@ -336,9 +340,9 @@ draw_postprocessor :: proc(state: ^Environment) {
 	_ = input_text("##zOrigin", state.post.z_origin[:])
 	pop_font(pushed)
 
-	im.AlignTextToFramePadding(); im.Text("X/Z precision:"); im.SameLine(0, 8)
+	im.AlignTextToFramePadding(); im.Text("X/Z precision:"); im.SameLine(0, ui_px(8))
 	precision := c.int(state.post.position_precision)
-	im.SetNextItemWidth(80)
+	im.SetNextItemWidth(ui_px(80))
 	pushed = push_font(code_font)
 	_ = im.InputInt("##positionPrecision", &precision)
 	pop_font(pushed)
@@ -349,14 +353,14 @@ draw_postprocessor :: proc(state: ^Environment) {
 
 draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	state := &tab.env
-	im.PushStyleVarImVec2(.WindowPadding, {ui_px(24), ui_px(10)})
+	im.PushStyleVarImVec2(.WindowPadding, {ui_pad(24), ui_pad(10)})
 	im.BeginChild("InputPanel", {0, 0}, {.Borders})
 	im.PopStyleVar()
 	im.Spacing()
 
 	im.AlignTextToFramePadding(); im.Text("Theme:"); im.SameLine()
 	theme := c.int(app_state.theme)
-	im.SetNextItemWidth(180)
+	im.SetNextItemWidth(ui_px(180))
 	theme_items := [?]cstring{"Obsidian", "Curry", "Luminous Abyss", "Cherry Blossom", "Crimson Forest"}
 	if combo_select("##theme_bottom", &theme, theme_items[:]) {
 		app_state.theme = Theme(theme)
@@ -374,7 +378,7 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	}
 
 	im.AlignTextToFramePadding(); im.Text("Title:"); im.SameLine()
-	im.SetNextItemWidth(220)
+	im.SetNextItemWidth(ui_px(220))
 	_ = input_text("##tab_name", tab.name_draft[:])
 	if im.IsItemDeactivatedAfterEdit() do commit_tab_title(tab)
 	im.SameLine()
@@ -399,7 +403,7 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 
 	// === Movement Model ===
 	im.SeparatorText("Mothball Model")
-	tab.movement_editor_height = clamp(tab.movement_editor_height, 80, 360)
+	tab.movement_editor_height = clamp(tab.movement_editor_height, ui_px(80), ui_px(360))
 	model_font_pushed := push_font(code_font)
 	_ = input_multiline(
 		"##movement_script",
@@ -421,8 +425,8 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	if movement_divider_active {
 		tab.movement_editor_height = clamp(
 			tab.movement_editor_height+im.GetIO().MouseDelta.y,
-			80,
-			360,
+			ui_px(80),
+			ui_px(360),
 		)
 	}
 	movement_divider_color := im.GetColorU32(.Separator)
@@ -434,7 +438,7 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 		{movement_divider_pos.x, movement_divider_y},
 		{movement_divider_pos.x+im.GetItemRectSize().x, movement_divider_y},
 		movement_divider_color,
-		2,
+		ui_px(2),
 	)
 	im.Spacing()
 
@@ -442,10 +446,10 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	im.SeparatorText("Core")
 	im.AlignTextToFramePadding(); im.Text("Objective Function: "); im.SameLine()
 	objective := c.int(state.curr_obj)
-	im.SetNextItemWidth(120)
+	im.SetNextItemWidth(ui_px(120))
 	objective_items := [?]cstring{"X[n]", "Z[n]", "Custom"}
 	if combo_select("##obj", &objective, objective_items[:]) do state.curr_obj = Objective_Type(objective)
-	im.SameLine(0, 15)
+	im.SameLine(0, ui_px(15))
 	if im.Button("Maximize" if state.maximize else "Minimize") do state.maximize = !state.maximize
 	if state.curr_obj == .Custom {
 		im.SetNextItemWidth(-1)
@@ -457,7 +461,7 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 
 	// === Constraints ===
 	im.SeparatorText("Constraints")
-	tab.cons_editor_height = clamp(tab.cons_editor_height, 80, 360)
+	tab.cons_editor_height = clamp(tab.cons_editor_height, ui_px(80), ui_px(360))
 	constraint_font_pushed := push_font(code_font)
 	_ = input_multiline("##constraint_script", state.constraint_script[:], {-1, tab.cons_editor_height}, {.AllowTabInput})
 	pop_font(constraint_font_pushed)
@@ -467,7 +471,7 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	divider_hovered := im.IsItemHovered()
 	divider_active := im.IsItemActive()
 	if divider_hovered || divider_active do im.SetMouseCursor(.ResizeNS)
-	if divider_active do tab.cons_editor_height = clamp(tab.cons_editor_height+im.GetIO().MouseDelta.y, 80, 360)
+	if divider_active do tab.cons_editor_height = clamp(tab.cons_editor_height+im.GetIO().MouseDelta.y, ui_px(80), ui_px(360))
 	divider_color := im.GetColorU32(.Separator)
 	if divider_active do divider_color = im.GetColorU32(.SeparatorActive)
 	else if divider_hovered do divider_color = im.GetColorU32(.SeparatorHovered)
@@ -477,7 +481,7 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 		{divider_pos.x, divider_y},
 		{divider_pos.x+im.GetItemRectSize().x, divider_y},
 		divider_color,
-		2,
+		ui_px(2),
 	)
 
 	// === Postprocessing ===
@@ -745,7 +749,7 @@ draw_constraint_results :: proc(solution: ^opt.Solution) {
 		im.TableSetupColumn("Constraint", {.WidthFixed}, ui_px(430))
 		im.TableSetupColumn("Margin / Error", {.WidthFixed}, ui_px(130))
 		im.TableSetupColumn("Status", {.WidthFixed}, ui_px(100))
-		im.TableNextRow({.Headers}, 20)
+		im.TableNextRow({.Headers}, ui_px(20))
 		headers := [?]string{"Constraint", "Margin / Error", "Status"}
 		for header, i in headers {
 			im.TableSetColumnIndex(c.int(i))
@@ -777,7 +781,7 @@ draw_constraint_results :: proc(solution: ^opt.Solution) {
 				}
 			}
 
-			im.TableNextRow({}, 20)
+			im.TableNextRow({}, ui_px(20))
 			im.TableSetColumnIndex(0)
 			source_c := strings.clone_to_cstring(result.source)
 			im.TextUnformatted(source_c)
@@ -795,9 +799,11 @@ draw_constraint_results :: proc(solution: ^opt.Solution) {
 	im.PopStyleVar()
 }
 
-draw_output_panel :: proc(tab: ^Tab_State) {
+draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	state := &tab.env
-	im.BeginChild("OutputPanel", {0, 0}, {.Borders})
+	im.PushStyleVarImVec2(.WindowPadding, {ui_pad(24), ui_pad(10)})
+	im.BeginChild("OutputPanel", size, {.Borders})
+	im.PopStyleVar()
 	im.SeparatorText("Result")
 	im.BeginChild("OutputScroll", {0, 0}, {}, {.HorizontalScrollbar})
 	pushed_code := push_font(code_font)
@@ -887,9 +893,9 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 	viewport_size := compute_plot_viewport_size(xvals[:], zvals[:])
 	layout := compute_xz_plot_layout(xvals[:], zvals[:], viewport_size)
 	canvas_width := max(viewport_size.x, layout.content_width)
-	viewport_size.x += 25
-	viewport_size.y += 50
-	im.BeginChild("PlotScroll", {viewport_size.x, viewport_size.y+20}, {.Borders}, {.HorizontalScrollbar})
+	viewport_size.x += ui_px(25)
+	viewport_size.y += ui_px(50)
+	im.BeginChild("PlotScroll", {viewport_size.x, viewport_size.y+ui_px(20)}, {.Borders}, {.HorizontalScrollbar})
 	if im.IsWindowAppearing() do im.SetScrollX(max(0, 0.5*(canvas_width-viewport_size.x)))
 	draw_xz_plot(xvals[:], zvals[:], facings[:], vxvals[:], vzvals[:], {canvas_width, viewport_size.y}, position_precision, angle_precision)
 	im.EndChild()
@@ -904,9 +910,9 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 
 	im.PushStyleVarImVec2(.CellPadding, {ui_px(10), ui_px(3)})
 	available := im.GetContentRegionAvail()
-	table_width := min(f32(877), available.x)
+	table_width := min(ui_px(877), available.x)
 	visible_rows := min(count, 13)
-	table_height := min(f32(visible_rows)*34+50, available.y)
+	table_height := ui_px(f32(visible_rows)*34+50)
 	table_flags := im.TableFlags_RowBg | im.TableFlags_BordersOuter | im.TableFlags_BordersV |
 	               im.TableFlags_ScrollY | im.TableFlags_ScrollX | im.TableFlags_SizingFixedFit |
 	               im.TableFlags_NoHostExtendX
@@ -924,11 +930,11 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 			"Direction",
 		}
 		widths := [?]f32{50, 100, 100, 120, 120, 120, 120, 120, 100}
-		for i in 0..<9 do im.TableSetupColumn(headers[i], {.WidthFixed}, widths[i])
-		im.TableNextRow({.Headers}, 20)
+		for i in 0..<9 do im.TableSetupColumn(headers[i], {.WidthFixed}, ui_px(widths[i]))
+		im.TableNextRow({.Headers}, ui_px(20))
 		for i in 0..<9 {im.TableSetColumnIndex(c.int(i)); center_text(string(headers[i]))}
 		for tick in 0..<count {
-			im.TableNextRow({}, 20)
+			im.TableNextRow({}, ui_px(20))
 			angle := "-" if tick >= count-1 else fmt.tprintf("%.3f", facings[tick])
 			values := [?]string{
 				fmt.tprintf("%d", tick),
@@ -966,9 +972,9 @@ draw_output_panel :: proc(tab: ^Tab_State) {
 	im.AlignTextToFramePadding()
 	pushed_ui = push_font(ui_font)
 	im.Text("Separator for copied angles:")
-	im.SameLine(0, 8)
+	im.SameLine(0, ui_px(8))
 	separator := c.int(state.post.copy_separator)
-	im.SetNextItemWidth(90)
+	im.SetNextItemWidth(ui_px(90))
 	items := [?]cstring{"comma", "space", "\\n"}
 	if combo_select("##copySeparator", &separator, items[:]) do state.post.copy_separator = Separator_Type(separator)
 	pop_font(pushed_ui)
@@ -1039,7 +1045,7 @@ draw_close_tab_popup :: proc(app_state: ^App_State) {
 			delete(c_error)
 		}
 		im.Spacing()
-		if im.Button("Save", {110, 0}) {
+		if im.Button("Save", {ui_px(110), 0}) {
 			save_err := save_tab_to_file(tab)
 			if save_err == "" {
 				close_tab(app_state, index)
@@ -1051,13 +1057,13 @@ draw_close_tab_popup :: proc(app_state: ^App_State) {
 			}
 		}
 		im.SameLine()
-		if im.Button("Don't Save", {110, 0}) {
+		if im.Button("Don't Save", {ui_px(110), 0}) {
 			close_tab(app_state, index)
 			app_state.pending_close_tab_id = -1
 			im.CloseCurrentPopup()
 		}
 		im.SameLine()
-		if im.Button("Cancel", {110, 0}) {
+		if im.Button("Cancel", {ui_px(110), 0}) {
 			app_state.pending_close_tab_id = -1
 			im.CloseCurrentPopup()
 		}
@@ -1076,7 +1082,7 @@ draw_exit_popup :: proc(app_state: ^App_State) {
 			im.TextColored({1, 0.4, 0.4, 1}, "%s", c_error)
 			delete(c_error)
 		}
-		if im.Button("Save All", {120, 0}) {
+		if im.Button("Save All", {ui_px(120), 0}) {
 			err := save_all_tabs(app_state)
 			if err == "" {
 				request_exit = true
@@ -1088,13 +1094,13 @@ draw_exit_popup :: proc(app_state: ^App_State) {
 			}
 		}
 		im.SameLine()
-		if im.Button("Discard All", {120, 0}) {
+		if im.Button("Discard All", {ui_px(120), 0}) {
 			request_exit = true
 			show_exit_prompt = false
 			im.CloseCurrentPopup()
 		}
 		im.SameLine()
-		if im.Button("Cancel", {120, 0}) {
+		if im.Button("Cancel", {ui_px(120), 0}) {
 			show_exit_prompt = false
 			buffer_clear(exit_error[:])
 			im.CloseCurrentPopup()
@@ -1225,7 +1231,13 @@ draw_split_app :: proc(app_state: ^App_State) {
 		)
 		im.SameLine(0, 0)
 		im.BeginChild("RightRegion", {right_width, available.y})
-		draw_output_panel(tab)
+		output_margin := ui_pad(10)
+		output_size := im.GetContentRegionAvail()
+		output_size.x = max(f32(0), output_size.x-2*output_margin)
+		output_size.y = max(f32(0), output_size.y-2*output_margin)
+		cursor := im.GetCursorPos()
+		im.SetCursorPos({cursor.x+output_margin, cursor.y+output_margin})
+		draw_output_panel(tab, output_size)
 		im.EndChild()
 	}
 	im.End()
