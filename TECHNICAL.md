@@ -384,23 +384,77 @@ its nearest lookup-table entry is not always sufficient. A tiny change at one
 tick propagates through all later velocities and positions, and may turn a
 barely feasible solution into one that clips the obstacle.
 
-A promising approach is therefore a **hybrid continuous-discrete solver**:
+A promising approach is therefore a **hybrid continuous-discrete solver**. The
+continuous solution should be treated as a high-quality seed, not as the final
+answer:
 
 1. Solve the continuous relaxation with ALM and BFGS.
-2. Convert the continuous solution into nearby lookup-table indices.
-3. Refine those indices with a discrete local search.
-4. Re-evaluate the final candidate with Minecraft-compatible `f32` arithmetic
+2. Snap the relevant angles to nearby lookup-table indices.
+3. Repair the snapped solution if the lookup-table model violates constraints.
+4. Polish the repaired solution while preserving feasibility.
+5. Re-evaluate the final candidate with Minecraft-compatible `f32` arithmetic
    and lookup-table trigonometry.
 
-Several discrete refinement methods are worth exploring:
+Only the angles that can affect recorded positions need to be searched. If the
+model has states `0 .. n-1`, then the initial angle remains continuous because
+it defines the initial velocity, while the terminal outgoing angle is ignored
+because it only affects velocity after the final recorded position. The discrete
+search therefore uses
 
-- **Coordinate descent**: change one tick's angle at a time and keep an
-  improvement.
-- **Limited-window 2-opt**: jointly search pairs of angles within a small tick
-  window, capturing interactions that single-angle updates miss.
-- **Simulated annealing**: occasionally accept a worse candidate so the search
-  can escape local optima created by quantization.
+```text
+initial_theta: continuous
+indices:       n - 2 lookup-table buckets
+```
 
-The continuous solution would act as a strong starting point rather than being
-discarded. This keeps the discrete search concentrated around strategically
-meaningful routes instead of searching all $65536^n$ angle sequences.
+The planned local search has two modes:
+
+- **Repair mode**: no exact-feasible bucket solution has been found yet. The
+  search prioritizes reducing constraint violation.
+- **Polish mode**: an exact-feasible bucket solution exists. The search only
+  accepts changes that preserve exact feasibility and improve the objective.
+
+The first search pass is a full best-improvement **1-opt** over `±1` lookup
+indices:
+
+```text
+for each round:
+    grade every single-index ±1 neighbor
+
+    if in repair mode and no fast-feasible neighbor exists:
+        accept the best violation-reducing neighbor
+
+    if in repair mode and fast-feasible neighbors exist:
+        exact-check them from best to worst
+        once one is exact-feasible, switch to polish mode
+
+    if in polish mode:
+        exact-check fast-feasible objective-improving neighbors
+        accept the first exact-feasible objective improvement
+```
+
+If 1-opt gets stuck, the next step is a randomized greedy **2-opt** pass. It
+randomly chooses a pair of ticks and tries small signed paired moves such as
+
+```text
+±(1, 1), ±(1, 2), ±(1, 3), ±(2, 1), ±(3, 1)
+```
+
+This captures cases where two small bucket changes must be made together: each
+single change may look bad on its own, while the pair repairs the constraint or
+improves the objective.
+
+To keep this search efficient, candidate grading uses the compiled discrete
+expression model. For a fixed lookup-table state, the sine/cosine cache is
+updated once, then reused to evaluate the objective and every constraint. The
+grade stores:
+
+```text
+objective value
+raw inequality constraint values
+raw equality constraint values
+total squared violation
+maximum violation
+feasibility flag
+```
+
+The final accepted solution must still pass exact in-game physics replay. 

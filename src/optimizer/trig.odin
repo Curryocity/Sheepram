@@ -19,8 +19,7 @@ init_sine_table :: proc "contextless" () {
 	}
 }
 
-index :: proc(deg: f32) -> u16 {
-	rad := deg * f32(math.PI) / f32(180.0)
+index :: proc(rad: f32) -> u16 {
 	index := int(rad * INDEX_PER_RAD)
 	return u16(index & SINE_TABLE_MASK)
 }
@@ -37,12 +36,12 @@ update_discrete_trig_cache :: proc(
 	work: ^Workspace,
 	state: Discrete_State,
 ) {
-	assert(len(work.sin_cache) == len(state.angle_indices)+2)
-	assert(len(work.cos_cache) == len(state.angle_indices)+2)
+	assert(len(work.sin_cache) == len(state.indices)+2)
+	assert(len(work.cos_cache) == len(state.indices)+2)
 
-	work.sin_cache[0] = math.sin(state.initial_theta)
-	work.cos_cache[0] = math.cos(state.initial_theta)
-	for index, i in state.angle_indices {
+	work.sin_cache[0] = math.sin(state.init_theta)
+	work.cos_cache[0] = math.cos(state.init_theta)
+	for index, i in state.indices {
 		work.sin_cache[i+1] = f64(sin_index(index))
 		work.cos_cache[i+1] = f64(cos_index(index))
 	}

@@ -78,7 +78,7 @@ exact_simulation :: proc(
 	xs, zs: []f64,
 ) {
 	assert_discrete_state(discrete, state)
-	assert(len(discrete.exact_movement) >= discrete_angle_count(discrete))
+	assert(len(discrete.exact_movement) >= discrete_angle_len(discrete))
 	assert(len(xs) >= discrete.n)
 	assert(len(zs) >= discrete.n)
 	if discrete.n == 0 do return
@@ -87,8 +87,8 @@ exact_simulation :: proc(
 	zs[0] = 0
 
 	// Initial velocity remains continuous and is not part of the bucket search.
-	vx := discrete.init_v * math.sin(state.initial_theta)
-	vz := discrete.init_v * math.cos(state.initial_theta)
+	vx := discrete.init_v * math.sin(state.init_theta)
+	vz := discrete.init_v * math.cos(state.init_theta)
 
 	for t in 1..<discrete.n {
 		xs[t] = xs[t-1]+vx
@@ -109,7 +109,7 @@ exact_simulation :: proc(
 		}
 
 		m := discrete.exact_movement[t-1]
-		angle_index := state.angle_indices[t-1]
+		angle_index := state.indices[t-1]
 		sin_value := sin_index(angle_index)
 		cos_value := cos_index(angle_index)
 
