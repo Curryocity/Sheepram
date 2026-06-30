@@ -20,6 +20,60 @@ Discrete_State :: struct {
 	indices: [dynamic]u16,
 }
 
+Grade :: struct {
+	objective: f64,
+	violation_sqr: f64,
+	max_violation: f64,
+	feasible: bool,
+}
+
+Discrete_Cand :: struct {
+	state: Discrete_State,
+	grade: Grade,
+}
+
+clone_discrete_state :: proc(state: Discrete_State) -> Discrete_State {
+	out := Discrete_State {
+		init_theta = state.init_theta,
+		indices    = make([dynamic]u16, len(state.indices)),
+	}
+	copy(out.indices[:], state.indices[:])
+	return out
+}
+
+copy_discrete_state :: proc(dst: ^Discrete_State, src: Discrete_State) {
+	assert(len(dst.indices) == len(src.indices))
+	dst.init_theta = src.init_theta
+	copy(dst.indices[:], src.indices[:])
+}
+
+destroy_discrete_state :: proc(state: ^Discrete_State) {
+	delete(state.indices)
+	state^ = {}
+}
+
+clone_discrete_cand :: proc(cand: Discrete_Cand) -> Discrete_Cand {
+	return Discrete_Cand {
+		state = clone_discrete_state(cand.state),
+		grade = cand.grade,
+	}
+}
+
+copy_discrete_cand :: proc(dst: ^Discrete_Cand, src: Discrete_Cand) {
+	copy_discrete_state(&dst.state, src.state)
+	dst.grade = src.grade
+}
+
+destroy_discrete_cand :: proc(cand: ^Discrete_Cand) {
+	destroy_discrete_state(&cand.state)
+	cand^ = {}
+}
+
+destroy_discrete_cand_array :: proc(cands: ^[dynamic]Discrete_Cand) {
+	for i in 0..<len(cands^) do destroy_discrete_cand(&cands^[i])
+	delete(cands^)
+}
+
 destroy_discrete_model :: proc(model: ^Discrete_Model) {
 	delete(model.exact_movement)
 	destroy_compiled_expr_array(&model.vx)
@@ -48,6 +102,10 @@ discrete_angle_len :: proc(model: ^Discrete_Model) -> int {
 
 assert_discrete_state :: proc(model: ^Discrete_Model, state: Discrete_State) {
 	assert(len(state.indices) == discrete_angle_len(model))
+}
+
+offset_index :: proc(index: u16, delta: int) -> u16 {
+	return u16((int(index)+delta) & SINE_TABLE_MASK)
 }
 
 assert_no_terminal_angle_dependency :: proc(expr: Compiled_Expr) {
@@ -85,29 +143,21 @@ eval_discrete_expr :: proc(
 	return value
 }
 
-Grade :: struct {
-	objective: f64,
-	ineq: [dynamic]f64,
-	eq: [dynamic]f64,
-	violation_sqr: f64,
-	max_violation: f64,
-	feasible: bool,
+Discrete_Mode :: enum {
+	Repair, Polish,
 }
 
-make_grade :: proc(p: ^Problem) -> Grade {
-	return Grade {
-		ineq = make([dynamic]f64, len(p.ineq_cons)),
-		eq   = make([dynamic]f64, len(p.eq_cons)),
-	}
+MAX_ROUND_CANDIDATES :: 32
+EXACT_PROBE_VIOLATION_TOLERANCE :: CONSTRAINT_TOLERANCE*4
+FAST_OBJECTIVE_ERR :: CONSTRAINT_TOLERANCE
+
+One_Opt_Cand :: struct {
+	tick: int,
+	delta: int,
+	grade: Grade,
 }
 
-destroy_grade :: proc(g: ^Grade) {
-	delete(g.ineq)
-	delete(g.eq)
-	g^ = {}
-}
-
-polish :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
+optimize_discrete :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 
 	ilen := discrete_angle_len(model)
 
@@ -115,7 +165,12 @@ polish :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 		init_theta = sol.thetas[0],
 		indices    = make([dynamic]u16, ilen),
 	}
-	defer delete(state.indices)
+	defer destroy_discrete_state(&state)
+
+	// Two modes:
+	// Repair: no exact-feasible solution yet.
+	// Polish: an exact-feasible solution exists. improve objective only.
+	mode := Discrete_Mode.Repair
 
 	// 1. Clamp the solution down to the lattices
 	for i in 0..<ilen {
@@ -131,17 +186,28 @@ polish :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 
 	// 2. Grade the current "solution"
 
-	grade := make_grade(p)
-	defer destroy_grade(&grade)
+	grade: Grade
+	exact_grade: Grade
+
+	// initial prep
 
 	update_discrete_trig_cache(&work, state)
 	grading(&grade, p, state, &work)
 
-	_ = grade
+	champ := Discrete_Cand {
+		state = clone_discrete_state(state),
+		grade = grade,
+	}
+	defer destroy_discrete_cand(&champ)
 
-	// Two modes:
-	// Repair: no exact-feasible solution yet.
-	// Polish: an exact-feasible incumbent exists; improve objective only.
+	if mode == .Repair && grade.feasible {
+		exact_grading(&exact_grade, p, state)
+
+		if exact_grade.feasible {
+			champ.grade = exact_grade
+			mode = .Polish
+		}
+	}
 
 	// 3. Greedy full 1-opt ±1 rounds
 	//
@@ -153,7 +219,7 @@ polish :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 	//
 	// Case B: Repair mode + fast-feasible candidates exist
 	// -> Exact-check fast-feasible candidates from best to worst.
-	// -> Once exact-feasible, store incumbent, switch to Polish,
+	// -> Once exact-feasible, store champ, switch to Polish,
 	//    and continue next round.
 	// -> If none exact-feasible, accept the best repair-grade candidate.
 	//
@@ -164,6 +230,100 @@ polish :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 	//
 	// End condition:
 	// -> No accepted 1-opt move this round, go to 2-opt phase.
+
+	cands := make([dynamic]One_Opt_Cand, 0, MAX_ROUND_CANDIDATES)
+	defer delete(cands)
+
+	local_champ := clone_discrete_cand(champ)
+	defer destroy_discrete_cand(&local_champ)
+
+
+	for {
+		local_improved := false
+		clear(&cands)
+		copy_discrete_cand(&local_champ, champ)
+
+		copy_discrete_state(&state, champ.state)
+		prev_t := 0
+		prev_delta := 0
+
+
+		for t in 0..<ilen {
+
+			for sign in 0..=1 {
+				delta := sign == 0 ? 1 : -1
+
+				// backtrack and apply
+				state.indices[prev_t] = offset_index(state.indices[prev_t], -prev_delta)
+				state.indices[t] = offset_index(state.indices[t], delta)
+
+				update_discrete_trig_cache(&work, state)
+				grading(&grade, p, state, &work)
+
+				if improveQ(&grade, &local_champ.grade, mode) {
+					copy_discrete_state(&local_champ.state, state)
+					local_champ.grade = grade
+					local_improved = true
+				}
+
+				if good_candQ(&grade, &champ.grade, mode) {
+					insert_one_opt_cand(&cands, One_Opt_Cand {
+						tick  = t,
+						delta = delta,
+						grade = grade,
+					}, mode)
+				}
+
+				prev_t = t
+				prev_delta = delta
+			}
+		}
+
+		accept := false
+
+		if len(cands) > 0 {
+			// Case B/C:
+			// exact-check top-K fast-feasible candidates from best to worst
+
+			copy_discrete_state(&state, champ.state)
+			prev_t = 0
+			prev_delta = 0
+
+			for c in cands {
+				state.indices[prev_t] = offset_index(state.indices[prev_t], -prev_delta)
+				state.indices[c.tick] = offset_index(state.indices[c.tick], c.delta)
+
+				prev_t = c.tick
+				prev_delta = c.delta
+
+				exact_grading(&exact_grade, p, state)
+
+				if !exact_grade.feasible {
+					continue
+				}
+
+				if mode == .Polish && !improveQ(&exact_grade, &champ.grade, mode) {
+					continue
+				}
+
+				accept = true
+				copy_discrete_state(&champ.state, state)
+				champ.grade = exact_grade
+				mode = .Polish
+				break
+			}
+		}
+		
+		if !accept && mode == .Repair && local_improved {
+			// Case A: it is now a fallback too
+			copy_discrete_cand(&champ, local_champ)
+			accept = true
+		}
+
+		if !accept do break
+	}
+	
+
 
 	// 4. Greedy random 2-opt
 	//
@@ -186,9 +346,6 @@ polish :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 }
 
 grading :: proc(out: ^Grade, p: ^Problem, state: Discrete_State, work: ^Workspace) {
-	assert(len(out.ineq) == len(p.ineq_cons))
-	assert(len(out.eq) == len(p.eq_cons))
-
 	out.objective = eval_discrete_expr(p.objective, state, work)
 	out.violation_sqr = 0
 	out.max_violation = 0
@@ -196,7 +353,6 @@ grading :: proc(out: ^Grade, p: ^Problem, state: Discrete_State, work: ^Workspac
 
 	for con, i in p.ineq_cons {
 		value := eval_discrete_expr(con, state, work)
-		out.ineq[i] = value
 
 		violation := max(0, value)
 		out.violation_sqr += violation*violation
@@ -205,7 +361,6 @@ grading :: proc(out: ^Grade, p: ^Problem, state: Discrete_State, work: ^Workspac
 
 	for con, i in p.eq_cons {
 		value := eval_discrete_expr(con, state, work)
-		out.eq[i] = value
 
 		violation := math.abs(value)
 		out.violation_sqr += violation*violation
@@ -213,4 +368,65 @@ grading :: proc(out: ^Grade, p: ^Problem, state: Discrete_State, work: ^Workspac
 	}
 
 	out.feasible = out.max_violation <= CONSTRAINT_TOLERANCE
+}
+
+good_candQ :: proc(grade: ^Grade, champ: ^Grade, mode: Discrete_Mode) -> bool {
+	if grade.max_violation > EXACT_PROBE_VIOLATION_TOLERANCE do return false
+
+	switch mode {
+	case .Repair:
+		return true
+
+	case .Polish:
+		return grade.objective < champ.objective + FAST_OBJECTIVE_ERR
+	}
+
+	return false
+}
+
+// Sorted from best to worst
+insert_one_opt_cand :: proc(cands: ^[dynamic]One_Opt_Cand, cand: One_Opt_Cand, mode: Discrete_Mode) -> bool {
+	
+	candidate := cand
+	pos := len(cands^)
+	for i in 0..<len(cands^) {
+		if improveQ(&candidate.grade, &cands^[i].grade, mode) {
+			pos = i
+			break
+		}
+	}
+
+	// Overcrowd and is not top-K
+	if pos == len(cands^) && len(cands^) >= MAX_ROUND_CANDIDATES {
+		return false
+	}
+
+	if len(cands^) < MAX_ROUND_CANDIDATES {
+		append(cands, One_Opt_Cand{})
+	}
+
+	for i := len(cands^)-1; i > pos; i -= 1 {
+		cands^[i] = cands^[i-1]
+	}
+
+	cands^[pos] = candidate
+	return true
+}
+
+improveQ :: proc(new: ^Grade, src: ^Grade, mode: Discrete_Mode) -> bool {
+	switch mode {
+	case .Repair:
+		if new.feasible != src.feasible {
+			return new.feasible
+		}
+		if !new.feasible {
+			return new.violation_sqr < src.violation_sqr
+		}
+
+	case .Polish:
+		if !new.feasible do return false
+		if !src.feasible do return true
+	}
+
+	return new.objective < src.objective
 }

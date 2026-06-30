@@ -126,3 +126,8 @@ exact_simulation :: proc(
 		)
 	}
 }
+
+// TODO
+exact_grading :: proc(out: ^Grade, p: ^Problem, state: Discrete_State) {
+	assert(false, "exact_grading is not implemented yet")
+}
