@@ -70,7 +70,7 @@ destroy_discrete_cand :: proc(cand: ^Discrete_Cand) {
 	cand^ = {}
 }
 
-destroy_discrete_cand_array :: proc(cands: ^[dynamic]Discrete_Cand) {
+destroy_discrete_cand_arr :: proc(cands: ^[dynamic]Discrete_Cand) {
 	for i in 0..<len(cands^) do destroy_discrete_cand(&cands^[i])
 	delete(cands^)
 }
@@ -120,6 +120,11 @@ assert_no_terminal_angle_dependency :: proc(expr: Compiled_Expr) {
 	assert(math.abs(expr.cos_coeff[last]) <= EPS, "Discrete expression depends on terminal cos(theta)")
 }
 
+discrete_state_deg :: proc(state: Discrete_State, t: int) -> f64 {
+	if t == 0 do return state.init_theta*180/math.PI
+	return index_to_facing(state.indices[t-1])
+}
+
 eval_discrete_expr :: proc(expr: Compiled_Expr, state: Discrete_State, work: ^Workspace) -> f64 {
 	n := len(state.indices)+2
 	assert(len(expr.theta_coeff) == n)
@@ -146,7 +151,7 @@ Discrete_Mode :: enum {
 
 MAX_ROUND_CANDIDATES :: 32
 MAX_2_OPT_FAILED_ATTEMPTS :: 4096
-PROBE_TOL :: CONSTRAINT_TOLERANCE*4
+PROBE_TOL :: CONSTRAINT_TOLERANCE * 4
 FAST_OBJECTIVE_ERR :: CONSTRAINT_TOLERANCE
 
 One_Opt_Cand :: struct {
@@ -158,7 +163,7 @@ One_Opt_Cand :: struct {
 local_search :: proc(
 	model: ^Discrete_Model,
 	p: ^Problem,
-	exact_p: ^Exact_Problem,
+	exact_p: ^Raw_Problem,
 	sol: ^Solution,
 ) -> Discrete_State {
 

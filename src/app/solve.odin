@@ -186,8 +186,8 @@ run_optimizer :: proc(state: ^Environment) {
 		defer opt.destroy_discrete_model(&discrete_model)
 		opt.copy_discrete_exprs(&discrete_model, &model)
 
-		exact_problem := opt.Exact_Problem{n = n}
-		defer opt.destroy_exact_problem(&exact_problem)
+		exact_problem := opt.Raw_Problem{n = n}
+		defer opt.destroy_raw_problem(&exact_problem)
 
 		discrete_state := opt.local_search(&discrete_model, &problem, &exact_problem, solution)
 		defer opt.destroy_discrete_state(&discrete_state)

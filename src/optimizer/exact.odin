@@ -2,30 +2,37 @@ package optimizer
 
 import "core:math"
 
-Exact_Linear_Expr :: struct {
+Raw_Expr :: struct {
 	constant: f64,
 	x_coeff: [dynamic]f64,
 	z_coeff: [dynamic]f64,
 	f_coeff: [dynamic]f64,
 }
 
-Exact_Problem :: struct {
+Raw_Problem :: struct {
 	n: int,
-	objective: Exact_Linear_Expr,
-	ineq_cons: [dynamic]Exact_Linear_Expr,
-	eq_cons:   [dynamic]Exact_Linear_Expr,
+	objective: Raw_Expr,
+	ineq_cons: [dynamic]Raw_Expr,
+	eq_cons:   [dynamic]Raw_Expr,
 }
 
-make_exact_linear_expr :: proc(n: int) -> Exact_Linear_Expr {
-	return Exact_Linear_Expr {
+Raw_Constraint :: struct {
+	// Enforce lhs < 0 or lhs = 0
+	lhs:    Raw_Expr,
+	cmp:    Cmp,
+	source: string,
+}
+
+make_raw_expr :: proc(n: int) -> Raw_Expr {
+	return Raw_Expr {
 		x_coeff = make([dynamic]f64, n),
 		z_coeff = make([dynamic]f64, n),
 		f_coeff = make([dynamic]f64, n),
 	}
 }
 
-clone_exact_linear_expr :: proc(expr: Exact_Linear_Expr) -> Exact_Linear_Expr {
-	out := make_exact_linear_expr(len(expr.x_coeff))
+clone_raw_expr :: proc(expr: Raw_Expr) -> Raw_Expr {
+	out := make_raw_expr(len(expr.x_coeff))
 	out.constant = expr.constant
 	copy(out.x_coeff[:], expr.x_coeff[:])
 	copy(out.z_coeff[:], expr.z_coeff[:])
@@ -33,27 +40,27 @@ clone_exact_linear_expr :: proc(expr: Exact_Linear_Expr) -> Exact_Linear_Expr {
 	return out
 }
 
-destroy_exact_linear_expr :: proc(expr: ^Exact_Linear_Expr) {
+destroy_raw_expr :: proc(expr: ^Raw_Expr) {
 	delete(expr.x_coeff)
 	delete(expr.z_coeff)
 	delete(expr.f_coeff)
 	expr^ = {}
 }
 
-destroy_exact_linear_expr_array :: proc(exprs: ^[dynamic]Exact_Linear_Expr) {
-	for i in 0..<len(exprs^) do destroy_exact_linear_expr(&exprs^[i])
+destroy_raw_expr_array :: proc(exprs: ^[dynamic]Raw_Expr) {
+	for i in 0..<len(exprs^) do destroy_raw_expr(&exprs^[i])
 	delete(exprs^)
 	exprs^ = nil
 }
 
-destroy_exact_problem :: proc(problem: ^Exact_Problem) {
-	destroy_exact_linear_expr(&problem.objective)
-	destroy_exact_linear_expr_array(&problem.ineq_cons)
-	destroy_exact_linear_expr_array(&problem.eq_cons)
+destroy_raw_problem :: proc(problem: ^Raw_Problem) {
+	destroy_raw_expr(&problem.objective)
+	destroy_raw_expr_array(&problem.ineq_cons)
+	destroy_raw_expr_array(&problem.eq_cons)
 	problem^ = {}
 }
 
-add_scaled_exact_linear_expr :: proc(out: ^Exact_Linear_Expr, source: Exact_Linear_Expr, s: f64) {
+add_scaled_raw_expr :: proc(out: ^Raw_Expr, source: Raw_Expr, s: f64) {
 	assert(len(out.x_coeff) == len(source.x_coeff))
 	assert(len(out.z_coeff) == len(source.z_coeff))
 	assert(len(out.f_coeff) == len(source.f_coeff))
@@ -66,13 +73,10 @@ add_scaled_exact_linear_expr :: proc(out: ^Exact_Linear_Expr, source: Exact_Line
 	}
 }
 
-exact_facing_degrees :: proc(state: Discrete_State, t: int) -> f64 {
-	if t == 0 do return state.init_theta*180/math.PI
-	return index_to_facing(state.indices[t-1])
-}
 
-eval_exact_linear_expr :: proc(
-	expr: Exact_Linear_Expr,
+
+eval_raw_expr :: proc(
+	expr: Raw_Expr,
 	state: Discrete_State,
 	xs, zs: []f64,
 ) -> f64 {
@@ -97,7 +101,7 @@ eval_exact_linear_expr :: proc(
 		         expr.z_coeff[t]*zs[t]
 
 		if t != n-1 {
-			value += expr.f_coeff[t]*exact_facing_degrees(state, t)
+			value += expr.f_coeff[t]*discrete_state_deg(state, t)
 		}
 	}
 	return value
@@ -111,7 +115,7 @@ Exact_Movement :: struct {
 	sprint_jump: bool,
 }
 
-make_exact_movement :: proc(
+get_exact_movement :: proc(
 	w, a: f32,
 	slip: f32,
 	airborne, sprint, sneak, jump, stop: bool,
@@ -229,10 +233,9 @@ exact_simulation :: proc(
 }
 
 // TODO
-exact_grading :: proc(out: ^Grade, p: ^Exact_Problem, state: Discrete_State) {
+exact_grading :: proc(out: ^Grade, p: ^Raw_Problem, state: Discrete_State) {
 	assert(false, "exact_grading is not implemented yet")
 }
-
 
 
 

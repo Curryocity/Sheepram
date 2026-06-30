@@ -460,7 +460,7 @@ parse_constraint :: proc(parser: ^Parser, text: string) -> (opt.Constraint, stri
 
 	operator := Token{type = .Operator, text = "-"}
 	standard: opt.Compiled_Expr
-	cmp: opt.Constraint_Comparison
+	cmp: opt.Cmp
 	combine_err: string
 	switch cmp_token.text {
 	case "<":

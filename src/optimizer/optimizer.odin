@@ -12,7 +12,7 @@ Compiled_Expr :: struct {
 	cos_coeff:   [dynamic]f64,
 }
 
-Constraint_Comparison :: enum {
+Cmp :: enum {
 	Less,
 	Equal,
 }
@@ -20,14 +20,14 @@ Constraint_Comparison :: enum {
 Constraint :: struct {
 	// Enforce lhs < 0 or lhs = 0
 	lhs:    Compiled_Expr,
-	cmp:    Constraint_Comparison,
+	cmp:    Cmp,
 	source: string,
 }
 
 Constraint_Result :: struct {
 	source: string,
 	margin: f64,
-	cmp:    Constraint_Comparison,
+	cmp:    Cmp,
 }
 
 Model :: struct {

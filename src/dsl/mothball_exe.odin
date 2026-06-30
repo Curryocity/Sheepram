@@ -192,7 +192,7 @@ exe_code :: proc(state: ^Moth_Compiler, code: []Arg) {
 
 			final_accel := math.sqrt(forward*forward+strafe*strafe)
 			angle_offset := math.atan2(-strafe, forward)*180/math.PI
-			exact_base := opt.make_exact_movement(
+			exact_base := opt.get_exact_movement(
 				mf.w,
 				mf.a,
 				f32(state.slip),
