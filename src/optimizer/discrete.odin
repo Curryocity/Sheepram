@@ -1,6 +1,7 @@
 package optimizer
 
 import "core:math"
+import "core:math/rand"
 
 Discrete_Model :: struct {
 	// Part II optimization
@@ -119,11 +120,7 @@ assert_no_terminal_angle_dependency :: proc(expr: Compiled_Expr) {
 	assert(math.abs(expr.cos_coeff[last]) <= EPS, "Discrete expression depends on terminal cos(theta)")
 }
 
-eval_discrete_expr :: proc(
-	expr: Compiled_Expr,
-	state: Discrete_State,
-	work: ^Workspace,
-) -> f64 {
+eval_discrete_expr :: proc(expr: Compiled_Expr, state: Discrete_State, work: ^Workspace) -> f64 {
 	n := len(state.indices)+2
 	assert(len(expr.theta_coeff) == n)
 	assert_no_terminal_angle_dependency(expr)
@@ -148,7 +145,8 @@ Discrete_Mode :: enum {
 }
 
 MAX_ROUND_CANDIDATES :: 32
-EXACT_PROBE_VIOLATION_TOLERANCE :: CONSTRAINT_TOLERANCE*4
+MAX_2_OPT_FAILED_ATTEMPTS :: 4096
+PROBE_TOL :: CONSTRAINT_TOLERANCE*4
 FAST_OBJECTIVE_ERR :: CONSTRAINT_TOLERANCE
 
 One_Opt_Cand :: struct {
@@ -157,7 +155,7 @@ One_Opt_Cand :: struct {
 	grade: Grade,
 }
 
-optimize_discrete :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
+local_search :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 
 	ilen := discrete_angle_len(model)
 
@@ -215,7 +213,7 @@ optimize_discrete :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 	//
 	// Case A: Repair mode + no fast-feasible candidates
 	// -> Accept the best repair-grade candidate:
-	//    violation_sqr, then max_violation, then objective.
+	//    violation_sqr, then objective.
 	//
 	// Case B: Repair mode + fast-feasible candidates exist
 	// -> Exact-check fast-feasible candidates from best to worst.
@@ -315,7 +313,7 @@ optimize_discrete :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 		}
 		
 		if !accept && mode == .Repair && local_improved {
-			// Case A: it is now a fallback too
+			// Case A: it is also a fallback of case B
 			copy_discrete_cand(&champ, local_champ)
 			accept = true
 		}
@@ -323,7 +321,8 @@ optimize_discrete :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 		if !accept do break
 	}
 	
-
+	rng_state: rand.Xoshiro256_Random_State
+	rng := rand.xoshiro256_random_generator(&rng_state)
 
 	// 4. Greedy random 2-opt
 	//
@@ -343,6 +342,84 @@ optimize_discrete :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 	// End condition:
 	// -> No improvement this round, or max attempts reached.
 
+	TWO_OPT_STEPS := [5][2]int {
+		{1, 1},
+		{1, 2},
+		{1, 3},
+		{2, 1},
+		{3, 1},
+	}
+
+	if ilen >= 2 {
+		failed_attempts := 0
+		for failed_attempts < MAX_2_OPT_FAILED_ATTEMPTS {
+			t0 := rand.int_max(ilen, rng)
+			t1 := rand.int_max(ilen-1, rng)
+			if t1 >= t0 do t1 += 1
+
+			if t1 < t0 {
+				tmp := t0
+				t0 = t1
+				t1 = tmp
+			}
+
+			accept := false
+			local_pair_improved := false
+			copy_discrete_cand(&local_champ, champ)
+
+			for step in TWO_OPT_STEPS {
+
+				for s0 in 0..=1 {
+					for s1 in 0..=1 {
+						d0 := step[0]
+						d1 := step[1]
+
+						if s0 == 1 do d0 = -d0
+						if s1 == 1 do d1 = -d1
+
+						copy_discrete_state(&state, champ.state)
+						state.indices[t0] = offset_index(state.indices[t0], d0)
+						state.indices[t1] = offset_index(state.indices[t1], d1)
+
+						update_discrete_trig_cache(&work, state)
+						grading(&grade, p, state, &work)
+
+						if mode == .Repair && improveQ(&grade, &local_champ.grade, mode) {
+							copy_discrete_state(&local_champ.state, state)
+							local_champ.grade = grade
+							local_pair_improved = true
+						}
+
+						if good_candQ(&grade, &champ.grade, mode) {
+							exact_grading(&exact_grade, p, state)
+
+							if !exact_grade.feasible do continue
+							if mode == .Polish && !improveQ(&exact_grade, &champ.grade, mode) do continue
+
+							copy_discrete_state(&champ.state, state)
+							champ.grade = exact_grade
+							mode = .Polish
+							accept = true
+							break
+						}
+					}
+					if accept do break
+				}
+				if accept do break
+			}
+
+			if !accept && mode == .Repair && local_pair_improved {
+				copy_discrete_cand(&champ, local_champ)
+				accept = true
+			}
+
+			if accept {
+				failed_attempts = 0
+			} else {
+				failed_attempts += 1
+			}
+		}
+	}
 }
 
 grading :: proc(out: ^Grade, p: ^Problem, state: Discrete_State, work: ^Workspace) {
@@ -371,7 +448,7 @@ grading :: proc(out: ^Grade, p: ^Problem, state: Discrete_State, work: ^Workspac
 }
 
 good_candQ :: proc(grade: ^Grade, champ: ^Grade, mode: Discrete_Mode) -> bool {
-	if grade.max_violation > EXACT_PROBE_VIOLATION_TOLERANCE do return false
+	if grade.max_violation > PROBE_TOL do return false
 
 	switch mode {
 	case .Repair:
