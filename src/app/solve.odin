@@ -186,7 +186,11 @@ run_optimizer :: proc(state: ^Environment) {
 		defer opt.destroy_discrete_model(&discrete_model)
 		opt.copy_discrete_exprs(&discrete_model, &model)
 
-		opt.local_search(&discrete_model, &problem, solution)
+		exact_problem := opt.Exact_Problem{n = n}
+		defer opt.destroy_exact_problem(&exact_problem)
+
+		discrete_state := opt.local_search(&discrete_model, &problem, &exact_problem, solution)
+		defer opt.destroy_discrete_state(&discrete_state)
 	}
 
 	// 13. Convert optimizer-space results back into UI/reporting-space results

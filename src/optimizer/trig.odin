@@ -47,7 +47,38 @@ update_discrete_trig_cache :: proc(
 	}
 }
 
-index_radians :: proc(index: u16) -> f64 {
+index_to_radians :: proc(index: u16) -> f64 {
 	return f64(index)*2*math.PI/f64(SINE_TABLE_SIZE)
+}
+
+index_to_facing :: proc(idx: u16) -> f64 {
+	step :: 0.005
+	center := (f64(idx)+0.5) * 360.0 / f64(SINE_TABLE_SIZE)
+
+	base := int(math.round(center / step))
+
+	for offset in -2..=2 {
+		k := base + offset
+
+		deg := f64(k) * step
+
+		if same_trig_bucketQ(f32(deg), idx) {
+			return deg
+		}
+	}
+
+	// this does not guaruntee to find a non-half angle
+	// todo: fix that
+
+	return center
+}
+
+
+same_trig_bucketQ :: proc(deg: f32, idx: u16) -> bool {
+	rad := deg * f32(math.PI) / f32(180.0)
+	sin_idx := u16(int(rad * 10430.378) &  0xffff)
+	cos_idx := u16(int(rad * 10430.378 + 0x4000) &  0xffff)
+
+	return sin_idx == idx && cos_idx == u16((int(idx) + 0x4000) &  0xffff)
 }
 

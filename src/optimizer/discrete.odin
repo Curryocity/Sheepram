@@ -133,7 +133,7 @@ eval_discrete_expr :: proc(expr: Compiled_Expr, state: Discrete_State, work: ^Wo
 	         expr.cos_coeff[0]*work.cos_cache[0]
 	for index, i in state.indices {
 		t := i+1
-		value += expr.theta_coeff[t]*index_radians(index) +
+		value += expr.theta_coeff[t]*index_to_radians(index) +
 		         expr.sin_coeff[t]*work.sin_cache[t] +
 		         expr.cos_coeff[t]*work.cos_cache[t]
 	}
@@ -155,7 +155,12 @@ One_Opt_Cand :: struct {
 	grade: Grade,
 }
 
-local_search :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
+local_search :: proc(
+	model: ^Discrete_Model,
+	p: ^Problem,
+	exact_p: ^Exact_Problem,
+	sol: ^Solution,
+) -> Discrete_State {
 
 	ilen := discrete_angle_len(model)
 
@@ -199,7 +204,7 @@ local_search :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 	defer destroy_discrete_cand(&champ)
 
 	if mode == .Repair && grade.feasible {
-		exact_grading(&exact_grade, p, state)
+		exact_grading(&exact_grade, exact_p, state)
 
 		if exact_grade.feasible {
 			champ.grade = exact_grade
@@ -294,7 +299,7 @@ local_search :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 				prev_t = c.tick
 				prev_delta = c.delta
 
-				exact_grading(&exact_grade, p, state)
+				exact_grading(&exact_grade, exact_p, state)
 
 				if !exact_grade.feasible {
 					continue
@@ -391,7 +396,7 @@ local_search :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 						}
 
 						if good_candQ(&grade, &champ.grade, mode) {
-							exact_grading(&exact_grade, p, state)
+							exact_grading(&exact_grade, exact_p, state)
 
 							if !exact_grade.feasible do continue
 							if mode == .Polish && !improveQ(&exact_grade, &champ.grade, mode) do continue
@@ -420,6 +425,8 @@ local_search :: proc(model: ^Discrete_Model, p: ^Problem, sol: ^Solution) {
 			}
 		}
 	}
+
+	return clone_discrete_state(champ.state)
 }
 
 grading :: proc(out: ^Grade, p: ^Problem, state: Discrete_State, work: ^Workspace) {
@@ -506,4 +513,29 @@ improveQ :: proc(new: ^Grade, src: ^Grade, mode: Discrete_Mode) -> bool {
 	}
 
 	return new.objective < src.objective
+}
+
+create_exact_solution :: proc(discrete: ^Discrete_Model, state: Discrete_State) -> Solution {
+	assert_discrete_state(discrete, state)
+
+	solution := Solution {
+		thetas = make([dynamic]f64, discrete.n),
+		xs     = make([dynamic]f64, discrete.n),
+		zs     = make([dynamic]f64, discrete.n),
+	}
+
+	if discrete.n > 0 {
+		solution.thetas[0] = state.init_theta*180/math.PI
+	}
+	for index, i in state.indices {
+		solution.thetas[i+1] = index_to_facing(index)
+	}
+
+	if discrete.n > 1 {
+		// Last facing has no effect on recorded positions
+		solution.thetas[discrete.n-1] = solution.thetas[discrete.n-2]
+	}
+
+	exact_simulation(discrete, state, solution.xs[:], solution.zs[:])
+	return solution
 }
