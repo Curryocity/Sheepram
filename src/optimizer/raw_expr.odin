@@ -197,32 +197,34 @@ make_raw_problem :: proc(objective: Raw_Expr, constraints: []Raw_Constraint, n: 
 	return problem
 }
 
-reduce_problem :: proc(rp: ^Raw_Problem, model: Model) -> Problem {
+reduce_problem :: proc(rp: ^Raw_Problem, model: Model, angle_offset: []f64) -> Problem {
 	assert(rp.n == model.n, "Raw problem/model dimension mismatch")
+	assert(len(angle_offset) >= model.n, "Angle offset dimension mismatch")
 
 	problem := Problem {
 		n         = model.n,
-		objective = reduce_expr(rp.objective, model),
+		objective = reduce_expr(rp.objective, model, angle_offset),
 		ineq_cons = make([dynamic]Compiled_Expr, 0, len(rp.ineq_cons)),
 		eq_cons   = make([dynamic]Compiled_Expr, 0, len(rp.eq_cons)),
 	}
 
 	for con in rp.ineq_cons {
-		append(&problem.ineq_cons, reduce_expr(con, model))
+		append(&problem.ineq_cons, reduce_expr(con, model, angle_offset))
 	}
 	for con in rp.eq_cons {
-		append(&problem.eq_cons, reduce_expr(con, model))
+		append(&problem.eq_cons, reduce_expr(con, model, angle_offset))
 	}
 
 	return problem
 }
 
-reduce_expr :: proc(expr: Raw_Expr, model: Model) -> Compiled_Expr {
+reduce_expr :: proc(expr: Raw_Expr, model: Model, angle_offset: []f64) -> Compiled_Expr {
 	assert(len(expr.x_coeff) == model.n, "Raw expression X dimension mismatch")
 	assert(len(expr.z_coeff) == model.n, "Raw expression Z dimension mismatch")
 	assert(len(expr.f_coeff) == model.n, "Raw expression F dimension mismatch")
 	assert(len(model.x) == model.n, "Model X expressions are not compiled")
 	assert(len(model.z) == model.n, "Model Z expressions are not compiled")
+	assert(len(angle_offset) >= model.n, "Angle offset dimension mismatch")
 
 	out := make_compiled_expr(model.n)
 	out.constant = expr.constant
@@ -231,8 +233,10 @@ reduce_expr :: proc(expr: Raw_Expr, model: Model) -> Compiled_Expr {
 		if expr.x_coeff[t] != 0 do add_scaled_expr(&out, model.x[t], expr.x_coeff[t])
 		if expr.z_coeff[t] != 0 do add_scaled_expr(&out, model.z[t], expr.z_coeff[t])
 
-		// Degrees -> Radians
+		// Raw F is player facing in degrees:
+		//   facing = movement_theta*180/pi - angle_offset
 		out.theta_coeff[t] += expr.f_coeff[t] * 180.0 / math.PI
+		out.constant -= expr.f_coeff[t] * angle_offset[t]
 	}
 
 	return out

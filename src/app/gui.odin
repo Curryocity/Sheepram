@@ -452,7 +452,7 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	im.SameLine(0, ui_px(15))
 	if im.Button("Maximize" if state.maximize else "Minimize") do state.maximize = !state.maximize
 	im.SameLine(0, ui_px(15))
-	_ = im.Checkbox("Discrete bucket polish", &state.discrete_search)
+	_ = im.Checkbox("Exact Physics Refine", &state.discrete_search)
 	if state.curr_obj == .Custom {
 		im.SetNextItemWidth(-1)
 			objective_font_pushed := push_font(code_font)
@@ -842,8 +842,8 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 		state.optimize_time_seconds*1000,
 	)
 	im.TextDisabled(
-		"Report: %s",
-		"exact bucket-polished" if state.last_solution_discrete else "continuous",
+		"Mode: %s",
+		"discrete" if state.last_solution_discrete else "continuous",
 	)
 	im.Spacing(); im.Spacing()
 

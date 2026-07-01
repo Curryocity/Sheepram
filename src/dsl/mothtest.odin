@@ -87,7 +87,7 @@ c4_5p2p :: proc(t: ^testing.T) {
 	raw_problem := opt.make_raw_problem(objective, constraints[:], model.n)
 	defer opt.destroy_raw_problem(&raw_problem)
 
-    problem := opt.reduce_problem(&raw_problem, model)
+    problem := opt.reduce_problem(&raw_problem, model, state.angle_offset[:])
 	defer opt.destroy_problem(&problem)
 
 	solution := opt.optimize(&model, &problem)

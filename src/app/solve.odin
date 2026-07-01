@@ -32,6 +32,12 @@ eval_raw_solution :: proc(expr: opt.Raw_Expr, solution: ^opt.Solution, facings_a
 	return value
 }
 
+wrap_radians_pi :: proc(rad: f64) -> f64 {
+	wrapped := math.mod(rad+math.PI, 2*math.PI)
+	if wrapped < 0 do wrapped += 2*math.PI
+	return wrapped-math.PI
+}
+
 run_optimizer :: proc(state: ^Environment) {
 	// 0. Reset optimizer
 	clear_solution(state)
@@ -93,7 +99,7 @@ run_optimizer :: proc(state: ^Environment) {
 	if state.discrete_search && !m.discrete_supported {
 		set_error(
 			state,
-			"Error:\nDiscrete bucket polishing is not supported by this movement model.",
+			"Error:\nExact Physics Refine is not supported by this movement model.",
 		)
 		return
 	}
@@ -194,7 +200,7 @@ run_optimizer :: proc(state: ^Environment) {
 	raw_problem := opt.make_raw_problem(objective, constraints[:], n)
 	defer opt.destroy_raw_problem(&raw_problem)
 
-	problem := opt.reduce_problem(&raw_problem, model)
+	problem := opt.reduce_problem(&raw_problem, model, m.angle_offset[:])
 	defer opt.destroy_problem(&problem)
 	state.compile_time_seconds = time.duration_seconds(time.tick_since(compile_start))
 
@@ -202,6 +208,7 @@ run_optimizer :: proc(state: ^Environment) {
 	solution := new(opt.Solution)
 	optimize_start := time.tick_now()
 	solution^ = opt.optimize(&model, &problem)
+	for &theta in solution.thetas do theta = wrap_radians_pi(theta)
 
 	// 12. Phase II: optimize the discrete/exact model when requested
 	if state.discrete_search {
