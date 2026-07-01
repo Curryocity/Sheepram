@@ -99,7 +99,7 @@ run_optimizer :: proc(state: ^Environment) {
 	if state.discrete_search && !m.discrete_supported {
 		set_error(
 			state,
-			"Error:\nExact Physics Refine is not supported by this movement model.",
+			"Error:\nDiscrete Local Search is not supported by this movement model.",
 		)
 		return
 	}
@@ -209,9 +209,11 @@ run_optimizer :: proc(state: ^Environment) {
 	optimize_start := time.tick_now()
 	solution^ = opt.optimize(&model, &problem)
 	for &theta in solution.thetas do theta = wrap_radians_pi(theta)
+	state.continuous_time_seconds = time.duration_seconds(time.tick_since(optimize_start))
 
 	// 12. Phase II: optimize the discrete/exact model when requested
 	if state.discrete_search {
+		discrete_start := time.tick_now()
 		discrete_model := opt.Discrete_Model {
 			n = n,
 			init_v = m.init_v,
@@ -235,8 +237,8 @@ run_optimizer :: proc(state: ^Environment) {
 		opt.destroy_solution(solution)
 		solution^ = exact_solution
 		state.last_solution_discrete = true
+		state.discrete_time_seconds = time.duration_seconds(time.tick_since(discrete_start))
 	}
-	state.optimize_time_seconds = time.duration_seconds(time.tick_since(optimize_start))
 
 	// 13. Convert optimizer-space results back into UI/reporting-space results
 	if state.maximize {

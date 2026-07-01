@@ -452,7 +452,7 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	im.SameLine(0, ui_px(15))
 	if im.Button("Maximize" if state.maximize else "Minimize") do state.maximize = !state.maximize
 	im.SameLine(0, ui_px(15))
-	_ = im.Checkbox("Exact Physics Refine", &state.discrete_search)
+	_ = im.Checkbox("Discrete Local Search", &state.discrete_search)
 	if state.curr_obj == .Custom {
 		im.SetNextItemWidth(-1)
 			objective_font_pushed := push_font(code_font)
@@ -836,14 +836,23 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	pushed_big := push_font(big_code_font)
 	im.TextColored({0.8, 0.85, 1, 1}, "=> %.12f", solution.optimum)
 	pop_font(pushed_big)
-	im.TextDisabled(
-		"Compile: %.3f ms | Optimize: %.3f ms",
-		state.compile_time_seconds*1000,
-		state.optimize_time_seconds*1000,
-	)
+	if state.last_solution_discrete {
+		im.TextDisabled(
+			"Compile: %.3f ms | Optimize: %.3f ms | Local Search: %.3f ms",
+			state.compile_time_seconds*1000,
+			state.continuous_time_seconds*1000,
+			state.discrete_time_seconds*1000,
+		)
+	} else {
+		im.TextDisabled(
+			"Compile: %.3f ms | Optimize: %.3f ms",
+			state.compile_time_seconds*1000,
+			state.continuous_time_seconds*1000,
+		)
+	}
 	im.TextDisabled(
 		"Mode: %s",
-		"discrete" if state.last_solution_discrete else "continuous",
+		"Discrete" if state.last_solution_discrete else "Continuous",
 	)
 	im.Spacing(); im.Spacing()
 

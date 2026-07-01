@@ -64,7 +64,8 @@ Environment :: struct {
 	last_solution: ^opt.Solution,
 	last_solution_discrete: bool,
 	compile_time_seconds:  f64,
-	optimize_time_seconds: f64,
+	continuous_time_seconds: f64,
+	discrete_time_seconds:   f64,
 	x_origin:      f64,
 	z_origin:      f64,
 	angle_offset:  [N_MAX]f64,
@@ -106,7 +107,8 @@ clear_solution :: proc(state: ^Environment) {
 	}
 	state.last_solution_discrete = false
 	state.compile_time_seconds = 0
-	state.optimize_time_seconds = 0
+	state.continuous_time_seconds = 0
+	state.discrete_time_seconds = 0
 }
 
 destroy_tab :: proc(tab: ^Tab_State) {
