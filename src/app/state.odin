@@ -45,6 +45,7 @@ Post_State :: struct {
 
 Environment :: struct {
 	maximize: bool,
+	discrete_search: bool,
 
 	curr_obj:  Objective_Type,
 	dir_x:     [CELL_CAPACITY]byte,
@@ -61,6 +62,7 @@ Environment :: struct {
 	post:              Post_State,
 
 	last_solution: ^opt.Solution,
+	last_solution_discrete: bool,
 	compile_time_seconds:  f64,
 	optimize_time_seconds: f64,
 	x_origin:      f64,
@@ -102,6 +104,7 @@ clear_solution :: proc(state: ^Environment) {
 		free(state.last_solution)
 		state.last_solution = nil
 	}
+	state.last_solution_discrete = false
 	state.compile_time_seconds = 0
 	state.optimize_time_seconds = 0
 }

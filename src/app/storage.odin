@@ -24,6 +24,7 @@ Saved_Post :: struct {
 Saved_Tab :: struct {
 	title:             string     `json:"title"`,
 	maximize:          bool       `json:"maximize"`,
+	discrete_search:   bool       `json:"discreteSearch"`,
 	curr_obj:          int        `json:"currObj"`,
 	movement_script:   string     `json:"movementScript"`,
 	global_names:      []string   `json:"globalNames"`,
@@ -61,6 +62,7 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 	saved := Saved_Tab {
 		title             = buffer_string(tab.name[:]),
 		maximize          = env.maximize,
+		discrete_search   = env.discrete_search,
 		curr_obj          = int(env.curr_obj),
 		movement_script   = buffer_string(env.movement_script[:]),
 		global_names      = make([]string, env.var_capacity),
@@ -177,6 +179,7 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	clear_solution(&tab.env)
 	env := &tab.env
 	env.maximize = saved.maximize
+	env.discrete_search = saved.discrete_search
 	env.curr_obj = Objective_Type(saved.curr_obj)
 	buffer_set(env.movement_script[:], saved.movement_script)
 	buffer_set(env.obj_script[:], saved.obj_script)

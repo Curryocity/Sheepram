@@ -12,6 +12,26 @@ set_error :: proc(state: ^Environment, message: string) {
 	buffer_set(state.last_error[:], message)
 }
 
+eval_raw_solution :: proc(expr: opt.Raw_Expr, solution: ^opt.Solution, facings_are_degrees: bool) -> f64 {
+	n := len(expr.x_coeff)
+	assert(len(expr.z_coeff) == n)
+	assert(len(expr.f_coeff) == n)
+	assert(len(solution.xs) >= n)
+	assert(len(solution.zs) >= n)
+	assert(len(solution.thetas) >= n)
+
+	value := expr.constant
+	for t in 0..<n {
+		facing := solution.thetas[t]
+		if !facings_are_degrees do facing *= 180.0/math.PI
+
+		value += expr.x_coeff[t]*solution.xs[t] +
+		         expr.z_coeff[t]*solution.zs[t] +
+		         expr.f_coeff[t]*facing
+	}
+	return value
+}
+
 run_optimizer :: proc(state: ^Environment) {
 	// 0. Reset optimizer
 	clear_solution(state)
@@ -67,6 +87,13 @@ run_optimizer :: proc(state: ^Environment) {
 				N_MIN,
 				N_MAX,
 			),
+		)
+		return
+	}
+	if state.discrete_search && !m.discrete_supported {
+		set_error(
+			state,
+			"Error:\nDiscrete bucket polishing is not supported by this movement model.",
 		)
 		return
 	}
@@ -175,10 +202,9 @@ run_optimizer :: proc(state: ^Environment) {
 	solution := new(opt.Solution)
 	optimize_start := time.tick_now()
 	solution^ = opt.optimize(&model, &problem)
-	state.optimize_time_seconds = time.duration_seconds(time.tick_since(optimize_start))
 
-	// 12. Phase II: optimize the discrete/exact model when supported
-	if m.discrete_supported {
+	// 12. Phase II: optimize the discrete/exact model when requested
+	if state.discrete_search {
 		discrete_model := opt.Discrete_Model {
 			n = n,
 			init_v = m.init_v,
@@ -191,7 +217,15 @@ run_optimizer :: proc(state: ^Environment) {
 
 		discrete_state := opt.local_search(&discrete_model, &problem, &raw_problem, solution)
 		defer opt.destroy_discrete_state(&discrete_state)
+
+		exact_solution := opt.create_exact_solution(&discrete_model, discrete_state)
+		exact_solution.optimum = eval_raw_solution(raw_problem.objective, &exact_solution, true)
+
+		opt.destroy_solution(solution)
+		solution^ = exact_solution
+		state.last_solution_discrete = true
 	}
+	state.optimize_time_seconds = time.duration_seconds(time.tick_since(optimize_start))
 
 	// 13. Convert optimizer-space results back into UI/reporting-space results
 	if state.maximize {
@@ -199,10 +233,7 @@ run_optimizer :: proc(state: ^Environment) {
 	}
 
 	for constraint in constraints {
-		compiled_constraint := opt.reduce_expr(constraint.lhs, model)
-		residual := opt.eval_compiled_expr(compiled_constraint, solution.thetas[:])
-		opt.destroy_compiled_expr(&compiled_constraint)
-
+		residual := eval_raw_solution(constraint.lhs, solution, state.last_solution_discrete)
 		margin := math.abs(residual) if constraint.cmp == .Equal else -residual
 		append(
 			&solution.constraints,
@@ -214,13 +245,8 @@ run_optimizer :: proc(state: ^Environment) {
 		)
 	}
 
-	x_origin_compiled := opt.reduce_expr(x_origin_expr, model)
-	defer opt.destroy_compiled_expr(&x_origin_compiled)
-	z_origin_compiled := opt.reduce_expr(z_origin_expr, model)
-	defer opt.destroy_compiled_expr(&z_origin_compiled)
-
-	state.x_origin = opt.eval_compiled_expr(x_origin_compiled, solution.thetas[:])
-	state.z_origin = opt.eval_compiled_expr(z_origin_compiled, solution.thetas[:])
+	state.x_origin = eval_raw_solution(x_origin_expr, solution, state.last_solution_discrete)
+	state.z_origin = eval_raw_solution(z_origin_expr, solution, state.last_solution_discrete)
 
 	state.last_solution = solution
 }

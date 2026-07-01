@@ -451,6 +451,8 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	if combo_select("##obj", &objective, objective_items[:]) do state.curr_obj = Objective_Type(objective)
 	im.SameLine(0, ui_px(15))
 	if im.Button("Maximize" if state.maximize else "Minimize") do state.maximize = !state.maximize
+	im.SameLine(0, ui_px(15))
+	_ = im.Checkbox("Discrete bucket polish", &state.discrete_search)
 	if state.curr_obj == .Custom {
 		im.SetNextItemWidth(-1)
 			objective_font_pushed := push_font(code_font)
@@ -839,14 +841,17 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 		state.compile_time_seconds*1000,
 		state.optimize_time_seconds*1000,
 	)
+	im.TextDisabled(
+		"Report: %s",
+		"exact bucket-polished" if state.last_solution_discrete else "continuous",
+	)
 	im.Spacing(); im.Spacing()
 
 	count := len(solution.xs)
 	facings := make([dynamic]f64, count); defer delete(facings)
 	for i in 0..<len(solution.thetas) {
-		wrapped := wrap_degrees_180(
-			solution.thetas[i]*180/math.PI-state.angle_offset[i],
-		)
+		raw_facing := solution.thetas[i] if state.last_solution_discrete else solution.thetas[i]*180/math.PI
+		wrapped := wrap_degrees_180(raw_facing-state.angle_offset[i])
 		facings[i] = math.round(200*wrapped)*0.005
 	}
 	turns := make([dynamic]string, count); defer delete(turns)
