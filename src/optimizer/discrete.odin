@@ -8,6 +8,7 @@ Discrete_Model :: struct {
 	n: int,
 	init_v: f64,
 	init_drag: f64,
+	angle_offset: [dynamic]f64, // radians; theta = facing + angle_offset
 	exact_movement: [dynamic]Exact_Movement,
 
 	vx: [dynamic]Compiled_Expr,
@@ -76,6 +77,7 @@ destroy_discrete_cand_arr :: proc(cands: ^[dynamic]Discrete_Cand) {
 
 destroy_discrete_model :: proc(model: ^Discrete_Model) {
 	delete(model.exact_movement)
+	delete(model.angle_offset)
 	destroy_compiled_expr_array(&model.vx)
 	destroy_compiled_expr_array(&model.vz)
 	destroy_compiled_expr_array(&model.x)
@@ -124,12 +126,18 @@ discrete_state_deg :: proc(state: Discrete_State, t: int) -> f64 {
 	return index_to_facing(state.indices[t-1])
 }
 
-eval_discrete_expr :: proc(expr: Compiled_Expr, state: Discrete_State, work: ^Workspace) -> f64 {
+eval_discrete_expr :: proc(
+	expr: Compiled_Expr,
+	state: Discrete_State,
+	angle_offset: []f64,
+	work: ^Workspace,
+) -> f64 {
 	n := len(state.indices)+2
 	assert(len(expr.theta_coeff) == n)
 	assert_no_terminal_angle_dependency(expr)
 	assert(len(work.sin_cache) == n)
 	assert(len(work.cos_cache) == n)
+	assert(len(angle_offset) >= n)
 
 	value := expr.constant +
 	         expr.theta_coeff[0]*state.init_theta +
@@ -137,7 +145,8 @@ eval_discrete_expr :: proc(expr: Compiled_Expr, state: Discrete_State, work: ^Wo
 	         expr.cos_coeff[0]*work.cos_cache[0]
 	for index, i in state.indices {
 		t := i+1
-		value += expr.theta_coeff[t]*index_to_radians(index) +
+		theta := index_to_radians(index) + angle_offset[t]
+		value += expr.theta_coeff[t]*theta +
 		         expr.sin_coeff[t]*work.sin_cache[t] +
 		         expr.cos_coeff[t]*work.cos_cache[t]
 	}
@@ -149,7 +158,7 @@ Discrete_Mode :: enum {
 }
 
 MAX_ROUND_CANDIDATES :: 32
-MAX_2_OPT_FAILED_ATTEMPTS :: 4096
+MAX_2_OPT_FAILED_ATTEMPTS :: 8192
 PROBE_TOL :: CONSTRAINT_TOLERANCE * 4
 FAST_OBJECTIVE_ERR :: CONSTRAINT_TOLERANCE
 
@@ -181,7 +190,9 @@ local_search :: proc(
 
 	// 1. Clamp the solution down to the lattices
 	for i in 0..<ilen {
-		state.indices[i] = index(f32(sol.thetas[i+1]))
+		t := i+1
+		facing := sol.thetas[t] - model.angle_offset[t]
+		state.indices[i] = index(f32(facing))
 	}
 
 	work := Workspace {
@@ -201,8 +212,8 @@ local_search :: proc(
 
 	// initial prep
 
-	update_discrete_trig_cache(&work, state)
-	grading(&grade, p, state, &work)
+	update_discrete_trig_cache(&work, state, model.angle_offset[:])
+	grading(&grade, model, p, state, &work)
 
 	champ := Discrete_Cand {
 		state = clone_discrete_state(state),
@@ -267,8 +278,8 @@ local_search :: proc(
 				state.indices[prev_t] = offset_index(state.indices[prev_t], -prev_delta)
 				state.indices[t] = offset_index(state.indices[t], delta)
 
-				update_discrete_trig_cache(&work, state)
-				grading(&grade, p, state, &work)
+				update_discrete_trig_cache(&work, state, model.angle_offset[:])
+				grading(&grade, model, p, state, &work)
 
 				if improveQ(&grade, &local_champ.grade, mode) {
 					copy_discrete_state(&local_champ.state, state)
@@ -393,8 +404,8 @@ local_search :: proc(
 						state.indices[t0] = offset_index(state.indices[t0], d0)
 						state.indices[t1] = offset_index(state.indices[t1], d1)
 
-						update_discrete_trig_cache(&work, state)
-						grading(&grade, p, state, &work)
+						update_discrete_trig_cache(&work, state, model.angle_offset[:])
+						grading(&grade, model, p, state, &work)
 
 						if mode == .Repair && improveQ(&grade, &local_champ.grade, mode) {
 							copy_discrete_state(&local_champ.state, state)
@@ -436,13 +447,13 @@ local_search :: proc(
 	return clone_discrete_state(champ.state)
 }
 
-grading :: proc(out: ^Grade, p: ^Problem, state: Discrete_State, work: ^Workspace) {
-	out.objective = eval_discrete_expr(p.objective, state, work)
+grading :: proc(out: ^Grade, model: ^Discrete_Model, p: ^Problem, state: Discrete_State, work: ^Workspace) {
+	out.objective = eval_discrete_expr(p.objective, state, model.angle_offset[:], work)
 	out.violation_sqr = 0
 	out.feasible = true
 
 	for con, i in p.ineq_cons {
-		value := eval_discrete_expr(con, state, work)
+		value := eval_discrete_expr(con, state, model.angle_offset[:], work)
 
 		violation := max(0, value)
 		out.violation_sqr += violation*violation
@@ -450,7 +461,7 @@ grading :: proc(out: ^Grade, p: ^Problem, state: Discrete_State, work: ^Workspac
 	}
 
 	for con, i in p.eq_cons {
-		value := eval_discrete_expr(con, state, work)
+		value := eval_discrete_expr(con, state, model.angle_offset[:], work)
 
 		violation := math.abs(value)
 		out.violation_sqr += violation*violation

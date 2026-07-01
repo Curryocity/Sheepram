@@ -168,7 +168,7 @@ exact_grading :: proc(
 
 		violation := max(0, value)
 		out.violation_sqr += violation*violation
-		if violation > CONSTRAINT_TOLERANCE do out.feasible = false
+		if violation > 0 do out.feasible = false
 	}
 
 	for con in p.eq_cons {

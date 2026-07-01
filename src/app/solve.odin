@@ -209,7 +209,11 @@ run_optimizer :: proc(state: ^Environment) {
 			n = n,
 			init_v = m.init_v,
 			init_drag = m.init_drag,
+			angle_offset = make([dynamic]f64, n),
 			exact_movement = m.exact_movement,
+		}
+		for i in 0..<n {
+			discrete_model.angle_offset[i] = m.angle_offset[i]*math.PI/180
 		}
 		m.exact_movement = nil
 		defer opt.destroy_discrete_model(&discrete_model)

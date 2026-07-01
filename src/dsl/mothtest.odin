@@ -104,4 +104,30 @@ c4_5p2p :: proc(t: ^testing.T) {
 	fmt.printf("optimum: %.6f\n", solution.optimum)
 	print_f64_array("facing", adjusted_facings[:])
 
+	discrete_model := opt.Discrete_Model {
+		n              = model.n,
+		init_v         = state.init_v,
+		init_drag      = state.init_drag,
+		angle_offset   = make([dynamic]f64, model.n),
+		exact_movement = state.exact_movement,
+	}
+	state.exact_movement = nil
+	defer opt.destroy_discrete_model(&discrete_model)
+	for i in 0..<model.n {
+		discrete_model.angle_offset[i] = state.angle_offset[i]*math.PI/180
+	}
+	opt.copy_discrete_exprs(&discrete_model, &model)
+
+	discrete_state := opt.local_search(&discrete_model, &problem, &raw_problem, &solution)
+	defer opt.destroy_discrete_state(&discrete_state)
+
+	exact_work := opt.make_exact_workspace(model.n)
+	defer opt.destroy_exact_workspace(&exact_work)
+	exact_grade: opt.Grade
+	opt.exact_grading(&exact_grade, &discrete_model, &raw_problem, discrete_state, &exact_work)
+
+	if !exact_grade.feasible {
+		fmt.printf("exact discrete violation_sqr: %.12g\n", exact_grade.violation_sqr)
+	}
+	testing.expect(t, exact_grade.feasible)
 }

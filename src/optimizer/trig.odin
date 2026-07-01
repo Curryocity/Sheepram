@@ -24,6 +24,33 @@ index :: proc(rad: f32) -> u16 {
 	return u16(index & SINE_TABLE_MASK)
 }
 
+new_sin_index :: proc(index: u16) -> f32 {
+	step :: 0.005
+	center := (f64(index)+0.5) * 360.0 / f64(SINE_TABLE_SIZE)
+
+	deg := math.round(center / step) * step
+	return sin(f32(deg))
+}
+
+new_cos_index :: proc(index: u16) -> f32 {
+	step :: 0.005
+	center := (f64(index)+0.5) * 360.0 / f64(SINE_TABLE_SIZE)
+
+	deg := math.round(center / step) * step
+	return cos(f32(deg))
+}
+
+sin :: proc(deg: f32) -> f32 {
+    rad:f32 = deg * f32(math.PI) / f32(180.0)
+    return sine_table[int(rad * 10430.378) & 65535]
+}
+
+cos :: proc(deg: f32) -> f32 {
+    rad:f32 = deg * f32(math.PI) / f32(180.0)
+    return sine_table[int(rad * 10430.378 + 16384.0) & 65535]
+}
+
+
 sin_index :: proc(index: u16) -> f32 {
 	return sine_table[int(index)]
 }
@@ -35,15 +62,23 @@ cos_index :: proc(index: u16) -> f32 {
 update_discrete_trig_cache :: proc(
 	work: ^Workspace,
 	state: Discrete_State,
+	angle_offset: []f64,
 ) {
 	assert(len(work.sin_cache) == len(state.indices)+2)
 	assert(len(work.cos_cache) == len(state.indices)+2)
+	assert(len(angle_offset) >= len(state.indices)+2)
 
 	work.sin_cache[0] = math.sin(state.init_theta)
 	work.cos_cache[0] = math.cos(state.init_theta)
 	for index, i in state.indices {
-		work.sin_cache[i+1] = f64(sin_index(index))
-		work.cos_cache[i+1] = f64(cos_index(index))
+		t := i+1
+		facing_sin := f64(sin_index(index))
+		facing_cos := f64(cos_index(index))
+		offset_sin := math.sin(angle_offset[t])
+		offset_cos := math.cos(angle_offset[t])
+
+		work.sin_cache[t] = facing_sin*offset_cos + facing_cos*offset_sin
+		work.cos_cache[t] = facing_cos*offset_cos - facing_sin*offset_sin
 	}
 }
 
@@ -81,4 +116,3 @@ same_trig_bucketQ :: proc(deg: f32, idx: u16) -> bool {
 
 	return sin_idx == idx && cos_idx == u16((int(idx) + 0x4000) &  0xffff)
 }
-

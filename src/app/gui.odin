@@ -850,9 +850,17 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	count := len(solution.xs)
 	facings := make([dynamic]f64, count); defer delete(facings)
 	for i in 0..<len(solution.thetas) {
-		raw_facing := solution.thetas[i] if state.last_solution_discrete else solution.thetas[i]*180/math.PI
-		wrapped := wrap_degrees_180(raw_facing-state.angle_offset[i])
-		facings[i] = math.round(200*wrapped)*0.005
+		if state.last_solution_discrete {
+			// Exact facings are chosen specifically to round-trip through
+			// Minecraft's f32 sine-table indexing. Do not wrap them into
+			// [-180, 180]; equivalent real angles can hit different buckets
+			// because negative values truncate differently.
+			facings[i] = solution.thetas[i]
+		} else {
+			raw_facing := solution.thetas[i]*180/math.PI-state.angle_offset[i]
+			wrapped := wrap_degrees_180(raw_facing)
+			facings[i] = math.round(200*wrapped)*0.005
+		}
 	}
 	turns := make([dynamic]string, count); defer delete(turns)
 	xvals := make([dynamic]f64, count); defer delete(xvals)
