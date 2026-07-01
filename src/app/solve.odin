@@ -102,7 +102,7 @@ run_optimizer :: proc(state: ^Environment) {
 	}
 
 	// 7. Parse objective expression
-	objective: opt.Compiled_Expr
+	objective: opt.Raw_Expr
 	switch state.curr_obj {
 	case .X:
 		objective, err = dsl.parse_expr(&parser, "X[n]")
@@ -116,12 +116,12 @@ run_optimizer :: proc(state: ^Environment) {
 		delete(err)
 		return
 	}
-	defer opt.destroy_compiled_expr(&objective)
+	defer opt.destroy_raw_expr(&objective)
 
-	// The optimizer minimizes, so maximizing is represented by minimizing -f.
+	// The optimizer minimizes, so maximizing "obj" is represented by minimizing "-obj".
 	if state.maximize {
-		inverted := dsl.scale_expr(objective, -1)
-		opt.destroy_compiled_expr(&objective)
+		inverted := opt.scale_raw_expr(objective, -1)
+		opt.destroy_raw_expr(&objective)
 		objective = inverted
 	}
 
@@ -149,9 +149,9 @@ run_optimizer :: proc(state: ^Environment) {
 		delete(post_err)
 		return
 	}
-	defer opt.destroy_compiled_expr(&x_origin_expr)
+	defer opt.destroy_raw_expr(&x_origin_expr)
 
-	z_origin_expr: opt.Compiled_Expr
+	z_origin_expr: opt.Raw_Expr
 	z_origin_expr, post_err = dsl.parse_expr(
 		&parser,
 		buffer_string(state.post.z_origin[:]),
@@ -161,10 +161,13 @@ run_optimizer :: proc(state: ^Environment) {
 		delete(post_err)
 		return
 	}
-	defer opt.destroy_compiled_expr(&z_origin_expr)
+	defer opt.destroy_raw_expr(&z_origin_expr)
 
-	// 10. Build the continuous constrained optimization problem
-	problem := opt.build_problem(&model, objective, constraints[:])
+	// 10. Build the raw problem and reduce it to the continuous optimizer problem
+	raw_problem := opt.make_raw_problem(objective, constraints[:], n)
+	defer opt.destroy_raw_problem(&raw_problem)
+
+	problem := opt.reduce_problem(&raw_problem, model)
 	defer opt.destroy_problem(&problem)
 	state.compile_time_seconds = time.duration_seconds(time.tick_since(compile_start))
 
@@ -186,10 +189,7 @@ run_optimizer :: proc(state: ^Environment) {
 		defer opt.destroy_discrete_model(&discrete_model)
 		opt.copy_discrete_exprs(&discrete_model, &model)
 
-		exact_problem := opt.Raw_Problem{n = n}
-		defer opt.destroy_raw_problem(&exact_problem)
-
-		discrete_state := opt.local_search(&discrete_model, &problem, &exact_problem, solution)
+		discrete_state := opt.local_search(&discrete_model, &problem, &raw_problem, solution)
 		defer opt.destroy_discrete_state(&discrete_state)
 	}
 
@@ -199,7 +199,10 @@ run_optimizer :: proc(state: ^Environment) {
 	}
 
 	for constraint in constraints {
-		residual := opt.eval_compiled_expr(constraint.lhs, solution.thetas[:])
+		compiled_constraint := opt.reduce_expr(constraint.lhs, model)
+		residual := opt.eval_compiled_expr(compiled_constraint, solution.thetas[:])
+		opt.destroy_compiled_expr(&compiled_constraint)
+
 		margin := math.abs(residual) if constraint.cmp == .Equal else -residual
 		append(
 			&solution.constraints,
@@ -211,8 +214,13 @@ run_optimizer :: proc(state: ^Environment) {
 		)
 	}
 
-	state.x_origin = opt.eval_compiled_expr(x_origin_expr, solution.thetas[:])
-	state.z_origin = opt.eval_compiled_expr(z_origin_expr, solution.thetas[:])
+	x_origin_compiled := opt.reduce_expr(x_origin_expr, model)
+	defer opt.destroy_compiled_expr(&x_origin_compiled)
+	z_origin_compiled := opt.reduce_expr(z_origin_expr, model)
+	defer opt.destroy_compiled_expr(&z_origin_compiled)
+
+	state.x_origin = opt.eval_compiled_expr(x_origin_compiled, solution.thetas[:])
+	state.z_origin = opt.eval_compiled_expr(z_origin_compiled, solution.thetas[:])
 
 	state.last_solution = solution
 }

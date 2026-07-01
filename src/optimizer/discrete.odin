@@ -24,7 +24,6 @@ Discrete_State :: struct {
 Grade :: struct {
 	objective: f64,
 	violation_sqr: f64,
-	max_violation: f64,
 	feasible: bool,
 }
 
@@ -437,7 +436,6 @@ local_search :: proc(
 grading :: proc(out: ^Grade, p: ^Problem, state: Discrete_State, work: ^Workspace) {
 	out.objective = eval_discrete_expr(p.objective, state, work)
 	out.violation_sqr = 0
-	out.max_violation = 0
 	out.feasible = true
 
 	for con, i in p.ineq_cons {
@@ -445,7 +443,7 @@ grading :: proc(out: ^Grade, p: ^Problem, state: Discrete_State, work: ^Workspac
 
 		violation := max(0, value)
 		out.violation_sqr += violation*violation
-		out.max_violation = max(out.max_violation, violation)
+		if violation > CONSTRAINT_TOLERANCE do out.feasible = false
 	}
 
 	for con, i in p.eq_cons {
@@ -453,14 +451,12 @@ grading :: proc(out: ^Grade, p: ^Problem, state: Discrete_State, work: ^Workspac
 
 		violation := math.abs(value)
 		out.violation_sqr += violation*violation
-		out.max_violation = max(out.max_violation, violation)
+		if violation > CONSTRAINT_TOLERANCE do out.feasible = false
 	}
-
-	out.feasible = out.max_violation <= CONSTRAINT_TOLERANCE
 }
 
 good_candQ :: proc(grade: ^Grade, champ: ^Grade, mode: Discrete_Mode) -> bool {
-	if grade.max_violation > PROBE_TOL do return false
+	if grade.violation_sqr > PROBE_TOL*PROBE_TOL do return false
 
 	switch mode {
 	case .Repair:

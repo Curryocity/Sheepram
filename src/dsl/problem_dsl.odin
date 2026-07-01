@@ -8,7 +8,7 @@ import opt "../optimizer"
 Parser :: struct {
 	model:   ^opt.Model,
 	var_map: map[string]f64,
-	expr_map: map[string]opt.Compiled_Expr,
+	expr_map: map[string]opt.Raw_Expr,
 }
 
 init_parser :: proc(model: ^opt.Model) -> Parser {
@@ -21,7 +21,7 @@ init_parser_without_n :: proc(model: ^opt.Model) -> Parser {
 	parser := Parser {
 		model   = model,
 		var_map = make(map[string]f64),
-		expr_map = make(map[string]opt.Compiled_Expr),
+		expr_map = make(map[string]opt.Raw_Expr),
 	}
 	return parser
 }
@@ -52,23 +52,23 @@ resolve_markers :: proc(parser: ^Parser, markers: []Marker) -> string {
 			return fmt.aprintf("Marker '%s' is already defined", marker.name)
 		}
 
-		expr: opt.Compiled_Expr
+		expr := opt.make_raw_expr(parser.model.n)
 		switch marker.type {
 			case .X:
-				expr = opt.clone_compiled_expr(parser.model.x[marker.tick])
+				expr.x_coeff[marker.tick] = 1
 			case .Z:
-				expr = opt.clone_compiled_expr(parser.model.z[marker.tick])
+				expr.z_coeff[marker.tick] = 1
 			case .F:
-				expr = opt.make_compiled_expr(parser.model.n)
-				expr.theta_coeff[marker.tick] = 180/math.PI
+				expr.f_coeff[marker.tick] = 1
 			case .Vx:
-				expr = opt.clone_compiled_expr(parser.model.vx[marker.tick])
+				expr.x_coeff[marker.tick + 1] = 1
+				expr.x_coeff[marker.tick] = - 1
 			case .Vz:
-				expr = opt.clone_compiled_expr(parser.model.vz[marker.tick])
+				expr.z_coeff[marker.tick + 1] = 1
+				expr.z_coeff[marker.tick] = - 1
 			case .T:
-				expr = opt.make_compiled_expr(parser.model.n)
-				expr.theta_coeff[marker.tick+1] = 180/math.PI
-				expr.theta_coeff[marker.tick] = -180/math.PI
+				expr.f_coeff[marker.tick + 1] = 1
+				expr.f_coeff[marker.tick] = - 1
 		}
 
 		parser.expr_map[strings.clone(marker.name)] = expr
@@ -81,20 +81,20 @@ destroy :: proc(parser: ^Parser) {
 	delete(parser.var_map)
 	for key, expr in parser.expr_map {
 		e := expr
-		opt.destroy_compiled_expr(&e)
+		opt.destroy_raw_expr(&e)
 		delete(key)
 	}
 	delete(parser.expr_map)
 	parser^ = {}
 }
 
-destroy_constraints :: proc(constraints: ^[dynamic]opt.Constraint) {
-	for i in 0..<len(constraints) {
-		opt.destroy_compiled_expr(&constraints[i].lhs)
-		delete(constraints[i].source)
+destroy_constraints :: proc(c: ^[dynamic]opt.Raw_Constraint) {
+	for i in 0..<len(c) {
+		opt.destroy_raw_expr(&c[i].lhs)
+		delete(c[i].source)
 	}
-	delete(constraints^)
-	constraints^ = nil
+	delete(c^)
+	c^ = nil
 }
 
 trim :: proc(text: string) -> string {
@@ -145,7 +145,7 @@ add_variable :: proc(parser: ^Parser, raw_name, value: string) -> string {
 
 	expr, err := parse_expr(parser, value)
 	if err != "" do return err
-	defer opt.destroy_compiled_expr(&expr)
+	defer opt.destroy_raw_expr(&expr)
 	if !opt.is_constant(expr) {
 		return fmt.aprintf("Unable to reduce '%s' to a constant.", name)
 	}
@@ -163,126 +163,60 @@ add_variables :: proc(parser: ^Parser, names, values: []string) -> string {
 	return ""
 }
 
-scale_expr :: proc(expr: opt.Compiled_Expr, scalar: f64) -> opt.Compiled_Expr {
-	out := opt.clone_compiled_expr(expr)
-	out.constant *= scalar
-	for i in 0..<len(out.theta_coeff) {
-		out.theta_coeff[i] *= scalar
-		out.sin_coeff[i]   *= scalar
-		out.cos_coeff[i]   *= scalar
-	}
-	return out
-}
-
-combine_expr :: proc(
-	parser: ^Parser,
-	lhs, rhs: opt.Compiled_Expr,
-	operator: Token,
-	lexer: ^Lexer,
-) -> (opt.Compiled_Expr, string) {
-	s := operator.text
-	if s == "+" || s == "-" {
-		sign_rhs := 1.0 if s == "+" else -1.0
-		out := opt.clone_compiled_expr(lhs)
-		out.constant += sign_rhs*rhs.constant
-		for i in 0..<len(out.theta_coeff) {
-			out.theta_coeff[i] += sign_rhs*rhs.theta_coeff[i]
-			out.sin_coeff[i]   += sign_rhs*rhs.sin_coeff[i]
-			out.cos_coeff[i]   += sign_rhs*rhs.cos_coeff[i]
-		}
-		for i in 0..<len(out.theta_coeff) {
-			if math.abs(out.theta_coeff[i]) < opt.EPS do out.theta_coeff[i] = 0
-			if math.abs(out.sin_coeff[i])   < opt.EPS do out.sin_coeff[i] = 0
-			if math.abs(out.cos_coeff[i])   < opt.EPS do out.cos_coeff[i] = 0
-		}
-		if math.abs(out.constant) < opt.EPS do out.constant = 0
-		return out, ""
-	}
-
-	if s == "*" {
-		lhs_constant := opt.is_constant(lhs)
-		rhs_constant := opt.is_constant(rhs)
-		if lhs_constant && rhs_constant {
-			out := opt.make_compiled_expr(parser.model.n)
-			out.constant = lhs.constant*rhs.constant
-			return out, ""
-		}
-		if lhs_constant do return scale_expr(rhs, lhs.constant), ""
-		if rhs_constant do return scale_expr(lhs, rhs.constant), ""
-		return {}, parser_error("Nonlinear multiplication is not allowed", lexer)
-	}
-
-	if s == "/" {
-		if !opt.is_constant(rhs) {
-			return {}, parser_error("Division by non-constant is not allowed", lexer)
-		}
-		if rhs.constant == 0 {
-			return {}, parser_error("Division by zero", lexer)
-		}
-		return scale_expr(lhs, 1/rhs.constant), ""
-	}
-	return {}, parser_error(fmt.tprintf("Unknown operator: %s", operator.text), lexer)
-}
-
-resolve_indexed :: proc(
-	parser: ^Parser,
-	name: string,
-	index: int,
-	lexer: ^Lexer,
-) -> (opt.Compiled_Expr, string) {
+resolve_indexed :: proc(parser: ^Parser, name: string, index: int, lexer: ^Lexer,
+) -> (opt.Raw_Expr, string) {
 	bound_error := proc(name: string, requested: int, lexer: ^Lexer) -> string {
 		return parser_error(fmt.tprintf("%s[%d] is out of range", name, requested), lexer)
 	}
+
 	if name == "X" {
 		if index < 0 || index >= len(parser.model.x) do return {}, bound_error(name, index, lexer)
-		return opt.clone_compiled_expr(parser.model.x[index]), ""
+		expr := opt.make_raw_expr(parser.model.n)
+		expr.x_coeff[index] = 1
+		return expr, ""
 	}
 	if name == "Z" {
 		if index < 0 || index >= len(parser.model.z) do return {}, bound_error(name, index, lexer)
-		return opt.clone_compiled_expr(parser.model.z[index]), ""
+		expr := opt.make_raw_expr(parser.model.n)
+		expr.z_coeff[index] = 1
+		return expr, ""
 	}
 	if name == "Vx" {
 		if index < 0 || index >= len(parser.model.x)-1 do return {}, bound_error(name, index, lexer)
-		return combine_expr(
-			parser,
-			parser.model.x[index+1],
-			parser.model.x[index],
-			Token{type = .Operator, text = "-"},
-			lexer,
-		)
+		expr := opt.make_raw_expr(parser.model.n)
+		expr.x_coeff[index + 1] = 1
+		expr.x_coeff[index] = -1
+		return expr, ""
+
 	}
 	if name == "Vz" {
 		if index < 0 || index >= len(parser.model.z)-1 do return {}, bound_error(name, index, lexer)
-		return combine_expr(
-			parser,
-			parser.model.z[index+1],
-			parser.model.z[index],
-			Token{type = .Operator, text = "-"},
-			lexer,
-		)
+		expr := opt.make_raw_expr(parser.model.n)
+		expr.z_coeff[index + 1] = 1
+		expr.z_coeff[index] = -1
+		return expr, ""
 	}
 	if name == "F" {
 		if index < 0 || index >= parser.model.n do return {}, bound_error(name, index, lexer)
-		expr := opt.make_compiled_expr(parser.model.n)
-		expr.theta_coeff[index] = 180/math.PI
-		// so when F[t] = 180 deg, it thinks 180 / PI * theta[t] = 180 -> theta[t] = PI radians
+		expr := opt.make_raw_expr(parser.model.n)
+		expr.f_coeff[index] = 1
 		return expr, ""
 	}
 	if name == "T" {
 		// Turn: T[i] = F[i+1] - F[i]
 		if index < 0 || index >= parser.model.n-1 do return {}, bound_error(name, index, lexer)
-		expr := opt.make_compiled_expr(parser.model.n)
-		expr.theta_coeff[index+1] = 180/math.PI
-		expr.theta_coeff[index] = -180/math.PI
+		expr := opt.make_raw_expr(parser.model.n)
+		expr.f_coeff[index + 1] = 1
+		expr.f_coeff[index] = -1
 		return expr, ""
 	}
 	return {}, strings.clone("Bug: This shouldn't happen cuz I checked the identifier name already.")
 }
 
-parse_number :: proc(parser: ^Parser, token: Token) -> (opt.Compiled_Expr, string) {
+parse_number :: proc(parser: ^Parser, token: Token) -> (opt.Raw_Expr, string) {
 	value, err := get_token_value(token)
 	if err != "" do return {}, err
-	expr := opt.make_compiled_expr(parser.model.n)
+	expr := opt.make_raw_expr(parser.model.n)
 	expr.constant = value
 	return expr, ""
 }
@@ -291,7 +225,7 @@ parse_identifier :: proc(
 	parser: ^Parser,
 	lexer: ^Lexer,
 	token: Token,
-) -> (opt.Compiled_Expr, string) {
+) -> (opt.Raw_Expr, string) {
 	name := token.text
 	if name == "X" || name == "Z" || name == "F" || name == "Vx" ||
 	   name == "Vz" || name == "T" {
@@ -303,7 +237,7 @@ parse_identifier :: proc(
 
 		index_expr, index_err := parse_expr_bp(parser, lexer, 0)
 		if index_err != "" do return {}, index_err
-		defer opt.destroy_compiled_expr(&index_expr)
+		defer opt.destroy_raw_expr(&index_expr)
 
 		close := lexer_next(lexer)
 		if close.type == .Invalid do return {}, lexer_error(close, lexer)
@@ -318,13 +252,13 @@ parse_identifier :: proc(
 	}
 
 	if value, found := parser.var_map[name]; found {
-		expr := opt.make_compiled_expr(parser.model.n)
+		expr := opt.make_raw_expr(parser.model.n)
 		expr.constant = value
 		return expr, ""
 	}
 
 	if expr, found := parser.expr_map[name]; found {
-		return opt.clone_compiled_expr(expr), ""
+		return opt.clone_raw_expr(expr), ""
 	}
 
 	return {}, parser_error(fmt.tprintf("Identifier %s is undefined.", name), lexer)
@@ -335,11 +269,11 @@ parse_expr_bp :: proc(
 	parser: ^Parser,
 	lexer: ^Lexer,
 	min_bp: int,
-) -> (opt.Compiled_Expr, string) {
+) -> (opt.Raw_Expr, string) {
 	prefix := lexer_next(lexer)
 	if prefix.type == .Invalid do return {}, lexer_error(prefix, lexer)
 	prefix_err := ""
-	lhs: opt.Compiled_Expr
+	lhs: opt.Raw_Expr
 
 	#partial switch prefix.type {
 	case .Number:
@@ -352,18 +286,18 @@ parse_expr_bp :: proc(
 		}
 		rhs, rhs_err := parse_expr_bp(parser, lexer, 30)
 		if rhs_err != "" do return {}, rhs_err
-		lhs = scale_expr(rhs, -1)
-		opt.destroy_compiled_expr(&rhs)
+		lhs = opt.scale_raw_expr(rhs, -1)
+		opt.destroy_raw_expr(&rhs)
 	case .L_Paren:
 		lhs, prefix_err = parse_expr_bp(parser, lexer, 0)
 		if prefix_err == "" {
 			close := lexer_next(lexer)
 			if close.type == .Invalid {
-				opt.destroy_compiled_expr(&lhs)
+				opt.destroy_raw_expr(&lhs)
 				return {}, lexer_error(close, lexer)
 			}
 			if close.type != .R_Paren {
-				opt.destroy_compiled_expr(&lhs)
+				opt.destroy_raw_expr(&lhs)
 				return {}, parser_error("Missing ')'", lexer)
 			}
 		}
@@ -375,48 +309,48 @@ parse_expr_bp :: proc(
 	for {
 		operator := lexer_peek(lexer)
 		if operator.type == .Invalid {
-			opt.destroy_compiled_expr(&lhs)
+			opt.destroy_raw_expr(&lhs)
 			return {}, lexer_error(operator, lexer)
 		}
 		if operator.type != .Operator do break
 
 		bp, bp_err := get_binding_power(operator)
 		if bp_err != "" {
-			opt.destroy_compiled_expr(&lhs)
+			opt.destroy_raw_expr(&lhs)
 			return {}, bp_err
 		}
 		if bp.left < min_bp do break
 		consumed := lexer_next(lexer)
 		if consumed.type == .Invalid {
-			opt.destroy_compiled_expr(&lhs)
+			opt.destroy_raw_expr(&lhs)
 			return {}, lexer_error(consumed, lexer)
 		}
 
 		rhs, rhs_err := parse_expr_bp(parser, lexer, bp.right)
 		if rhs_err != "" {
-			opt.destroy_compiled_expr(&lhs)
+			opt.destroy_raw_expr(&lhs)
 			return {}, rhs_err
 		}
-		combined, combine_err := combine_expr(parser, lhs, rhs, operator, lexer)
-		opt.destroy_compiled_expr(&lhs)
-		opt.destroy_compiled_expr(&rhs)
-		if combine_err != "" do return {}, combine_err
+		combined, combine_err := opt.combine_raw_expr(lhs, rhs, operator.text)
+		opt.destroy_raw_expr(&lhs)
+		opt.destroy_raw_expr(&rhs)
+		if combine_err != "" do return {}, parser_error(combine_err, lexer)
 		lhs = combined
 	}
 	return lhs, ""
 }
 
-parse_expr :: proc(parser: ^Parser, text: string) -> (opt.Compiled_Expr, string) {
+parse_expr :: proc(parser: ^Parser, text: string) -> (opt.Raw_Expr, string) {
 	lexer := Lexer{data = text}
 	expr, err := parse_expr_bp(parser, &lexer, 0)
 	if err != "" do return {}, err
 	next := lexer_peek(&lexer)
 	if next.type == .Invalid {
-		opt.destroy_compiled_expr(&expr)
+		opt.destroy_raw_expr(&expr)
 		return {}, lexer_error(next, &lexer)
 	}
 	if next.type != .End {
-		opt.destroy_compiled_expr(&expr)
+		opt.destroy_raw_expr(&expr)
 		return {}, parser_error("Unexpected trailing tokens", &lexer)
 	}
 	return expr, ""
@@ -425,18 +359,18 @@ parse_expr :: proc(parser: ^Parser, text: string) -> (opt.Compiled_Expr, string)
 parse_constant :: proc(parser: ^Parser, text: string) -> (f64, string) {
 	expr, err := parse_expr(parser, text)
 	if err != "" do return 0, err
-	defer opt.destroy_compiled_expr(&expr)
+	defer opt.destroy_raw_expr(&expr)
 	if !opt.is_constant(expr) {
 		return 0, fmt.aprintf("Cannot reduce expression to constant: %s", text)
 	}
 	return expr.constant, ""
 }
 
-parse_constraint :: proc(parser: ^Parser, text: string) -> (opt.Constraint, string) {
+parse_constraint :: proc(parser: ^Parser, text: string) -> (opt.Raw_Constraint, string) {
 	lexer := Lexer{data = text}
 	lhs, lhs_err := parse_expr_bp(parser, &lexer, 0)
 	if lhs_err != "" do return {}, lhs_err
-	defer opt.destroy_compiled_expr(&lhs)
+	defer opt.destroy_raw_expr(&lhs)
 
 	cmp_token := lexer_next(&lexer)
 	if cmp_token.type == .Invalid do return {}, lexer_error(cmp_token, &lexer)
@@ -453,28 +387,28 @@ parse_constraint :: proc(parser: ^Parser, text: string) -> (opt.Constraint, stri
 
 	rhs, rhs_err := parse_expr_bp(parser, &lexer, 0)
 	if rhs_err != "" do return {}, rhs_err
-	defer opt.destroy_compiled_expr(&rhs)
+	defer opt.destroy_raw_expr(&rhs)
 	trailing := lexer_peek(&lexer)
 	if trailing.type == .Invalid do return {}, lexer_error(trailing, &lexer)
 	if trailing.type != .End do return {}, parser_error("Unexpected trailing tokens", &lexer)
 
 	operator := Token{type = .Operator, text = "-"}
-	standard: opt.Compiled_Expr
+	standard: opt.Raw_Expr
 	cmp: opt.Cmp
 	combine_err: string
 	switch cmp_token.text {
 	case "<":
-		standard, combine_err = combine_expr(parser, lhs, rhs, operator, &lexer)
+		standard, combine_err = opt.combine_raw_expr(lhs, rhs, operator.text)
 		cmp = .Less
 	case ">":
-		standard, combine_err = combine_expr(parser, rhs, lhs, operator, &lexer)
+		standard, combine_err = opt.combine_raw_expr(rhs, lhs, operator.text)
 		cmp = .Less
 	case "=":
-		standard, combine_err = combine_expr(parser, lhs, rhs, operator, &lexer)
+		standard, combine_err = opt.combine_raw_expr(lhs, rhs, operator.text)
 		cmp = .Equal
 	}
-	if combine_err != "" do return {}, combine_err
-	return opt.Constraint {
+	if combine_err != "" do return {}, parser_error(combine_err, &lexer)
+	return opt.Raw_Constraint {
 		lhs    = standard,
 		cmp    = cmp,
 		source = strings.clone(text),
@@ -493,8 +427,8 @@ index_byte :: proc(text, needle: string) -> int {
 parse_multi_constraints :: proc(
 	parser: ^Parser,
 	input: string,
-) -> ([dynamic]opt.Constraint, string) {
-	constraints: [dynamic]opt.Constraint
+) -> ([dynamic]opt.Raw_Constraint, string) {
+	constraints: [dynamic]opt.Raw_Constraint
 	start := 0
 	line_count := 1
 	for start < len(input) {

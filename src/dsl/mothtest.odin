@@ -73,7 +73,7 @@ c4_5p2p :: proc(t: ^testing.T) {
     dsl.add_variable(&parser, "bx", "0.6000000238418579")
 
 	objective, _ := dsl.parse_expr(&parser, "X[n]")
-    defer opt.destroy_compiled_expr(&objective)
+    defer opt.destroy_raw_expr(&objective)
 
     constraints, _ := dsl.parse_multi_constraints(
 		&parser,
@@ -84,7 +84,10 @@ c4_5p2p :: proc(t: ^testing.T) {
 	)
     defer dsl.destroy_constraints(&constraints)
 
-    problem := opt.build_problem(&model, objective, constraints[:])
+	raw_problem := opt.make_raw_problem(objective, constraints[:], model.n)
+	defer opt.destroy_raw_problem(&raw_problem)
+
+    problem := opt.reduce_problem(&raw_problem, model)
 	defer opt.destroy_problem(&problem)
 
 	solution := opt.optimize(&model, &problem)
