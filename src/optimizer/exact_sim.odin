@@ -11,6 +11,24 @@ Exact_Movement :: struct {
 	sprint_jump: bool,
 }
 
+Exact_Workspace :: struct {
+	xs: [dynamic]f64,
+	zs: [dynamic]f64,
+}
+
+make_exact_workspace :: proc(n: int) -> Exact_Workspace {
+	return Exact_Workspace {
+		xs = make([dynamic]f64, n),
+		zs = make([dynamic]f64, n),
+	}
+}
+
+destroy_exact_workspace :: proc(work: ^Exact_Workspace) {
+	delete(work.xs)
+	delete(work.zs)
+	work^ = {}
+}
+
 get_exact_movement :: proc(
 	w, a: f32,
 	slip: f32,
@@ -74,42 +92,42 @@ get_exact_movement :: proc(
 }
 
 exact_simulation :: proc(
-	discrete: ^Discrete_Model,
+	model: ^Discrete_Model,
 	state: Discrete_State,
 	xs, zs: []f64,
 ) {
-	assert_discrete_state(discrete, state)
-	assert(len(discrete.exact_movement) >= discrete_angle_len(discrete))
-	assert(len(xs) >= discrete.n)
-	assert(len(zs) >= discrete.n)
-	if discrete.n == 0 do return
+	assert_discrete_state(model, state)
+	assert(len(model.exact_movement) >= discrete_angle_len(model))
+	assert(len(xs) >= model.n)
+	assert(len(zs) >= model.n)
+	if model.n == 0 do return
 
 	xs[0] = 0
 	zs[0] = 0
 
 	// Initial velocity remains continuous and is not part of the bucket search.
-	vx := discrete.init_v * math.sin(state.init_theta)
-	vz := discrete.init_v * math.cos(state.init_theta)
+	vx := model.init_v * math.sin(state.init_theta)
+	vz := model.init_v * math.cos(state.init_theta)
 
-	for t in 1..<discrete.n {
+	for t in 1..<model.n {
 		xs[t] = xs[t-1]+vx
 		zs[t] = zs[t-1]+vz
 
 		// Updating the outgoing terminal velocity cannot affect any recorded
 		// position, so the final movement angle is deliberately not a search
 		// variable.
-		if t == discrete.n-1 do break
+		if t == model.n-1 do break
 
 		if t == 1 {
-			vx *= discrete.init_drag
-			vz *= discrete.init_drag
+			vx *= model.init_drag
+			vz *= model.init_drag
 		} else {
-			previous := discrete.exact_movement[t-2]
+			previous := model.exact_movement[t-2]
 			vx *= previous.drag_x
 			vz *= previous.drag_z
 		}
 
-		m := discrete.exact_movement[t-1]
+		m := model.exact_movement[t-1]
 		angle_index := state.indices[t-1]
 		sin_value := sin_index(angle_index)
 		cos_value := cos_index(angle_index)
@@ -128,10 +146,38 @@ exact_simulation :: proc(
 	}
 }
 
-// TODO
-exact_grading :: proc(out: ^Grade, p: ^Raw_Problem, state: Discrete_State) {
-	assert(false, "exact_grading is not implemented yet")
-}
+exact_grading :: proc(
+	out: ^Grade,
+	model: ^Discrete_Model,
+	p: ^Raw_Problem,
+	state: Discrete_State,
+	work: ^Exact_Workspace,
+) {
+	assert(len(work.xs) >= model.n)
+	assert(len(work.zs) >= model.n)
 
+	exact_simulation(model, state, work.xs[:], work.zs[:])
+
+	out.objective = eval_raw_expr(p.objective, state, work.xs[:], work.zs[:])
+
+	out.violation_sqr = 0
+	out.feasible = true
+
+	for con in p.ineq_cons {
+		value := eval_raw_expr(con, state, work.xs[:], work.zs[:])
+
+		violation := max(0, value)
+		out.violation_sqr += violation*violation
+		if violation > CONSTRAINT_TOLERANCE do out.feasible = false
+	}
+
+	for con in p.eq_cons {
+		value := eval_raw_expr(con, state, work.xs[:], work.zs[:])
+
+		violation := math.abs(value)
+		out.violation_sqr += violation*violation
+		if violation > CONSTRAINT_TOLERANCE do out.feasible = false
+	}
+}
 
 

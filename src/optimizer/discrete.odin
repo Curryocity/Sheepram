@@ -191,6 +191,9 @@ local_search :: proc(
 	defer delete(work.sin_cache)
 	defer delete(work.cos_cache)
 
+	exact_work := make_exact_workspace(model.n)
+	defer destroy_exact_workspace(&exact_work)
+
 	// 2. Grade the current "solution"
 
 	grade: Grade
@@ -208,7 +211,7 @@ local_search :: proc(
 	defer destroy_discrete_cand(&champ)
 
 	if mode == .Repair && grade.feasible {
-		exact_grading(&exact_grade, exact_p, state)
+		exact_grading(&exact_grade, model, exact_p, state, &exact_work)
 
 		if exact_grade.feasible {
 			champ.grade = exact_grade
@@ -303,7 +306,7 @@ local_search :: proc(
 				prev_t = c.tick
 				prev_delta = c.delta
 
-				exact_grading(&exact_grade, exact_p, state)
+				exact_grading(&exact_grade, model, exact_p, state, &exact_work)
 
 				if !exact_grade.feasible {
 					continue
@@ -400,7 +403,7 @@ local_search :: proc(
 						}
 
 						if good_candQ(&grade, &champ.grade, mode) {
-							exact_grading(&exact_grade, exact_p, state)
+							exact_grading(&exact_grade, model, exact_p, state, &exact_work)
 
 							if !exact_grade.feasible do continue
 							if mode == .Polish && !improveQ(&exact_grade, &champ.grade, mode) do continue
