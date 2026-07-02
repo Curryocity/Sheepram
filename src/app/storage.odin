@@ -185,7 +185,7 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	env.maximize = saved.maximize
 	env.discrete_search = saved.discrete_search
 	env.cook = saved.cook
-	env.chefs = clamp(saved.chefs, 1, 100)
+	env.chefs = clamp(saved.chefs, 1, 10000)
 	env.curr_obj = Objective_Type(saved.curr_obj)
 	buffer_set(env.movement_script[:], saved.movement_script)
 	buffer_set(env.obj_script[:], saved.obj_script)

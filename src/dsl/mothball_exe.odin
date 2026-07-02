@@ -17,6 +17,8 @@ Moth_Compiler :: struct {
 
 	has_init_v: bool,
 	init_v: f64,
+	has_init_angle: bool,
+	init_angle: f64, // degrees
 	init_airborne: bool,
 	init_slip: f64,
 
@@ -354,7 +356,7 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 			return
 		}
 
-		if message, ok := expect_moth_args(cmd, 1, 1, false); !ok {
+		if message, ok := expect_moth_args(cmd, 1, 2, false); !ok {
 			set_model_error(state, message)
 			return
 		}
@@ -372,6 +374,19 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 		state.init_v = init_v
 		state.has_init_v = true
 		state.init_slip = state.slip
+		if len(cmd.args) == 2 {
+			init_angle, angle_err := eval_moth_number(
+				state,
+				cmd.args[1],
+				"initGnd/Air(...) angle argument",
+			)
+			if angle_err != "" {
+				set_model_error(state, angle_err)
+				return
+			}
+			state.init_angle = init_angle
+			state.has_init_angle = true
+		}
 
 		if cmd.type == .SetInitAirVel do state.init_airborne = true
 

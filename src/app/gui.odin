@@ -373,7 +373,7 @@ draw_discrete_search_options :: proc(state: ^Environment) {
 		im.SetNextItemWidth(ui_px(120))
 		chefs := c.int(state.chefs)
 		_ = im.InputInt("##chefs", &chefs, 0, 0)
-		state.chefs = clamp(int(chefs), 1, 100)
+		state.chefs = clamp(int(chefs), 1, 10000)
 	}
 }
 

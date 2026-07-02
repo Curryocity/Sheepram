@@ -24,6 +24,33 @@ wrap_degrees_180 :: proc(degrees: f64) -> f64 {
 
 
 @(test)
+init_angle_argument :: proc(t: ^testing.T) {
+	code, err := parse_mothball("initGnd(1.25, 63.593592115) w")
+	defer destroy_moth_code(&code)
+	testing.expect(t, err == "")
+
+	state := Moth_Compiler{}
+	defer destroy_moth_compiler(&state)
+	compile_mothball(&state, code[:])
+	testing.expect(t, state.ok)
+	testing.expect(t, state.has_init_angle)
+	testing.expect(t, state.init_angle == 63.593592115)
+
+	code_air, err_air := parse_mothball("initAir(0.5, -45) w")
+	defer destroy_moth_code(&code_air)
+	testing.expect(t, err_air == "")
+
+	air_state := Moth_Compiler{}
+	defer destroy_moth_compiler(&air_state)
+	compile_mothball(&air_state, code_air[:])
+	testing.expect(t, air_state.ok)
+	testing.expect(t, air_state.init_airborne)
+	testing.expect(t, air_state.has_init_angle)
+	testing.expect(t, air_state.init_angle == -45)
+}
+
+
+@(test)
 c4_5p2p :: proc(t: ^testing.T) {
     code, err := parse_mothball(" initGnd(0.3169516131491288) sj.w sa.wa(11)")
 	defer destroy_moth_code(&code)
@@ -107,6 +134,8 @@ c4_5p2p :: proc(t: ^testing.T) {
 	discrete_model := opt.Discrete_Model {
 		n              = model.n,
 		init_v         = state.init_v,
+		has_init_theta = state.has_init_angle,
+		init_theta     = state.init_angle*math.PI/180,
 		init_drag      = state.init_drag,
 		angle_offset   = make([dynamic]f64, model.n),
 		exact_movement = state.exact_movement,

@@ -7,6 +7,8 @@ Discrete_Model :: struct {
 	// Part II optimization
 	n: int,
 	init_v: f64,
+	has_init_theta: bool,
+	init_theta: f64, // radians
 	init_drag: f64,
 	angle_offset: [dynamic]f64, // radians; theta = facing + angle_offset
 	exact_movement: [dynamic]Exact_Movement,
@@ -207,8 +209,11 @@ local_search :: proc(
 
 	ilen := discrete_angle_len(model)
 
+	init_theta := sol.thetas[0]
+	if model.has_init_theta do init_theta = model.init_theta
+
 	trial := Discrete_State {
-		init_theta = sol.thetas[0],
+		init_theta = init_theta,
 		indices    = make([dynamic]u16, ilen),
 	}
 	defer destroy_discrete_state(&trial)

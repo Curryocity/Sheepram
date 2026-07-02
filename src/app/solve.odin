@@ -199,6 +199,12 @@ run_optimizer :: proc(state: ^Environment) {
 	// 10. Build the raw problem and reduce it to the continuous optimizer problem
 	raw_problem := opt.make_raw_problem(objective, constraints[:], n)
 	defer opt.destroy_raw_problem(&raw_problem)
+	if m.has_init_angle {
+		init_angle_constraint := opt.make_raw_expr(n)
+		init_angle_constraint.f_coeff[0] = 1
+		init_angle_constraint.constant = -m.init_angle
+		append(&raw_problem.eq_cons, init_angle_constraint)
+	}
 
 	problem := opt.reduce_problem(&raw_problem, model, m.angle_offset[:])
 	defer opt.destroy_problem(&problem)
@@ -217,6 +223,8 @@ run_optimizer :: proc(state: ^Environment) {
 		discrete_model := opt.Discrete_Model {
 			n = n,
 			init_v = m.init_v,
+			has_init_theta = m.has_init_angle,
+			init_theta = m.init_angle*math.PI/180,
 			init_drag = m.init_drag,
 			angle_offset = make([dynamic]f64, n),
 			exact_movement = m.exact_movement,
@@ -232,7 +240,7 @@ run_optimizer :: proc(state: ^Environment) {
 		starts := 1
 		if state.cook {
 			search_mode = .Cooking
-			starts = clamp(state.chefs, 1, 100)
+			starts = clamp(state.chefs, 1, 10000)
 		}
 
 		exact_work := opt.make_exact_workspace(n)
