@@ -158,7 +158,7 @@ Discrete_Mode :: enum {
 }
 
 MAX_ROUND_CANDIDATES :: 32
-MAX_2_OPT_FAILED_ATTEMPTS :: 1024
+MAX_2_OPT_PAIR_ATTEMPTS :: 1024
 PROBE_TOL :: CONSTRAINT_TOLERANCE * 4
 FAST_OBJECTIVE_ERR :: CONSTRAINT_TOLERANCE
 
@@ -166,6 +166,29 @@ One_Opt_Cand :: struct {
 	tick: int,
 	delta: int,
 	grade: Grade,
+}
+
+get_pair :: proc(rank: int, ilen: int) -> (int, int) {
+	assert(rank >= 0 && rank < ilen*(ilen-1)/2)
+
+	remaining := rank
+	for t0 in 0..<ilen-1 {
+		count := ilen-t0-1
+		if remaining < count {
+			return t0, t0+1+remaining
+		}
+		remaining -= count
+	}
+
+	return 0, 1
+}
+
+create_pair_orders :: proc(pair_count: int) -> [dynamic]int {
+	pairs := make([dynamic]int, 0, pair_count)
+	for rank in 0..<pair_count {
+		append(&pairs, rank)
+	}
+	return pairs
 }
 
 local_search :: proc(
@@ -177,11 +200,11 @@ local_search :: proc(
 
 	ilen := discrete_angle_len(model)
 
-	state := Discrete_State {
+	trial := Discrete_State {
 		init_theta = sol.thetas[0],
 		indices    = make([dynamic]u16, ilen),
 	}
-	defer destroy_discrete_state(&state)
+	defer destroy_discrete_state(&trial)
 
 	// Two modes:
 	// Repair: no exact-feasible solution yet.
@@ -192,7 +215,7 @@ local_search :: proc(
 	for i in 0..<ilen {
 		t := i+1
 		facing := sol.thetas[t] - model.angle_offset[t]
-		state.indices[i] = index(f32(facing))
+		trial.indices[i] = index(f32(facing))
 	}
 
 	work := Workspace {
@@ -205,6 +228,9 @@ local_search :: proc(
 	exact_work := make_exact_workspace(model.n)
 	defer destroy_exact_workspace(&exact_work)
 
+	rng_state: rand.Xoshiro256_Random_State
+	rng := rand.xoshiro256_random_generator(&rng_state)
+
 	// 2. Grade the current "solution"
 
 	grade: Grade
@@ -212,23 +238,27 @@ local_search :: proc(
 
 	// initial prep
 
-	update_discrete_trig_cache(&work, state, model.angle_offset[:])
-	grading(&grade, model, p, state, &work)
+	update_discrete_trig_cache(&work, trial, model.angle_offset[:])
+	grading(&grade, model, p, trial, &work)
 
-	champ := Discrete_Cand {
-		state = clone_discrete_state(state),
+	current := Discrete_Cand {
+		state = clone_discrete_state(trial),
 		grade = grade,
 	}
-	defer destroy_discrete_cand(&champ)
+	defer destroy_discrete_cand(&current)
 
 	if mode == .Repair && grade.feasible {
-		exact_grading(&exact_grade, model, exact_p, state, &exact_work)
+		exact_grading(&exact_grade, model, exact_p, trial, &exact_work)
 
 		if exact_grade.feasible {
-			champ.grade = exact_grade
+			current.grade = exact_grade
 			mode = .Polish
 		}
 	}
+
+	best := clone_discrete_cand(current)
+	defer destroy_discrete_cand(&best)
+	has_best := mode == .Polish
 
 	// 3. Greedy full 1-opt ±1 rounds
 	//
@@ -240,7 +270,7 @@ local_search :: proc(
 	//
 	// Case B: Repair mode + fast-feasible candidates exist
 	// -> Exact-check fast-feasible candidates from best to worst.
-	// -> Once exact-feasible, store champ, switch to Polish,
+	// -> Once exact-feasible, store current, switch to Polish,
 	//    and continue next round.
 	// -> If none exact-feasible, accept the best repair-grade candidate.
 	//
@@ -255,16 +285,15 @@ local_search :: proc(
 	cands := make([dynamic]One_Opt_Cand, 0, MAX_ROUND_CANDIDATES)
 	defer delete(cands)
 
-	local_champ := clone_discrete_cand(champ)
-	defer destroy_discrete_cand(&local_champ)
-
+	local_current := clone_discrete_cand(current)
+	defer destroy_discrete_cand(&local_current)
 
 	for {
 		local_improved := false
-		clear(&cands)
-		copy_discrete_cand(&local_champ, champ)
+		resize(&cands, 0)
+		copy_discrete_cand(&local_current, current)
 
-		copy_discrete_state(&state, champ.state)
+		copy_discrete_state(&trial, current.state)
 		prev_t := 0
 		prev_delta := 0
 
@@ -275,19 +304,19 @@ local_search :: proc(
 				delta := sign == 0 ? 1 : -1
 
 				// backtrack and apply
-				state.indices[prev_t] = offset_index(state.indices[prev_t], -prev_delta)
-				state.indices[t] = offset_index(state.indices[t], delta)
+				trial.indices[prev_t] = offset_index(trial.indices[prev_t], -prev_delta)
+				trial.indices[t] = offset_index(trial.indices[t], delta)
 
-				update_discrete_trig_cache(&work, state, model.angle_offset[:])
-				grading(&grade, model, p, state, &work)
+				update_discrete_trig_cache(&work, trial, model.angle_offset[:])
+				grading(&grade, model, p, trial, &work)
 
-				if improveQ(&grade, &local_champ.grade, mode) {
-					copy_discrete_state(&local_champ.state, state)
-					local_champ.grade = grade
+				if improveQ(&grade, &local_current.grade, mode) {
+					copy_discrete_state(&local_current.state, trial)
+					local_current.grade = grade
 					local_improved = true
 				}
 
-				if good_candQ(&grade, &champ.grade, mode) {
+				if good_candQ(&grade, &current.grade, mode) {
 					insert_one_opt_cand(&cands, One_Opt_Cand {
 						tick  = t,
 						delta = delta,
@@ -306,30 +335,30 @@ local_search :: proc(
 			// Case B/C:
 			// exact-check top-K fast-feasible candidates from best to worst
 
-			copy_discrete_state(&state, champ.state)
+			copy_discrete_state(&trial, current.state)
 			prev_t = 0
 			prev_delta = 0
 
 			for c in cands {
-				state.indices[prev_t] = offset_index(state.indices[prev_t], -prev_delta)
-				state.indices[c.tick] = offset_index(state.indices[c.tick], c.delta)
+				trial.indices[prev_t] = offset_index(trial.indices[prev_t], -prev_delta)
+				trial.indices[c.tick] = offset_index(trial.indices[c.tick], c.delta)
 
 				prev_t = c.tick
 				prev_delta = c.delta
 
-				exact_grading(&exact_grade, model, exact_p, state, &exact_work)
+				exact_grading(&exact_grade, model, exact_p, trial, &exact_work)
 
 				if !exact_grade.feasible {
 					continue
 				}
 
-				if mode == .Polish && !improveQ(&exact_grade, &champ.grade, mode) {
+				if mode == .Polish && !improveQ(&exact_grade, &current.grade, mode) {
 					continue
 				}
 
 				accept = true
-				copy_discrete_state(&champ.state, state)
-				champ.grade = exact_grade
+				copy_discrete_state(&current.state, trial)
+				current.grade = exact_grade
 				mode = .Polish
 				break
 			}
@@ -337,19 +366,17 @@ local_search :: proc(
 		
 		if !accept && mode == .Repair && local_improved {
 			// Case A: it is also a fallback of case B
-			copy_discrete_cand(&champ, local_champ)
+			copy_discrete_cand(&current, local_current)
 			accept = true
 		}
 
 		if !accept do break
 	}
-	
-	rng_state: rand.Xoshiro256_Random_State
-	rng := rand.xoshiro256_random_generator(&rng_state)
 
-	// 4. Greedy random 2-opt
+	// 4. Greedy randomized 2-opt
 	//
-	// Randomly pick a pair.
+	// Shuffle all tick-pair ranks and try the first bounded slice. This
+	// gives clean no-repeat pair coverage without repeated random draws.
 	// Try signed versions of:
 	//     (1,1), (1,2), (1,3), (2,1), (3,1)
 	//
@@ -363,88 +390,89 @@ local_search :: proc(
 	// -> Accept only exact-feasible objective improvement.
 	//
 	// End condition:
-	// -> No improvement this round, or max attempts reached.
+	// -> No improvement after the pair budget is exhausted.
 
-	TWO_OPT_STEPS := [5][2]int {
-		{1, 1},
-		{1, 2},
-		{1, 3},
-		{2, 1},
-		{3, 1},
+	TWO_OPT_DELTAS := [?][2]int {
+		{ 1,  1}, { 1, -1}, {-1,  1}, {-1, -1},
+		{ 1,  2}, { 1, -2}, {-1,  2}, {-1, -2},
+		{ 1,  3}, { 1, -3}, {-1,  3}, {-1, -3},
+		{ 2,  1}, { 2, -1}, {-2,  1}, {-2, -1},
+		{ 3,  1}, { 3, -1}, {-3,  1}, {-3, -1},
 	}
 
-	if ilen >= 2 {
-		failed_attempts := 0
-		for failed_attempts < MAX_2_OPT_FAILED_ATTEMPTS {
-			t0 := rand.int_max(ilen, rng)
-			t1 := rand.int_max(ilen-1, rng)
-			if t1 >= t0 do t1 += 1
+	if ilen < 2 do return clone_discrete_state(best.state)
 
-			if t1 < t0 {
-				tmp := t0
-				t0 = t1
-				t1 = tmp
-			}
+	pair_count := ilen*(ilen-1)/2
+	pairs := create_pair_orders(pair_count)
+	defer delete(pairs)
 
-			accept := false
+	for {
+		accept := false
+		attempts := 0
+		max_attempts := min(pair_count, MAX_2_OPT_PAIR_ATTEMPTS)
+
+		for i := len(pairs)-1; i > 0; i -= 1 {
+			j := rand.int_max(i+1, rng)
+			tmp := pairs[i]
+			pairs[i] = pairs[j]
+			pairs[j] = tmp
+		}
+
+		for attempts < max_attempts {
+			pair_key := pairs[attempts]
+			attempts += 1
+			t0, t1 := get_pair(pair_key, ilen)
+
 			local_pair_improved := false
-			copy_discrete_cand(&local_champ, champ)
+			copy_discrete_cand(&local_current, current)
 
-			for step in TWO_OPT_STEPS {
+			for delta in TWO_OPT_DELTAS {
+				copy_discrete_state(&trial, current.state)
+				trial.indices[t0] = offset_index(trial.indices[t0], delta[0])
+				trial.indices[t1] = offset_index(trial.indices[t1], delta[1])
 
-				for s0 in 0..=1 {
-					for s1 in 0..=1 {
-						d0 := step[0]
-						d1 := step[1]
+				update_discrete_trig_cache(&work, trial, model.angle_offset[:])
+				grading(&grade, model, p, trial, &work)
 
-						if s0 == 1 do d0 = -d0
-						if s1 == 1 do d1 = -d1
-
-						copy_discrete_state(&state, champ.state)
-						state.indices[t0] = offset_index(state.indices[t0], d0)
-						state.indices[t1] = offset_index(state.indices[t1], d1)
-
-						update_discrete_trig_cache(&work, state, model.angle_offset[:])
-						grading(&grade, model, p, state, &work)
-
-						if mode == .Repair && improveQ(&grade, &local_champ.grade, mode) {
-							copy_discrete_state(&local_champ.state, state)
-							local_champ.grade = grade
-							local_pair_improved = true
-						}
-
-						if good_candQ(&grade, &champ.grade, mode) {
-							exact_grading(&exact_grade, model, exact_p, state, &exact_work)
-
-							if !exact_grade.feasible do continue
-							if mode == .Polish && !improveQ(&exact_grade, &champ.grade, mode) do continue
-
-							copy_discrete_state(&champ.state, state)
-							champ.grade = exact_grade
-							mode = .Polish
-							accept = true
-							break
-						}
-					}
-					if accept do break
+				if mode == .Repair && improveQ(&grade, &local_current.grade, mode) {
+					copy_discrete_state(&local_current.state, trial)
+					local_current.grade = grade
+					local_pair_improved = true
 				}
-				if accept do break
+
+				if good_candQ(&grade, &current.grade, mode) {
+					exact_grading(&exact_grade, model, exact_p, trial, &exact_work)
+
+					if !exact_grade.feasible do continue
+					if mode == .Polish && !improveQ(&exact_grade, &current.grade, mode) do continue
+
+					copy_discrete_state(&current.state, trial)
+					current.grade = exact_grade
+					mode = .Polish
+					accept = true
+					break
+				}
 			}
 
 			if !accept && mode == .Repair && local_pair_improved {
-				copy_discrete_cand(&champ, local_champ)
+				copy_discrete_cand(&current, local_current)
 				accept = true
 			}
 
-			if accept {
-				failed_attempts = 0
-			} else {
-				failed_attempts += 1
-			}
+			if accept do break
 		}
+
+		if !accept do break
 	}
 
-	return clone_discrete_state(champ.state)
+	if mode == .Polish && (!has_best || improveQ(&current.grade, &best.grade, .Polish)) {
+		copy_discrete_cand(&best, current)
+		has_best = true
+	} else if !has_best && improveQ(&current.grade, &best.grade, .Repair) {
+		copy_discrete_cand(&best, current)
+	}
+
+	return clone_discrete_state(best.state)
 }
 
 grading :: proc(out: ^Grade, model: ^Discrete_Model, p: ^Problem, state: Discrete_State, work: ^Workspace) {
