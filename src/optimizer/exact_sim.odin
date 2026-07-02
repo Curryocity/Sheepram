@@ -176,7 +176,7 @@ exact_grading :: proc(
 
 		violation := math.abs(value)
 		out.violation_sqr += violation*violation
-		if violation > CONSTRAINT_TOLERANCE do out.feasible = false
+		if violation > ACCEPT_TOL do out.feasible = false
 	}
 }
 

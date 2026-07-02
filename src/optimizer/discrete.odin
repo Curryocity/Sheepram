@@ -157,10 +157,16 @@ Discrete_Mode :: enum {
 	Repair, Polish,
 }
 
+Local_Search_Mode :: enum {
+	Regular,
+	Cooking,
+}
+
 MAX_ROUND_CANDIDATES :: 32
-MAX_2_OPT_PAIR_ATTEMPTS :: 1024
-PROBE_TOL :: CONSTRAINT_TOLERANCE * 4
-FAST_OBJECTIVE_ERR :: CONSTRAINT_TOLERANCE
+MAX_2_OPT_ATTEMPTS :: 4096
+WORSE_ACCEPT_THRESHOLD :: 256
+MAX_DROP :: ACCEPT_TOL
+MAX_DOWN_HILLS :: 128
 
 One_Opt_Cand :: struct {
 	tick: int,
@@ -196,6 +202,7 @@ local_search :: proc(
 	p: ^Problem,
 	exact_p: ^Raw_Problem,
 	sol: ^Solution,
+	search_mode: Local_Search_Mode,
 ) -> Discrete_State {
 
 	ilen := discrete_angle_len(model)
@@ -316,7 +323,7 @@ local_search :: proc(
 					local_improved = true
 				}
 
-				if good_candQ(&grade, &current.grade, mode) {
+				if good_candQ(&grade, &current.grade, mode, search_mode) {
 					insert_one_opt_cand(&cands, One_Opt_Cand {
 						tick  = t,
 						delta = delta,
@@ -375,8 +382,9 @@ local_search :: proc(
 
 	// 4. Greedy randomized 2-opt
 	//
-	// Shuffle all tick-pair ranks and try the first bounded slice. This
-	// gives clean no-repeat pair coverage without repeated random draws.
+	// Regular mode shuffles tick-pair ranks and tries each pair at most once.
+	// Cooking mode samples random pairs with replacement and allows bounded
+	// worse exact moves after the initial attempt window.
 	// Try signed versions of:
 	//     (1,1), (1,2), (1,3), (2,1), (3,1)
 	//
@@ -402,26 +410,47 @@ local_search :: proc(
 
 	if ilen < 2 do return clone_discrete_state(best.state)
 
+	if mode == .Polish && (!has_best || improveQ(&current.grade, &best.grade, .Polish)) {
+		copy_discrete_cand(&best, current)
+		has_best = true
+	}
+
 	pair_count := ilen*(ilen-1)/2
 	pairs := create_pair_orders(pair_count)
 	defer delete(pairs)
+	down_hills := 0
 
 	for {
 		accept := false
 		attempts := 0
-		max_attempts := min(pair_count, MAX_2_OPT_PAIR_ATTEMPTS)
+		max_attempts := pair_count
 
-		for i := len(pairs)-1; i > 0; i -= 1 {
-			j := rand.int_max(i+1, rng)
-			tmp := pairs[i]
-			pairs[i] = pairs[j]
-			pairs[j] = tmp
+		if search_mode == .Cooking {
+			max_attempts = MAX_2_OPT_ATTEMPTS
+		} else {
+			for i := len(pairs)-1; i > 0; i -= 1 {
+				j := rand.int_max(i+1, rng)
+				tmp := pairs[i]
+				pairs[i] = pairs[j]
+				pairs[j] = tmp
+			}
 		}
 
 		for attempts < max_attempts {
-			pair_key := pairs[attempts]
 			attempts += 1
-			t0, t1 := get_pair(pair_key, ilen)
+			t0, t1: int
+			if search_mode == .Cooking {
+				t0 = rand.int_max(ilen, rng)
+				t1 = rand.int_max(ilen-1, rng)
+				if t1 >= t0 do t1 += 1
+				if t1 < t0 {
+					tmp := t0
+					t0 = t1
+					t1 = tmp
+				}
+			} else {
+				t0, t1 = get_pair(pairs[attempts-1], ilen)
+			}
 
 			local_pair_improved := false
 			copy_discrete_cand(&local_current, current)
@@ -440,16 +469,38 @@ local_search :: proc(
 					local_pair_improved = true
 				}
 
-				if good_candQ(&grade, &current.grade, mode) {
+				if good_candQ(&grade, &current.grade, mode, search_mode) {
 					exact_grading(&exact_grade, model, exact_p, trial, &exact_work)
 
 					if !exact_grade.feasible do continue
-					if mode == .Polish && !improveQ(&exact_grade, &current.grade, mode) do continue
+
+					exact_improved := improveQ(&exact_grade, &current.grade, mode)
+					accept_worse := false
+					if !exact_improved {
+						if search_mode != .Cooking do continue
+						if mode != .Polish do continue
+						if attempts < WORSE_ACCEPT_THRESHOLD do continue
+						if down_hills >= MAX_DOWN_HILLS do continue
+						if exact_grade.objective >= current.grade.objective + MAX_DROP do continue
+						accept_worse = true
+					}
 
 					copy_discrete_state(&current.state, trial)
 					current.grade = exact_grade
 					mode = .Polish
 					accept = true
+
+					if exact_improved {
+						if !has_best || improveQ(&current.grade, &best.grade, .Polish) {
+							copy_discrete_cand(&best, current)
+							has_best = true
+						}
+					}
+
+					if accept_worse {
+						down_hills += 1
+					}
+
 					break
 				}
 			}
@@ -485,7 +536,7 @@ grading :: proc(out: ^Grade, model: ^Discrete_Model, p: ^Problem, state: Discret
 
 		violation := max(0, value)
 		out.violation_sqr += violation*violation
-		if violation > CONSTRAINT_TOLERANCE do out.feasible = false
+		if violation > ACCEPT_TOL do out.feasible = false
 	}
 
 	for con, i in p.eq_cons {
@@ -493,19 +544,27 @@ grading :: proc(out: ^Grade, model: ^Discrete_Model, p: ^Problem, state: Discret
 
 		violation := math.abs(value)
 		out.violation_sqr += violation*violation
-		if violation > CONSTRAINT_TOLERANCE do out.feasible = false
+		if violation > ACCEPT_TOL do out.feasible = false
 	}
 }
 
-good_candQ :: proc(grade: ^Grade, champ: ^Grade, mode: Discrete_Mode) -> bool {
-	if grade.violation_sqr > PROBE_TOL*PROBE_TOL do return false
+good_candQ :: proc(
+	grade: ^Grade,
+	champ: ^Grade,
+	mode: Discrete_Mode,
+	search_mode: Local_Search_Mode,
+) -> bool {
+	if grade.violation_sqr > ACCEPT_TOL*ACCEPT_TOL do return false
 
 	switch mode {
 	case .Repair:
 		return true
 
 	case .Polish:
-		return grade.objective < champ.objective + FAST_OBJECTIVE_ERR
+		if search_mode == .Cooking {
+			return grade.objective < champ.objective + max(ACCEPT_TOL, MAX_DROP)
+		}
+		return grade.objective < champ.objective + ACCEPT_TOL
 	}
 
 	return false

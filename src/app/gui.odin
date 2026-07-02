@@ -351,6 +351,32 @@ draw_postprocessor :: proc(state: ^Environment) {
 	im.PopStyleVar(3)
 }
 
+draw_discrete_search_options :: proc(state: ^Environment) {
+	if !im.CollapsingHeader("Discrete Local Search", {.DefaultOpen}) do return
+
+	_ = im.Checkbox("Enable", &state.discrete_search)
+
+	im.AlignTextToFramePadding()
+	im.Text("Mode:")
+	im.SameLine(0, ui_px(8))
+	mode := c.int(1 if state.cook else 0)
+	mode_items := [?]cstring{"Standard", "Let Them Cook"}
+	im.SetNextItemWidth(ui_px(160))
+	if combo_select("##discrete_search_mode", &mode, mode_items[:]) {
+		state.cook = mode == 1
+	}
+
+	if state.cook {
+		im.AlignTextToFramePadding()
+		im.Text("Chef(s):")
+		im.SameLine(0, ui_px(4))
+		im.SetNextItemWidth(ui_px(120))
+		chefs := c.int(state.chefs)
+		_ = im.InputInt("##chefs", &chefs, 0, 0)
+		state.chefs = clamp(int(chefs), 1, 100)
+	}
+}
+
 draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	state := &tab.env
 	im.PushStyleVarImVec2(.WindowPadding, {ui_pad(24), ui_pad(10)})
@@ -451,8 +477,6 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	if combo_select("##obj", &objective, objective_items[:]) do state.curr_obj = Objective_Type(objective)
 	im.SameLine(0, ui_px(15))
 	if im.Button("Maximize" if state.maximize else "Minimize") do state.maximize = !state.maximize
-	im.SameLine(0, ui_px(15))
-	_ = im.Checkbox("Discrete Local Search", &state.discrete_search)
 	if state.curr_obj == .Custom {
 		im.SetNextItemWidth(-1)
 			objective_font_pushed := push_font(code_font)
@@ -488,6 +512,7 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 
 	// === Postprocessing ===
 	draw_postprocessor(state)
+	draw_discrete_search_options(state)
 
 	// === Optimize Button ===
 	if tab.optimizer_job != nil {
@@ -766,7 +791,7 @@ draw_constraint_results :: proc(solution: ^opt.Solution) {
 			if result.cmp == .Equal {
 				delete(metric_text)
 				metric_text = fmt.aprintf("%.6g", result.margin)
-				if result.margin > opt.CONSTRAINT_TOLERANCE {
+				if result.margin > opt.ACCEPT_TOL {
 					status = "Violated"
 					color = {1, 0.4, 0.4, 1}
 				} else {
@@ -774,10 +799,10 @@ draw_constraint_results :: proc(solution: ^opt.Solution) {
 					color = {1, 0.75, 0.3, 1}
 				}
 			} else {
-				if result.margin < -opt.CONSTRAINT_TOLERANCE {
+				if result.margin < -opt.ACCEPT_TOL {
 					status = "Violated"
 					color = {1, 0.4, 0.4, 1}
-				} else if result.margin <= opt.CONSTRAINT_TOLERANCE {
+				} else if result.margin <= opt.ACCEPT_TOL {
 					status = "Active"
 					color = {1, 0.75, 0.3, 1}
 				}
@@ -852,7 +877,9 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	}
 	im.TextDisabled(
 		"Mode: %s",
-		"Discrete" if state.last_solution_discrete else "Continuous",
+		"Intense Cooking" if state.last_solution_cooking else (
+			"Discrete" if state.last_solution_discrete else "Continuous"
+		),
 	)
 	im.Spacing(); im.Spacing()
 

@@ -118,7 +118,7 @@ c4_5p2p :: proc(t: ^testing.T) {
 	}
 	opt.copy_discrete_exprs(&discrete_model, &model)
 
-	discrete_state := opt.local_search(&discrete_model, &problem, &raw_problem, &solution)
+	discrete_state := opt.local_search(&discrete_model, &problem, &raw_problem, &solution, .Regular)
 	defer opt.destroy_discrete_state(&discrete_state)
 
 	exact_work := opt.make_exact_workspace(model.n)

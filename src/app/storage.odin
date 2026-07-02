@@ -25,6 +25,8 @@ Saved_Tab :: struct {
 	title:             string     `json:"title"`,
 	maximize:          bool       `json:"maximize"`,
 	discrete_search:   bool       `json:"discreteSearch"`,
+	cook:              bool       `json:"cook"`,
+	chefs:             int        `json:"chefs"`,
 	curr_obj:          int        `json:"currObj"`,
 	movement_script:   string     `json:"movementScript"`,
 	global_names:      []string   `json:"globalNames"`,
@@ -63,6 +65,8 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 		title             = buffer_string(tab.name[:]),
 		maximize          = env.maximize,
 		discrete_search   = env.discrete_search,
+		cook              = env.cook,
+		chefs             = env.chefs,
 		curr_obj          = int(env.curr_obj),
 		movement_script   = buffer_string(env.movement_script[:]),
 		global_names      = make([]string, env.var_capacity),
@@ -180,6 +184,8 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	env := &tab.env
 	env.maximize = saved.maximize
 	env.discrete_search = saved.discrete_search
+	env.cook = saved.cook
+	env.chefs = clamp(saved.chefs, 1, 100)
 	env.curr_obj = Objective_Type(saved.curr_obj)
 	buffer_set(env.movement_script[:], saved.movement_script)
 	buffer_set(env.obj_script[:], saved.obj_script)

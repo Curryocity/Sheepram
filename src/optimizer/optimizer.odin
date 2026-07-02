@@ -3,7 +3,7 @@ package optimizer
 import "core:math"
 
 EPS :: 1e-12
-CONSTRAINT_TOLERANCE :: 1e-5
+ACCEPT_TOL :: 1e-5
 
 Cmp :: enum {
 	Less,
@@ -382,7 +382,7 @@ optimize :: proc(model: ^Model, problem: ^Problem) -> Solution {
 		max_vio = max(max_gi, max_hj)
 
 		// Check Feasibility
-		if max_vio < CONSTRAINT_TOLERANCE do break
+		if max_vio < ACCEPT_TOL do break
 
 		// Increase penalty if violation didn't decrease enough
 		// The exact parameters here are questionable but works fine at the moment

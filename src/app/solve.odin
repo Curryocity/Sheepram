@@ -228,15 +228,67 @@ run_optimizer :: proc(state: ^Environment) {
 		defer opt.destroy_discrete_model(&discrete_model)
 		opt.copy_discrete_exprs(&discrete_model, &model)
 
-		discrete_state := opt.local_search(&discrete_model, &problem, &raw_problem, solution)
-		defer opt.destroy_discrete_state(&discrete_state)
+		search_mode := opt.Local_Search_Mode.Regular
+		starts := 1
+		if state.cook {
+			search_mode = .Cooking
+			starts = clamp(state.chefs, 1, 100)
+		}
 
-		exact_solution := opt.create_exact_solution(&discrete_model, discrete_state)
+		exact_work := opt.make_exact_workspace(n)
+		defer opt.destroy_exact_workspace(&exact_work)
+
+		best_discrete_state: opt.Discrete_State
+		defer opt.destroy_discrete_state(&best_discrete_state)
+		best_grade: opt.Grade
+		has_best := false
+
+		for start in 0..<starts {
+			candidate_state := opt.local_search(
+				&discrete_model,
+				&problem,
+				&raw_problem,
+				solution,
+				search_mode,
+			)
+
+			candidate_grade: opt.Grade
+			opt.exact_grading(
+				&candidate_grade,
+				&discrete_model,
+				&raw_problem,
+				candidate_state,
+				&exact_work,
+			)
+
+			accept_candidate := !has_best
+			if has_best {
+				if candidate_grade.feasible != best_grade.feasible {
+					accept_candidate = candidate_grade.feasible
+				} else if candidate_grade.feasible {
+					accept_candidate = candidate_grade.objective < best_grade.objective
+				} else {
+					accept_candidate = candidate_grade.violation_sqr < best_grade.violation_sqr
+				}
+			}
+
+			if accept_candidate {
+				if has_best do opt.destroy_discrete_state(&best_discrete_state)
+				best_discrete_state = candidate_state
+				best_grade = candidate_grade
+				has_best = true
+			} else {
+				opt.destroy_discrete_state(&candidate_state)
+			}
+		}
+
+		exact_solution := opt.create_exact_solution(&discrete_model, best_discrete_state)
 		exact_solution.optimum = eval_raw_solution(raw_problem.objective, &exact_solution, true)
 
 		opt.destroy_solution(solution)
 		solution^ = exact_solution
 		state.last_solution_discrete = true
+		state.last_solution_cooking = state.cook
 		state.discrete_time_seconds = time.duration_seconds(time.tick_since(discrete_start))
 	}
 

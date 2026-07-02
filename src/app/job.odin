@@ -47,6 +47,7 @@ poll_optimizer_job :: proc(tab: ^Tab_State) -> bool {
 	state.last_solution = result.last_solution
 	result.last_solution = nil
 	state.last_solution_discrete = result.last_solution_discrete
+	state.last_solution_cooking = result.last_solution_cooking
 	state.compile_time_seconds = result.compile_time_seconds
 	state.continuous_time_seconds = result.continuous_time_seconds
 	state.discrete_time_seconds = result.discrete_time_seconds

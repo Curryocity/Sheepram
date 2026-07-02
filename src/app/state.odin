@@ -46,6 +46,8 @@ Post_State :: struct {
 Environment :: struct {
 	maximize: bool,
 	discrete_search: bool,
+	cook: bool,
+	chefs: int,
 
 	curr_obj:  Objective_Type,
 	dir_x:     [CELL_CAPACITY]byte,
@@ -63,6 +65,7 @@ Environment :: struct {
 
 	last_solution: ^opt.Solution,
 	last_solution_discrete: bool,
+	last_solution_cooking: bool,
 	compile_time_seconds:  f64,
 	continuous_time_seconds: f64,
 	discrete_time_seconds:   f64,
@@ -106,6 +109,7 @@ clear_solution :: proc(state: ^Environment) {
 		state.last_solution = nil
 	}
 	state.last_solution_discrete = false
+	state.last_solution_cooking = false
 	state.compile_time_seconds = 0
 	state.continuous_time_seconds = 0
 	state.discrete_time_seconds = 0
@@ -145,6 +149,7 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	buffer_set(tab.name[:], fmt.tprintf("Untitled %d", tab_id))
 	buffer_set(tab.name_draft[:], buffer_string(tab.name[:]))
 	tab.env.curr_obj = .X
+	tab.env.chefs = 5
 	tab.env.post.position_precision = 6
 	buffer_set(tab.env.dir_x[:], "0")
 	buffer_set(tab.env.dir_z[:], "0")
