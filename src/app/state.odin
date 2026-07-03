@@ -66,6 +66,8 @@ Environment :: struct {
 	last_solution: ^opt.Solution,
 	last_solution_discrete: bool,
 	last_solution_cooking: bool,
+	last_solution_chefs_completed: int,
+	last_solution_chefs_total: int,
 	compile_time_seconds:  f64,
 	continuous_time_seconds: f64,
 	discrete_time_seconds:   f64,
@@ -110,6 +112,8 @@ clear_solution :: proc(state: ^Environment) {
 	}
 	state.last_solution_discrete = false
 	state.last_solution_cooking = false
+	state.last_solution_chefs_completed = 0
+	state.last_solution_chefs_total = 0
 	state.compile_time_seconds = 0
 	state.continuous_time_seconds = 0
 	state.discrete_time_seconds = 0

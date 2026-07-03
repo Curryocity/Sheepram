@@ -38,7 +38,7 @@ wrap_radians_pi :: proc(rad: f64) -> f64 {
 	return wrapped-math.PI
 }
 
-run_optimizer :: proc(state: ^Environment) {
+run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	// 0. Reset optimizer
 	clear_solution(state)
 	buffer_clear(state.last_error[:])
@@ -250,8 +250,15 @@ run_optimizer :: proc(state: ^Environment) {
 		defer opt.destroy_discrete_state(&best_discrete_state)
 		best_grade: opt.Grade
 		has_best := false
+		completed_starts := 0
 
+		cancelled := false
 		for start in 0..<starts {
+			if optimizer_cancel_requested(control) {
+				cancelled = true
+				break
+			}
+
 			candidate_state := opt.local_search(
 				&discrete_model,
 				&problem,
@@ -288,6 +295,27 @@ run_optimizer :: proc(state: ^Environment) {
 			} else {
 				opt.destroy_discrete_state(&candidate_state)
 			}
+			completed_starts = start+1
+
+			if has_best {
+				progress_solution := opt.create_exact_solution(&discrete_model, best_discrete_state)
+				progress_solution.optimum = eval_raw_solution(raw_problem.objective, &progress_solution, true)
+				progress_objective := progress_solution.optimum
+				if state.maximize do progress_objective *= -1
+				publish_optimizer_progress(
+					control,
+					progress_objective,
+					progress_solution.thetas[:],
+					start+1,
+					starts,
+				)
+				opt.destroy_solution(&progress_solution)
+			}
+		}
+
+		if cancelled && !has_best {
+			buffer_set(state.last_error[:], "Optimization cancelled before a discrete result was found.")
+			return
 		}
 
 		exact_solution := opt.create_exact_solution(&discrete_model, best_discrete_state)
@@ -297,6 +325,8 @@ run_optimizer :: proc(state: ^Environment) {
 		solution^ = exact_solution
 		state.last_solution_discrete = true
 		state.last_solution_cooking = state.cook
+		state.last_solution_chefs_completed = completed_starts if state.cook else 0
+		state.last_solution_chefs_total = starts if state.cook else 0
 		state.discrete_time_seconds = time.duration_seconds(time.tick_since(discrete_start))
 	}
 

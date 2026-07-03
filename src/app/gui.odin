@@ -4,6 +4,7 @@ import "core:c"
 import "core:fmt"
 import "core:math"
 import "core:strings"
+import "core:sync"
 
 import nfd "../nfd"
 import opt "../optimizer"
@@ -516,9 +517,11 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 
 	// === Optimize Button ===
 	if tab.optimizer_job != nil {
-		im.BeginDisabled()
-		_ = im.Button("Optimizing...", {-1, ui_px(35)})
-		im.EndDisabled()
+		cancel_requested := optimizer_cancel_requested(tab.optimizer_job.control)
+		label: cstring = "Cancelling..." if cancel_requested else "Cancel Optimization"
+		if im.Button(label, {-1, ui_px(35)}) && !cancel_requested {
+			request_optimizer_cancel(tab)
+		}
 	} else if im.Button("Optimize!!", {-1, ui_px(35)}) {
 		start_optimizer_job(tab)
 	}
@@ -826,6 +829,61 @@ draw_constraint_results :: proc(solution: ^opt.Solution) {
 	im.PopStyleVar()
 }
 
+draw_optimizer_progress :: proc(tab: ^Tab_State) {
+	job := tab.optimizer_job
+	if job == nil || job.control == nil {
+		im.TextDisabled("Optimizing...")
+		return
+	}
+
+	progress := &job.control.progress
+	has_best: bool
+	best_objective: f64
+	angle_count: int
+	angles: [N_MAX]f64
+	completed_chefs, total_chefs: int
+
+	sync.atomic_mutex_lock(&progress.mutex)
+	has_best = progress.has_best
+	best_objective = progress.best_objective
+	angle_count = progress.angle_count
+	copy(angles[:angle_count], progress.angles[:angle_count])
+	completed_chefs = progress.completed_chefs
+	total_chefs = progress.total_chefs
+	sync.atomic_mutex_unlock(&progress.mutex)
+
+	cancel_requested := optimizer_cancel_requested(job.control)
+	if cancel_requested {
+		im.TextDisabled("Cancelling after current chef...")
+	} else {
+		im.TextDisabled("Optimizing...")
+	}
+
+	if !has_best {
+		im.TextDisabled("Waiting for first completed chef.")
+		return
+	}
+
+	im.Spacing()
+	pushed_big := push_font(big_code_font)
+	im.TextColored({0.8, 0.85, 1, 1}, "=> %.12f", best_objective)
+	pop_font(pushed_big)
+
+	if total_chefs > 0 {
+		im.TextDisabled(
+			"Mode: Intense Cooking (Chef(s): %d/%d)",
+			completed_chefs,
+			total_chefs,
+		)
+	}
+
+	display_facings := format_angle_list(angles[:angle_count], false, ", ")
+	defer delete(display_facings)
+	copied_facings := format_angle_list(angles[:angle_count], false, copy_separator(tab.env.post.copy_separator))
+	defer delete(copied_facings)
+	read_only_block("Best Facing", display_facings, copied_facings)
+}
+
 draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	state := &tab.env
 	im.PushStyleVarImVec2(.WindowPadding, {ui_pad(24), ui_pad(10)})
@@ -845,7 +903,7 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	}
 	if state.last_solution == nil {
 		if tab.optimizer_job != nil {
-			im.TextDisabled("Optimizing...")
+			draw_optimizer_progress(tab)
 		} else {
 			im.TextDisabled("Press Optimize!!")
 		}
@@ -875,12 +933,18 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 			state.continuous_time_seconds*1000,
 		)
 	}
-	im.TextDisabled(
-		"Mode: %s",
-		"Intense Cooking" if state.last_solution_cooking else (
-			"Discrete" if state.last_solution_discrete else "Continuous"
-		),
-	)
+	if state.last_solution_cooking {
+		im.TextDisabled(
+			"Mode: Intense Cooking (Chef(s): %d/%d)",
+			state.last_solution_chefs_completed,
+			state.last_solution_chefs_total,
+		)
+	} else {
+		im.TextDisabled(
+			"Mode: %s",
+			"Discrete" if state.last_solution_discrete else "Continuous",
+		)
+	}
 	im.Spacing(); im.Spacing()
 
 	count := len(solution.xs)
