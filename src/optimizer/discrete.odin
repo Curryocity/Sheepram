@@ -431,7 +431,7 @@ local_search :: proc(
 		max_attempts := pair_count
 
 		if search_mode == .Cooking {
-			max_attempts = MAX_2_OPT_ATTEMPTS
+			max_attempts = 512 * model.n
 		} else {
 			for i := len(pairs)-1; i > 0; i -= 1 {
 				j := rand.int_max(i+1, rng)

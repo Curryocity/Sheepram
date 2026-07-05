@@ -761,7 +761,7 @@ read_only_block :: proc(label: cstring, text: string, copy_text: string) {
 	pop_font(pushed_code)
 }
 
-draw_constraint_results :: proc(solution: ^opt.Solution) {
+draw_constraint_results :: proc(solution: ^opt.Solution, discrete_solution: bool) {
 	pushed_ui := push_font(ui_font)
 	im.Text("Constraint Results")
 	pop_font(pushed_ui)
@@ -802,7 +802,9 @@ draw_constraint_results :: proc(solution: ^opt.Solution) {
 					color = {1, 0.75, 0.3, 1}
 				}
 			} else {
-				if result.margin < -opt.ACCEPT_TOL {
+				violation_limit := -opt.ACCEPT_TOL
+				if discrete_solution do violation_limit = 0
+				if result.margin < violation_limit {
 					status = "Violated"
 					color = {1, 0.4, 0.4, 1}
 				} else if result.margin <= opt.ACCEPT_TOL {
@@ -1014,7 +1016,7 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	im.EndChild()
 	im.Spacing(); im.Spacing()
 
-	draw_constraint_results(solution)
+	draw_constraint_results(solution, state.last_solution_discrete)
 	im.Spacing(); im.Spacing()
 
 	pushed_ui = push_font(ui_font)
