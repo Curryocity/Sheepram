@@ -866,7 +866,7 @@ draw_optimizer_progress :: proc(tab: ^Tab_State) {
 
 	cancel_requested := optimizer_cancel_requested(job.control)
 	if cancel_requested {
-		im.TextDisabled("Cancelling after current chef...")
+		im.TextDisabled("Cancelling...")
 	} else {
 		im.TextDisabled("Optimizing...")
 	}

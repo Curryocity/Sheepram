@@ -259,12 +259,19 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 				break
 			}
 
+			local_search_cancelled := false
+			local_search_control := opt.LS_Control {
+				cancel_check = optimizer_cancel_check,
+				cancel_data  = rawptr(control),
+				cancelled    = &local_search_cancelled,
+			}
 			candidate_state := opt.local_search(
 				&discrete_model,
 				&problem,
 				&raw_problem,
 				solution,
 				search_mode,
+				&local_search_control,
 			)
 
 			candidate_grade: opt.Grade
@@ -310,6 +317,11 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 					starts,
 				)
 				opt.destroy_solution(&progress_solution)
+			}
+
+			if local_search_cancelled || optimizer_cancel_requested(control) {
+				cancelled = true
+				break
 			}
 		}
 

@@ -2,6 +2,7 @@ package optimizer
 
 import "core:math"
 import "core:math/rand"
+import "core:time"
 
 Discrete_Model :: struct {
 	// Part II optimization
@@ -164,11 +165,20 @@ Local_Search_Mode :: enum {
 	Cooking,
 }
 
+Cancel_Check :: proc(data: rawptr) -> bool
+
+LS_Control :: struct {
+	cancel_check: Cancel_Check,
+	cancel_data: rawptr,
+	cancelled: ^bool,
+}
+
 MAX_ROUND_CANDIDATES :: 32
 MAX_2_OPT_ATTEMPTS :: 4096
 WORSE_ACCEPT_THRESHOLD :: 256
 MAX_DROP :: ACCEPT_TOL
 MAX_DOWN_HILLS :: 128
+CANCEL_CHECK_SEC :: 0.25
 
 One_Opt_Cand :: struct {
 	tick: int,
@@ -199,12 +209,25 @@ create_pair_orders :: proc(pair_count: int) -> [dynamic]int {
 	return pairs
 }
 
+cancel_requested :: proc(
+	last_check: ^time.Tick,
+	control: ^LS_Control,
+) -> bool {
+	if control == nil || control.cancel_check == nil do return false
+	if time.duration_seconds(time.tick_since(last_check^)) < CANCEL_CHECK_SEC {
+		return false
+	}
+	last_check^ = time.tick_now()
+	return control.cancel_check(control.cancel_data)
+}
+
 local_search :: proc(
 	model: ^Discrete_Model,
 	p: ^Problem,
 	exact_p: ^Raw_Problem,
 	sol: ^Solution,
 	search_mode: Local_Search_Mode,
+	control: ^LS_Control = nil,
 ) -> Discrete_State {
 
 	ilen := discrete_angle_len(model)
@@ -271,6 +294,8 @@ local_search :: proc(
 	best := clone_discrete_cand(current)
 	defer destroy_discrete_cand(&best)
 	has_best := mode == .Polish
+	cancel_last_check := time.tick_now()
+	search_cancelled := false
 
 	// 3. Greedy full 1-opt ±1 rounds
 	//
@@ -301,6 +326,10 @@ local_search :: proc(
 	defer destroy_discrete_cand(&local_current)
 
 	for {
+		if cancel_requested(&cancel_last_check, control) {
+			search_cancelled = true
+			break
+		}
 		local_improved := false
 		resize(&cands, 0)
 		copy_discrete_cand(&local_current, current)
@@ -340,6 +369,7 @@ local_search :: proc(
 				prev_delta = delta
 			}
 		}
+		if search_cancelled do break
 
 		accept := false
 
@@ -413,7 +443,10 @@ local_search :: proc(
 		{ 3,  1}, { 3, -1}, {-3,  1}, {-3, -1},
 	}
 
-	if ilen < 2 do return clone_discrete_state(best.state)
+	if ilen < 2 {
+		if control != nil && control.cancelled != nil do control.cancelled^ = search_cancelled
+		return clone_discrete_state(best.state)
+	}
 
 	if mode == .Polish && (!has_best || improveQ(&current.grade, &best.grade, .Polish)) {
 		copy_discrete_cand(&best, current)
@@ -426,6 +459,11 @@ local_search :: proc(
 	down_hills := 0
 
 	for {
+		if search_cancelled do break
+		if cancel_requested(&cancel_last_check, control) {
+			search_cancelled = true
+			break
+		}
 		accept := false
 		attempts := 0
 		max_attempts := pair_count
@@ -442,6 +480,10 @@ local_search :: proc(
 		}
 
 		for attempts < max_attempts {
+			if cancel_requested(&cancel_last_check, control) {
+				search_cancelled = true
+				break
+			}
 			attempts += 1
 			t0, t1: int
 			if search_mode == .Cooking {
@@ -517,6 +559,7 @@ local_search :: proc(
 
 			if accept do break
 		}
+		if search_cancelled do break
 
 		if !accept do break
 	}
@@ -528,6 +571,7 @@ local_search :: proc(
 		copy_discrete_cand(&best, current)
 	}
 
+	if control != nil && control.cancelled != nil do control.cancelled^ = search_cancelled
 	return clone_discrete_state(best.state)
 }
 

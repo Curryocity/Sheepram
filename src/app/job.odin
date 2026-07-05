@@ -42,6 +42,10 @@ optimizer_cancel_requested :: proc(control: ^Optimizer_Control) -> bool {
 	return sync.atomic_load(&control.cancel_requested)
 }
 
+optimizer_cancel_check :: proc(data: rawptr) -> bool {
+	return optimizer_cancel_requested(cast(^Optimizer_Control)data)
+}
+
 publish_optimizer_progress :: proc(
 	control: ^Optimizer_Control,
 	objective: f64,
