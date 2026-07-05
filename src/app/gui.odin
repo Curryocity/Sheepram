@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:math"
 import "core:strings"
 import "core:sync"
+import "core:time"
 
 import nfd "../nfd"
 import opt "../optimizer"
@@ -237,6 +238,15 @@ center_text :: proc(text: string) {
 	im.TextUnformatted(c_text)
 }
 
+format_duration :: proc(seconds: f64) -> string {
+	whole_seconds := int(seconds)
+	milliseconds := (seconds-f64(whole_seconds))*1000
+	if whole_seconds == 0 {
+		return fmt.aprintf("%.3fms", milliseconds)
+	}
+	return fmt.aprintf("%ds %.3fms", whole_seconds, milliseconds)
+}
+
 draw_selection_rect :: proc(minimum, maximum: im.Vec2) {
 	draw_list := im.GetForegroundDrawList()
 	im.DrawList_AddRect(draw_list, minimum, maximum, im.GetColorU32ImVec4({1, 1, 1, 0.4}), ui_px(3), {}, ui_px(2))
@@ -361,7 +371,7 @@ draw_discrete_search_options :: proc(state: ^Environment) {
 	im.Text("Mode:")
 	im.SameLine(0, ui_px(8))
 	mode := c.int(1 if state.cook else 0)
-	mode_items := [?]cstring{"Standard", "Let Them Cook"}
+	mode_items := [?]cstring{"Standard", "Intense Cooking"}
 	im.SetNextItemWidth(ui_px(160))
 	if combo_select("##discrete_search_mode", &mode, mode_items[:]) {
 		state.cook = mode == 1
@@ -374,7 +384,7 @@ draw_discrete_search_options :: proc(state: ^Environment) {
 		im.SetNextItemWidth(ui_px(120))
 		chefs := c.int(state.chefs)
 		_ = im.InputInt("##chefs", &chefs, 0, 0)
-		state.chefs = clamp(int(chefs), 1, 10000)
+		state.chefs = clamp(int(chefs), 1, 1000)
 	}
 }
 
@@ -860,9 +870,14 @@ draw_optimizer_progress :: proc(tab: ^Tab_State) {
 	} else {
 		im.TextDisabled("Optimizing...")
 	}
+	elapsed_text := format_duration(time.duration_seconds(time.tick_since(job.started_at)))
+	defer delete(elapsed_text)
+	elapsed_c := strings.clone_to_cstring(elapsed_text)
+	defer delete(elapsed_c)
+	im.TextDisabled("Elapsed Time: %s", elapsed_c)
 
 	if !has_best {
-		im.TextDisabled("Waiting for first completed chef.")
+		im.TextDisabled("Waiting...")
 		return
 	}
 
@@ -921,18 +936,34 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	pushed_big := push_font(big_code_font)
 	im.TextColored({0.8, 0.85, 1, 1}, "=> %.12f", solution.optimum)
 	pop_font(pushed_big)
+	compile_time := format_duration(state.compile_time_seconds)
+	defer delete(compile_time)
+	optimize_time := format_duration(state.continuous_time_seconds)
+	defer delete(optimize_time)
 	if state.last_solution_discrete {
+		local_search_time := format_duration(state.discrete_time_seconds)
+		defer delete(local_search_time)
+		compile_c := strings.clone_to_cstring(compile_time)
+		defer delete(compile_c)
+		optimize_c := strings.clone_to_cstring(optimize_time)
+		defer delete(optimize_c)
+		local_search_c := strings.clone_to_cstring(local_search_time)
+		defer delete(local_search_c)
 		im.TextDisabled(
-			"Compile: %.3f ms | Optimize: %.3f ms | Local Search: %.3f ms",
-			state.compile_time_seconds*1000,
-			state.continuous_time_seconds*1000,
-			state.discrete_time_seconds*1000,
+			"Compile: %s | Optimize: %s | Local Search: %s",
+			compile_c,
+			optimize_c,
+			local_search_c,
 		)
 	} else {
+		compile_c := strings.clone_to_cstring(compile_time)
+		defer delete(compile_c)
+		optimize_c := strings.clone_to_cstring(optimize_time)
+		defer delete(optimize_c)
 		im.TextDisabled(
-			"Compile: %.3f ms | Optimize: %.3f ms",
-			state.compile_time_seconds*1000,
-			state.continuous_time_seconds*1000,
+			"Compile: %s | Optimize: %s",
+			compile_c,
+			optimize_c,
 		)
 	}
 	if state.last_solution_cooking {
@@ -953,10 +984,6 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	facings := make([dynamic]f64, count); defer delete(facings)
 	for i in 0..<len(solution.thetas) {
 		if state.last_solution_discrete {
-			// Exact facings are chosen specifically to round-trip through
-			// Minecraft's f32 sine-table indexing. Do not wrap them into
-			// [-180, 180]; equivalent real angles can hit different buckets
-			// because negative values truncate differently.
 			facings[i] = solution.thetas[i]
 		} else {
 			raw_facing := solution.thetas[i]*180/math.PI-state.angle_offset[i]

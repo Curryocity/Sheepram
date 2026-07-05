@@ -240,7 +240,7 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 		starts := 1
 		if state.cook {
 			search_mode = .Cooking
-			starts = clamp(state.chefs, 1, 10000)
+			starts = clamp(state.chefs, 1, 1000)
 		}
 
 		exact_work := opt.make_exact_workspace(n)

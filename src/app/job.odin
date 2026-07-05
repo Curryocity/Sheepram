@@ -2,6 +2,7 @@ package app
 
 import "core:sync"
 import "core:thread"
+import "core:time"
 
 Optimizer_Progress :: struct {
 	mutex: sync.Atomic_Mutex,
@@ -22,6 +23,7 @@ Optimizer_Job :: struct {
 	worker:      ^thread.Thread,
 	environment: Environment,
 	control:     ^Optimizer_Control,
+	started_at:  time.Tick,
 }
 
 optimizer_job_worker :: proc(data: rawptr) {
@@ -71,6 +73,7 @@ start_optimizer_job :: proc(tab: ^Tab_State) -> bool {
 	job.environment = tab.env
 	job.environment.last_solution = nil
 	job.control = new(Optimizer_Control)
+	job.started_at = time.tick_now()
 	job.worker = thread.create_and_start_with_data(
 		rawptr(job),
 		optimizer_job_worker,
