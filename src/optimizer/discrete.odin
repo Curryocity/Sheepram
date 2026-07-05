@@ -251,7 +251,7 @@ local_search :: proc(
 	// initial prep
 
 	update_discrete_trig_cache(&work, trial, model.angle_offset[:])
-	grading(&grade, model, p, trial, &work)
+	grading(&grade, model, p, trial, &work, mode)
 
 	current := Discrete_Cand {
 		state = clone_discrete_state(trial),
@@ -320,7 +320,7 @@ local_search :: proc(
 				trial.indices[t] = offset_index(trial.indices[t], delta)
 
 				update_discrete_trig_cache(&work, trial, model.angle_offset[:])
-				grading(&grade, model, p, trial, &work)
+				grading(&grade, model, p, trial, &work, mode)
 
 				if improveQ(&grade, &local_current.grade, mode) {
 					copy_discrete_state(&local_current.state, trial)
@@ -466,7 +466,7 @@ local_search :: proc(
 				trial.indices[t1] = offset_index(trial.indices[t1], delta[1])
 
 				update_discrete_trig_cache(&work, trial, model.angle_offset[:])
-				grading(&grade, model, p, trial, &work)
+				grading(&grade, model, p, trial, &work, mode)
 
 				if mode == .Repair && improveQ(&grade, &local_current.grade, mode) {
 					copy_discrete_state(&local_current.state, trial)
@@ -531,7 +531,7 @@ local_search :: proc(
 	return clone_discrete_state(best.state)
 }
 
-grading :: proc(out: ^Grade, model: ^Discrete_Model, p: ^Problem, state: Discrete_State, work: ^Workspace) {
+grading :: proc(out: ^Grade, model: ^Discrete_Model, p: ^Problem, state: Discrete_State, work: ^Workspace, mode: Discrete_Mode) {
 	out.objective = eval_discrete_expr(p.objective, state, model.angle_offset[:], work)
 	out.violation_sqr = 0
 	out.feasible = true
@@ -551,6 +551,8 @@ grading :: proc(out: ^Grade, model: ^Discrete_Model, p: ^Problem, state: Discret
 		out.violation_sqr += violation*violation
 		if violation > ACCEPT_TOL do out.feasible = false
 	}
+
+	if mode == .Repair && out.violation_sqr > 0 do out.feasible = false
 }
 
 good_candQ :: proc(
