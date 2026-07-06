@@ -175,6 +175,7 @@ LS_Control :: struct {
 
 MAX_ROUND_CANDIDATES :: 32
 MAX_2_OPT_ATTEMPTS :: 4096
+FAST_ERR :: 5e-7
 WORSE_ACCEPT_THRESHOLD :: 256
 MAX_DROP :: ACCEPT_TOL
 MAX_DOWN_HILLS :: 128
@@ -357,7 +358,7 @@ local_search :: proc(
 					local_improved = true
 				}
 
-				if good_candQ(&grade, &current.grade, mode, search_mode) {
+				if good_candQ(&grade, &current.grade, p, mode, search_mode) {
 					insert_one_opt_cand(&cands, One_Opt_Cand {
 						tick  = t,
 						delta = delta,
@@ -516,7 +517,7 @@ local_search :: proc(
 					local_pair_improved = true
 				}
 
-				if good_candQ(&grade, &current.grade, mode, search_mode) {
+				if good_candQ(&grade, &current.grade, p, mode, search_mode) {
 					exact_grading(&exact_grade, model, exact_p, trial, &exact_work)
 
 					if !exact_grade.feasible do continue
@@ -585,7 +586,7 @@ grading :: proc(out: ^Grade, model: ^Discrete_Model, p: ^Problem, state: Discret
 
 		violation := max(0, value)
 		out.violation_sqr += violation*violation
-		if violation > ACCEPT_TOL do out.feasible = false
+		if violation > FAST_ERR do out.feasible = false
 	}
 
 	for con, i in p.eq_cons {
@@ -599,13 +600,19 @@ grading :: proc(out: ^Grade, model: ^Discrete_Model, p: ^Problem, state: Discret
 	if mode == .Repair && out.violation_sqr > 0 do out.feasible = false
 }
 
+viosqr_tol :: proc(p: ^Problem) -> f64 {
+	constraint_count := len(p.ineq_cons) + len(p.eq_cons)
+	return f64(max(1, constraint_count)) * FAST_ERR * FAST_ERR
+}
+
 good_candQ :: proc(
 	grade: ^Grade,
 	champ: ^Grade,
+	p: ^Problem,
 	mode: Discrete_Mode,
 	search_mode: Local_Search_Mode,
 ) -> bool {
-	if grade.violation_sqr > ACCEPT_TOL*ACCEPT_TOL do return false
+	if grade.violation_sqr > viosqr_tol(p) do return false
 
 	switch mode {
 	case .Repair:
@@ -613,9 +620,9 @@ good_candQ :: proc(
 
 	case .Polish:
 		if search_mode == .Cooking {
-			return grade.objective < champ.objective + max(ACCEPT_TOL, MAX_DROP)
+			return grade.objective < champ.objective + MAX_DROP
 		}
-		return grade.objective < champ.objective + ACCEPT_TOL
+		return grade.objective < champ.objective + FAST_ERR
 	}
 
 	return false
