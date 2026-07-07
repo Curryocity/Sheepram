@@ -15,10 +15,10 @@
   - [ALM Algorithm](#alm-algorithm-outer-loop)
   - [Inner Loop](#inner-loop)
   - [Pseudocode](#pseudocode)
-- [Future Prospects](#future-prospects)
-  - [Significant Angles](#significant-angles)
-  - [Global Search and Solver Reliability](#global-search-and-solver-reliability)
-  - [Discrete Movement Decisions](#discrete-movement-decisions)
+- [Discrete Exact Search](#discrete-exact-search)
+  - [Lookup-Table Angles](#lookup-table-angles)
+  - [Hybrid Continuous-Discrete Solver](#hybrid-continuous-discrete-solver)
+  - [Local Search](#local-search)
 
 ## Project Components
 
@@ -321,7 +321,7 @@ The purpose of line search is to ensure the quality of each iteration (**Wolfe c
 
 Line search is important in practice because it helps prevent divergence when the local quadratic model is inaccurate.
 
-In my project, I use a weaker line search implementation than SciPy: its zoom phase mainly uses binary search instead of polynomial interpolation. I will not go into those details here.
+Sheepram uses a weaker line search implementation than SciPy: its zoom phase mainly uses binary search instead of polynomial interpolation. I will not go into those details here.
 
 ### Pseudocode
 
@@ -336,125 +336,71 @@ loop:
         choose step length α by line search
         update θ ← θ + αp
         update inverse Hessian approximation H
-    end-if stationarity is reached
+    until stationarity is reached
 
     update λ_i ← max(0, λ_i + rho * g_i(θ))
 
     if constraint violation is still large:
         increase rho
-end-if feasibility are reached
+until feasibility is reached
 
-return θ, trajectory, objective value
+return θ and objective value
 ```
 
-## Future Prospects
+## Dealing With Discrete Angles in Minecraft
 
-### Significant Angles
+### Trigonometric Lookup-Table
 
-Minecraft angles are not truly continuous. Minecraft’s trigonometric functions rely on a lookup table with 65,536 precomputed values.
+Minecraft angles are not truly continuous. Minecraft's trigonometric functions
+use a fixed lookup table, so crossing a table boundary causes a small discontinuous change.
+The continuous optimizer deliberately ignores this quantization and solves a
+smooth approximation of the model with ordinary `sin` and `cos`.
 
-```cpp
-static void init(){
-    for (int i = 0; i < 65536; ++i)
-        SIN_TABLE[i] = std::sin(i * PId * 2.0 / 65536.0);
-}
+That continuous solution is still an extremely good approximation of the solution.
+However, simply rounding each angle to the nearest table
+entry is not reliable enough to ensure exact feasibility of the constraints. It
+also misses nearby table entries that may preserve feasibility while improving
+the objective.
 
-static inline float sinr(float rad){
-    return SIN_TABLE[(int)(rad * 10430.378f) & 65535];
-}
+### Hybrid Workflow
 
-static inline float cosr(float rad){
-    return SIN_TABLE[(int)(rad * 10430.378f + 16384.0f) & 65535];
-}
-```
+Sheepram therefore uses the continuous solver as the first phase and the
+discrete solver as the second phase:
 
-Therefore, the movement produced by an angle is piecewise constant with respect
-to that angle. Two nearby yaw values may use the same table entry, while
-crossing a lookup boundary causes a small discontinuous change. The effective
-angular resolution of the table is
+1. Solve the smooth continuous model with ALM and BFGS.
+2. Convert the facing angles to Minecraft sine table index.
+3. Repair the snapped solution if it violates the exact movement model.
+4. Polish the repaired solution while preserving exact feasibility.
+5. Return a solution evaluated with Minecraft-compatible `f32` arithmetic and
+   lookup-table trigonometry.
 
-$$
-\frac{360^\circ}{65536} \approx 0.005493^\circ.
-$$
 
-The current optimizer deliberately ignores this quantization and solves a
-smooth, continuous relaxation using `sin` and `cos`. This is useful for finding
-the overall shape of a strategy, but simply rounding every resulting angle to
-its nearest lookup-table entry is not always sufficient. A tiny change at one
-tick propagates through all later velocities and positions, and may turn a
-barely feasible solution into one that clips the obstacle.
+### Local Search
 
-A promising approach is therefore a **hybrid continuous-discrete solver**. The
-continuous solution should be treated as a high-quality seed, not as the final
-answer:
+The discrete solver uses local search around the snapped continuous solution.
+It has two conceptual modes:
 
-1. Solve the continuous relaxation with ALM and BFGS.
-2. Snap the relevant angles to nearby lookup-table indices.
-3. Repair the snapped solution if the lookup-table model violates constraints.
-4. Polish the repaired solution while preserving feasibility.
-5. Re-evaluate the final candidate with Minecraft-compatible `f32` arithmetic
-   and lookup-table trigonometry.
-
-Only the angles that can affect recorded positions need to be searched. If the
-model has states `0 .. n-1`, then the initial angle remains continuous because
-it defines the initial velocity, while the terminal outgoing angle is ignored
-because it only affects velocity after the final recorded position. The discrete
-search therefore uses
-
-```text
-initial_theta: continuous
-indices:       n - 2 lookup-table buckets
-```
-
-The planned local search has two modes:
-
-- **Repair mode**: no exact-feasible bucket solution has been found yet. The
+- **Repair mode**: no exact-feasible bucket solution has been found yet, so the
   search prioritizes reducing constraint violation.
-- **Polish mode**: an exact-feasible bucket solution exists. The search only
-  accepts changes that preserve exact feasibility and improve the objective.
+- **Polish mode**: an exact-feasible bucket solution exists, so the search tries to
+  keep moves that preserve exact feasibility and improve the objective.
 
-The first search pass is a full best-improvement **1-opt** over `±1` lookup
-indices:
+To stay fast, most candidates are first graded with the compiled discrete
+expression model. Candidates that look promising are then checked with exact
+Minecraft movement simulation. The fast grade is a filter. Exact grading decides
+whether a candidate is truly feasible; it is the verifier.
 
-```text
-for each round:
-    grade every single-index ±1 neighbor
+> the error per expression between fast and exact simulation was tested to be e-7 level
 
-    if in repair mode and no fast-feasible neighbor exists:
-        accept the best violation-reducing neighbor
+The search starts with greedy **1-opt** moves, changing one lookup-table bucket
+at a time. If no useful **1-opt** move remains, it switches to **2-opt**,
+which changes a pair of buckets together. The paired move is important because
+some routes cannot be repaired by changing one tick alone.
 
-    if in repair mode and fast-feasible neighbors exist:
-        exact-check them from best to worst
-        once one is exact-feasible, switch to polish mode
+Regular local search mode is conservative and mostly tries to find the nearest
+feasible polished solution.
 
-    if in polish mode:
-        exact-check fast-feasible objective-improving neighbors
-        accept the first exact-feasible objective improvement
-```
-
-If 1-opt gets stuck, the next step is a randomized greedy **2-opt** pass. It
-randomly chooses a pair of ticks and tries small signed paired moves such as
-
-```text
-±(1, 1), ±(1, 2), ±(1, 3), ±(2, 1), ±(3, 1)
-```
-
-This captures cases where two small bucket changes must be made together: each
-single change may look bad on its own, while the pair repairs the constraint or
-improves the objective.
-
-To keep this search efficient, candidate grading uses the compiled discrete
-expression model. For a fixed lookup-table state, the sine/cosine cache is
-updated once, then reused to evaluate the objective and every constraint. The
-grade stores:
-
-```text
-objective value
-raw inequality constraint values
-raw equality constraint values
-total squared violation
-maximum violation
-feasibility flag
-```
-
-The final accepted solution must still pass exact in-game physics replay. 
+Cooking mode repeats the same idea with more random pair attempts. After a
+feasible solution exists, it may accept limited worse-objective moves, as long
+as they remain exact-feasible. This lets the search step out of a local optimum
+before improving again.
