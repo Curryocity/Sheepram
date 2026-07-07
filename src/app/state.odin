@@ -74,6 +74,7 @@ Environment :: struct {
 	x_origin:      f64,
 	z_origin:      f64,
 	angle_offset:  [N_MAX]f64,
+	last_jump_ticks: [N_MAX]bool,
 	last_error:    [ERROR_CAPACITY]byte,
 }
 
@@ -117,6 +118,7 @@ clear_solution :: proc(state: ^Environment) {
 	state.compile_time_seconds = 0
 	state.continuous_time_seconds = 0
 	state.discrete_time_seconds = 0
+	for &jump_tick in state.last_jump_ticks do jump_tick = false
 }
 
 destroy_tab :: proc(tab: ^Tab_State) {

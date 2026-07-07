@@ -27,6 +27,7 @@ Moth_Compiler :: struct {
 	drag_z: [dynamic]f64,
 	accel:  [dynamic]f64,
 	angle_offset: [dynamic]f64,
+	jump_ticks: [dynamic]bool,
 	init_drag: f64,
 	exact_movement: [dynamic]opt.Exact_Movement,
 	discrete_supported: bool,
@@ -52,6 +53,7 @@ destroy_moth_compiler :: proc(state: ^Moth_Compiler) {
 	delete(state.drag_z)
 	delete(state.accel)
 	delete(state.angle_offset)
+	delete(state.jump_ticks)
 	delete(state.exact_movement)
 	for name in state.variables do delete(name)
 	delete(state.variables)
@@ -117,6 +119,7 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
     append(&state.drag_z, 0)
     append(&state.accel, 0)
     append(&state.angle_offset, 0)
+	append(&state.jump_ticks, false)
 
 	exe_code(state, code)
 
@@ -226,6 +229,7 @@ exe_code :: proc(state: ^Moth_Compiler, code: []Arg) {
 
 				append(&state.accel, final_accel)
 				append(&state.angle_offset, angle_offset)
+				append(&state.jump_ticks, mf.jump)
 				exact_cur := exact_base
 				if force_ix do exact_cur.drag_x = 0
 				if force_iz do exact_cur.drag_z = 0

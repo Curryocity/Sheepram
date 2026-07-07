@@ -179,5 +179,3 @@ exact_grading :: proc(
 		if violation > ACCEPT_TOL do out.feasible = false
 	}
 }
-
-

@@ -118,6 +118,11 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 
 	for &offset in state.angle_offset do offset = 0
 	copy(state.angle_offset[:], m.angle_offset[:])
+	for &jump_tick in state.last_jump_ticks do jump_tick = false
+	for jump_tick, tick in m.jump_ticks {
+		if tick >= len(state.last_jump_ticks) || tick >= n do break
+		state.last_jump_ticks[tick] = jump_tick
+	}
 
 	// 5. Compile the continuous movement recurrence
 	parser := dsl.init_parser(&model)

@@ -112,6 +112,7 @@ poll_optimizer_job :: proc(tab: ^Tab_State) -> bool {
 	state.x_origin = result.x_origin
 	state.z_origin = result.z_origin
 	state.angle_offset = result.angle_offset
+	state.last_jump_ticks = result.last_jump_ticks
 	state.last_error = result.last_error
 
 	free(job.control)

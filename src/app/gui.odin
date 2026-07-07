@@ -238,6 +238,16 @@ center_text :: proc(text: string) {
 	im.TextUnformatted(c_text)
 }
 
+center_text_colored :: proc(text: string, color: im.Vec4) {
+	c_text := strings.clone_to_cstring(text)
+	defer delete(c_text)
+	width := im.GetColumnWidth()
+	text_width := im.CalcTextSize(c_text).x
+	im.SetCursorPosX(im.GetCursorPosX()+(width-text_width)*0.5)
+	im.AlignTextToFramePadding()
+	im.TextColored(color, "%s", c_text)
+}
+
 format_duration :: proc(seconds: f64) -> string {
 	whole_seconds := int(seconds)
 	milliseconds := (seconds-f64(whole_seconds))*1000
@@ -588,6 +598,7 @@ compute_xz_plot_layout :: proc(xs, zs: []f64, size: im.Vec2) -> XZ_Plot_Layout {
 draw_xz_plot :: proc(
 	xs, zs, facings: []f64,
 	vxs, vzs: []string,
+	jump_ticks: []bool,
 	size: im.Vec2,
 	position_precision, angle_precision: int,
 ) {
@@ -620,6 +631,8 @@ draw_xz_plot :: proc(
 	hover_radius_sq := f32(64)
 	hovered_index := -1
 	best_dist_sq := hover_radius_sq
+	default_point_color: u32 = 0xfff0f0f0
+	jump_point_color := im.GetColorU32ImVec4({0.72, 0.62, 0.95, 1})
 
 	for gx := int(math.ceil(canvas_min_x)); gx <= int(math.floor(canvas_max_x)); gx += 1 {
 		x := to_screen(f64(gx), layout.center_z, center, layout).x
@@ -640,6 +653,7 @@ draw_xz_plot :: proc(
 	}
 	for i in 0..<len(xs) {
 		point := to_screen(xs[i], zs[i], center, layout)
+		jump_point := i < len(jump_ticks) && jump_ticks[i]
 		if plot_hovered {
 			dx, dy := point.x-mouse.x, point.y-mouse.y
 			dist_sq := dx*dx+dy*dy
@@ -648,11 +662,13 @@ draw_xz_plot :: proc(
 				hovered_index = i
 			}
 		}
-		im.DrawList_AddCircleFilled(draw_list, point, 3.5, 0xfff0f0f0)
+		im.DrawList_AddCircleFilled(draw_list, point, 3.5, jump_point_color if jump_point else default_point_color)
 	}
 	if hovered_index >= 0 {
 		point := to_screen(xs[hovered_index], zs[hovered_index], center, layout)
-		im.DrawList_AddCircle(draw_list, point, 7, 0xdcffffff, 0, 1.8)
+		jump_point := hovered_index < len(jump_ticks) && jump_ticks[hovered_index]
+		hover_color := jump_point_color if jump_point else 0xdcffffff
+		im.DrawList_AddCircle(draw_list, point, 7, hover_color, 0, 1.8)
 	}
 	im.DrawList_PopClipRect(draw_list)
 
@@ -1039,7 +1055,7 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	viewport_size.y += ui_px(50)
 	im.BeginChild("PlotScroll", {viewport_size.x, viewport_size.y+ui_px(20)}, {.Borders}, {.HorizontalScrollbar})
 	if im.IsWindowAppearing() do im.SetScrollX(max(0, 0.5*(canvas_width-viewport_size.x)))
-	draw_xz_plot(xvals[:], zvals[:], facings[:], vxvals[:], vzvals[:], {canvas_width, viewport_size.y}, position_precision, angle_precision)
+	draw_xz_plot(xvals[:], zvals[:], facings[:], vxvals[:], vzvals[:], state.last_jump_ticks[:], {canvas_width, viewport_size.y}, position_precision, angle_precision)
 	im.EndChild()
 	im.Spacing(); im.Spacing()
 
@@ -1074,9 +1090,14 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 		widths := [?]f32{50, 100, 100, 120, 120, 120, 120, 120, 100}
 		for i in 0..<9 do im.TableSetupColumn(headers[i], {.WidthFixed}, ui_px(widths[i]))
 		im.TableNextRow({.Headers}, ui_px(20))
-		for i in 0..<9 {im.TableSetColumnIndex(c.int(i)); center_text(string(headers[i]))}
+		for i in 0..<9 {
+			im.TableSetColumnIndex(c.int(i))
+			center_text(string(headers[i]))
+		}
+		jump_text_color := im.Vec4{0.72, 0.62, 0.95, 1}
 		for tick in 0..<count {
 			im.TableNextRow({}, ui_px(20))
+			jump_row := tick < len(state.last_jump_ticks) && state.last_jump_ticks[tick]
 			angle := "-" if tick >= count-1 else fmt.tprintf("%.3f", facings[tick])
 			values := [?]string{
 				fmt.tprintf("%d", tick),
@@ -1091,7 +1112,11 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 			}
 			for column in 0..<9 {
 				im.TableSetColumnIndex(c.int(column))
-				center_text(values[column])
+				if jump_row {
+					center_text_colored(values[column], jump_text_color)
+				} else {
+					center_text(values[column])
+				}
 			}
 		}
 		im.EndTable()
