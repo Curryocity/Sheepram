@@ -75,8 +75,8 @@ r(3) { s.w sa.w }
 | `initGnd(vel)`/ `initAir(vel)` | Sets the initial velocity. Two variants differs by previous slip (initGnd takes the current slip when it is executed). One of them must appear exactly once and should normally be the first command. |
 | `slip(value)` | Sets the ground slipperiness used by subsequent ground movements. The default is `0.6`. |
 | `speed(level)`/`slow(level)` | Sets the Speed/Slowness effect level. The level must be a whole number from `0` to `255`. |
-| `ix` | Forces X inertia on the first tick of the next movement by setting its X drag to zero. |
-| `iz` | Forces Z inertia on the first tick of the next movement by setting its Z drag to zero. |
+| `ix` / `ix(ticks)` | Forces X inertia by setting X drag to zero for the next movement tick, or for the next positive-integer number of movement ticks. Calling `ix(...)` while an X inertia queue is still active is an error. |
+| `iz` / `iz(ticks)` | Forces Z inertia by setting Z drag to zero for the next movement tick, or for the next positive-integer number of movement ticks. Calling `iz(...)` while a Z inertia queue is still active is an error. |
 | `mv(drag, accel, duration = 1)` | Adds a custom movement segment with the given drag, acceleration and optional duration. |
 | `r(count) { ... }` | Repeats a non-empty block of movement functions and commands. `loop(...)` and `repeat(...)` are aliases. |
 
