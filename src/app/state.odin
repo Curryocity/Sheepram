@@ -75,6 +75,7 @@ Environment :: struct {
 	z_origin:      f64,
 	angle_offset:  [N_MAX]f64,
 	last_jump_ticks: [N_MAX]bool,
+	color_jump_ticks: bool,
 	last_error:    [ERROR_CAPACITY]byte,
 }
 
@@ -156,6 +157,7 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	buffer_set(tab.name_draft[:], buffer_string(tab.name[:]))
 	tab.env.curr_obj = .X
 	tab.env.chefs = 5
+	tab.env.color_jump_ticks = true
 	tab.env.post.position_precision = 6
 	buffer_set(tab.env.dir_x[:], "0")
 	buffer_set(tab.env.dir_z[:], "0")

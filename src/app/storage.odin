@@ -187,6 +187,7 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	env.cook = saved.cook
 	env.chefs = clamp(saved.chefs, 1, 1000)
 	env.curr_obj = Objective_Type(saved.curr_obj)
+	env.color_jump_ticks = true
 	buffer_set(env.movement_script[:], saved.movement_script)
 	buffer_set(env.obj_script[:], saved.obj_script)
 	buffer_set(env.constraint_script[:], saved.constraint_script)

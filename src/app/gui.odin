@@ -599,6 +599,7 @@ draw_xz_plot :: proc(
 	xs, zs, facings: []f64,
 	vxs, vzs: []string,
 	jump_ticks: []bool,
+	color_jump_ticks: bool,
 	size: im.Vec2,
 	position_precision, angle_precision: int,
 ) {
@@ -653,7 +654,7 @@ draw_xz_plot :: proc(
 	}
 	for i in 0..<len(xs) {
 		point := to_screen(xs[i], zs[i], center, layout)
-		jump_point := i < len(jump_ticks) && jump_ticks[i]
+		jump_point := color_jump_ticks && i < len(jump_ticks) && jump_ticks[i]
 		if plot_hovered {
 			dx, dy := point.x-mouse.x, point.y-mouse.y
 			dist_sq := dx*dx+dy*dy
@@ -666,7 +667,7 @@ draw_xz_plot :: proc(
 	}
 	if hovered_index >= 0 {
 		point := to_screen(xs[hovered_index], zs[hovered_index], center, layout)
-		jump_point := hovered_index < len(jump_ticks) && jump_ticks[hovered_index]
+		jump_point := color_jump_ticks && hovered_index < len(jump_ticks) && jump_ticks[hovered_index]
 		hover_color := jump_point_color if jump_point else 0xdcffffff
 		im.DrawList_AddCircle(draw_list, point, 7, hover_color, 0, 1.8)
 	}
@@ -1055,8 +1056,10 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	viewport_size.y += ui_px(50)
 	im.BeginChild("PlotScroll", {viewport_size.x, viewport_size.y+ui_px(20)}, {.Borders}, {.HorizontalScrollbar})
 	if im.IsWindowAppearing() do im.SetScrollX(max(0, 0.5*(canvas_width-viewport_size.x)))
-	draw_xz_plot(xvals[:], zvals[:], facings[:], vxvals[:], vzvals[:], state.last_jump_ticks[:], {canvas_width, viewport_size.y}, position_precision, angle_precision)
+	draw_xz_plot(xvals[:], zvals[:], facings[:], vxvals[:], vzvals[:], state.last_jump_ticks[:], state.color_jump_ticks, {canvas_width, viewport_size.y}, position_precision, angle_precision)
 	im.EndChild()
+	im.Spacing()
+	_ = im.Checkbox(" Color jump ticks", &state.color_jump_ticks)
 	im.Spacing(); im.Spacing()
 
 	draw_constraint_results(solution, state.last_solution_discrete)
@@ -1097,7 +1100,7 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 		jump_text_color := im.Vec4{0.72, 0.62, 0.95, 1}
 		for tick in 0..<count {
 			im.TableNextRow({}, ui_px(20))
-			jump_row := tick < len(state.last_jump_ticks) && state.last_jump_ticks[tick]
+			jump_row := state.color_jump_ticks && tick < len(state.last_jump_ticks) && state.last_jump_ticks[tick]
 			angle := "-" if tick >= count-1 else fmt.tprintf("%.3f", facings[tick])
 			values := [?]string{
 				fmt.tprintf("%d", tick),
