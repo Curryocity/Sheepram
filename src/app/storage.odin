@@ -27,6 +27,10 @@ Saved_Tab :: struct {
 	discrete_search:   bool       `json:"discreteSearch"`,
 	cook:              bool       `json:"cook"`,
 	chefs:             int        `json:"chefs"`,
+	initial_angle_deg: f64       `json:"initialAngleDeg"`,
+	multistart:        bool       `json:"multistart"`,
+	try_preset_initial_angles: bool `json:"tryPresetInitialAngles,omitempty"`,
+	initial_angle_samples: int    `json:"initialAngleSamples"`,
 	curr_obj:          int        `json:"currObj"`,
 	movement_script:   string     `json:"movementScript"`,
 	global_names:      []string   `json:"globalNames"`,
@@ -67,6 +71,9 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 		discrete_search   = env.discrete_search,
 		cook              = env.cook,
 		chefs             = env.chefs,
+		initial_angle_deg = env.continuous_initial_angle_degrees,
+		multistart        = env.continuous_scan_initial_angles,
+		initial_angle_samples = env.continuous_initial_angle_samples,
 		curr_obj          = int(env.curr_obj),
 		movement_script   = buffer_string(env.movement_script[:]),
 		global_names      = make([]string, env.var_capacity),
@@ -137,7 +144,7 @@ commit_tab_title :: proc(tab: ^Tab_State) {
 }
 
 load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
-	saved: Saved_Tab
+	saved := Saved_Tab{initial_angle_deg = 45, initial_angle_samples = 8}
 	if err := json.unmarshal(data, &saved, allocator = context.allocator); err != nil {
 		return strings.clone("Invalid JSON file.")
 	}
@@ -186,6 +193,9 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	env.discrete_search = saved.discrete_search
 	env.cook = saved.cook
 	env.chefs = clamp(saved.chefs, 1, 1000)
+	env.continuous_initial_angle_degrees = saved.initial_angle_deg
+	env.continuous_scan_initial_angles = saved.multistart || saved.try_preset_initial_angles
+	env.continuous_initial_angle_samples = clamp(saved.initial_angle_samples, 8, 256)
 	env.curr_obj = Objective_Type(saved.curr_obj)
 	env.color_jump_ticks = true
 	buffer_set(env.movement_script[:], saved.movement_script)

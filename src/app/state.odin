@@ -4,7 +4,6 @@ import "core:fmt"
 import opt "../optimizer"
 
 N_MIN :: 1
-N_MAX :: 256
 MAX_TABS :: 16
 MAX_GLOBALS :: 128
 
@@ -48,6 +47,9 @@ Environment :: struct {
 	discrete_search: bool,
 	cook: bool,
 	chefs: int,
+	continuous_initial_angle_degrees: f64,
+	continuous_scan_initial_angles: bool,
+	continuous_initial_angle_samples: int,
 
 	curr_obj:  Objective_Type,
 	dir_x:     [CELL_CAPACITY]byte,
@@ -73,8 +75,8 @@ Environment :: struct {
 	discrete_time_seconds:   f64,
 	x_origin:      f64,
 	z_origin:      f64,
-	angle_offset:  [N_MAX]f64,
-	last_jump_ticks: [N_MAX]bool,
+	angle_offset:  [dynamic]f64,
+	last_jump_ticks: [dynamic]bool,
 	color_jump_ticks: bool,
 	last_error:    [ERROR_CAPACITY]byte,
 }
@@ -119,7 +121,10 @@ clear_solution :: proc(state: ^Environment) {
 	state.compile_time_seconds = 0
 	state.continuous_time_seconds = 0
 	state.discrete_time_seconds = 0
-	for &jump_tick in state.last_jump_ticks do jump_tick = false
+	delete(state.angle_offset)
+	state.angle_offset = nil
+	delete(state.last_jump_ticks)
+	state.last_jump_ticks = nil
 }
 
 destroy_tab :: proc(tab: ^Tab_State) {
@@ -157,6 +162,8 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	buffer_set(tab.name_draft[:], buffer_string(tab.name[:]))
 	tab.env.curr_obj = .X
 	tab.env.chefs = 5
+	tab.env.continuous_initial_angle_degrees = 45
+	tab.env.continuous_initial_angle_samples = 8
 	tab.env.color_jump_ticks = true
 	tab.env.post.position_precision = 6
 	buffer_set(tab.env.dir_x[:], "0")

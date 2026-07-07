@@ -84,14 +84,13 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", m.err))
 		return
 	}
-	if m.n < N_MIN || m.n > N_MAX {
+	if m.n < N_MIN {
 		set_error(
 			state,
 			fmt.tprintf(
-				"Error:\nMovement script generated %d states; expected range: %d to %d",
+				"Error:\nMovement script generated %d states; expected at least %d",
 				m.n,
 				N_MIN,
-				N_MAX,
 			),
 		)
 		return
@@ -116,11 +115,13 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	m.accel = nil
 	defer opt.destroy_model(&model)
 
-	for &offset in state.angle_offset do offset = 0
-	copy(state.angle_offset[:], m.angle_offset[:])
-	for &jump_tick in state.last_jump_ticks do jump_tick = false
+	delete(state.angle_offset)
+	state.angle_offset = make([dynamic]f64, n)
+	copy(state.angle_offset[:], m.angle_offset[:n])
+	delete(state.last_jump_ticks)
+	state.last_jump_ticks = make([dynamic]bool, n)
 	for jump_tick, tick in m.jump_ticks {
-		if tick >= len(state.last_jump_ticks) || tick >= n do break
+		if tick >= n do break
 		state.last_jump_ticks[tick] = jump_tick
 	}
 
@@ -218,7 +219,23 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	// 11. Phase I: solve the continuous problem
 	solution := new(opt.Solution)
 	optimize_start := time.tick_now()
-	solution^ = opt.optimize(&model, &problem)
+	initial_theta := f64(state.continuous_initial_angle_degrees) * math.PI / 180
+	if state.continuous_scan_initial_angles {
+		sample_count := clamp(state.continuous_initial_angle_samples, 8, 256)
+		seeds := make([dynamic]f64, sample_count)
+		defer delete(seeds)
+		for i in 0..<sample_count {
+			seeds[i] = 2 * math.PI * f64(i) / f64(sample_count)
+		}
+		best_seed_index: int
+		solution^, best_seed_index = opt.optimize_best_of(&model, &problem, seeds[:])
+		if best_seed_index >= 0 && best_seed_index < sample_count {
+			state.continuous_initial_angle_degrees = 360 * f64(best_seed_index) / f64(sample_count)
+		}
+		state.continuous_scan_initial_angles = false
+	} else {
+		solution^ = opt.optimize(&model, &problem, initial_theta)
+	}
 	for &theta in solution.thetas do theta = wrap_radians_pi(theta)
 	state.continuous_time_seconds = time.duration_seconds(time.tick_since(optimize_start))
 

@@ -373,9 +373,9 @@ draw_postprocessor :: proc(state: ^Environment) {
 }
 
 draw_discrete_search_options :: proc(state: ^Environment) {
-	if !im.CollapsingHeader("Discrete Local Search", {.DefaultOpen}) do return
+	im.SeparatorText("Discrete Local Search")
 
-	_ = im.Checkbox("Enable", &state.discrete_search)
+	_ = im.Checkbox(" Enable", &state.discrete_search)
 
 	im.AlignTextToFramePadding()
 	im.Text("Mode:")
@@ -396,6 +396,43 @@ draw_discrete_search_options :: proc(state: ^Environment) {
 		_ = im.InputInt("##chefs", &chefs, 0, 0)
 		state.chefs = clamp(int(chefs), 1, 1000)
 	}
+}
+
+draw_continuous_optimizer_options :: proc(state: ^Environment) {
+	im.SeparatorText("Continuous Optimizer")
+	im.AlignTextToFramePadding()
+	im.Text("Initial Guess:")
+	im.SameLine()
+	initial_angle := state.continuous_initial_angle_degrees
+	im.SetNextItemWidth(ui_px(90))
+	if im.InputDouble("deg##continuous_initial_angle", &initial_angle, 0, 0, "%.6g") {
+		state.continuous_initial_angle_degrees = initial_angle
+	}
+	_ = im.Checkbox("##continuous_multistart", &state.continuous_scan_initial_angles)
+	im.SameLine(0, ui_px(8))
+	im.AlignTextToFramePadding()
+	im.Text("Multistart")
+	im.SameLine(0, ui_px(8))
+	im.AlignTextToFramePadding()
+	im.Text("|")
+	im.SameLine(0, ui_px(8))
+	im.AlignTextToFramePadding()
+	im.Text("Uniform Samples:")
+	im.SameLine(0, ui_px(8))
+	sample_index := c.int(0)
+	sample_values := [?]int{8, 16, 32, 64, 128, 256}
+	for value, i in sample_values {
+		if state.continuous_initial_angle_samples == value {
+			sample_index = c.int(i)
+			break
+		}
+	}
+	sample_items := [?]cstring{"8", "16", "32", "64", "128", "256"}
+	im.SetNextItemWidth(ui_px(80))
+	if combo_select("##continuous_initial_angle_samples", &sample_index, sample_items[:]) {
+		state.continuous_initial_angle_samples = sample_values[sample_index]
+	}
+	im.TextDisabled("(Slower) Use when it seems stuck at a local optimum.")
 }
 
 draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
@@ -533,7 +570,12 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 
 	// === Postprocessing ===
 	draw_postprocessor(state)
-	draw_discrete_search_options(state)
+
+	// === Engine Settings ===
+	if im.CollapsingHeader("Engine Settings", {.DefaultOpen}) {
+		draw_continuous_optimizer_options(state)
+		draw_discrete_search_options(state)
+	}
 
 	// === Optimize Button ===
 	if tab.optimizer_job != nil {
@@ -868,18 +910,17 @@ draw_optimizer_progress :: proc(tab: ^Tab_State) {
 	progress := &job.control.progress
 	has_best: bool
 	best_objective: f64
-	angle_count: int
-	angles: [N_MAX]f64
 	completed_chefs, total_chefs: int
 
 	sync.atomic_mutex_lock(&progress.mutex)
 	has_best = progress.has_best
 	best_objective = progress.best_objective
-	angle_count = progress.angle_count
-	copy(angles[:angle_count], progress.angles[:angle_count])
+	angles := make([dynamic]f64, len(progress.angles))
+	copy(angles[:], progress.angles[:])
 	completed_chefs = progress.completed_chefs
 	total_chefs = progress.total_chefs
 	sync.atomic_mutex_unlock(&progress.mutex)
+	defer delete(angles)
 
 	cancel_requested := optimizer_cancel_requested(job.control)
 	if cancel_requested {
@@ -911,9 +952,9 @@ draw_optimizer_progress :: proc(tab: ^Tab_State) {
 		)
 	}
 
-	display_facings := format_angle_list(angles[:angle_count], false, ", ")
+	display_facings := format_angle_list(angles[:], false, ", ")
 	defer delete(display_facings)
-	copied_facings := format_angle_list(angles[:angle_count], false, copy_separator(tab.env.post.copy_separator))
+	copied_facings := format_angle_list(angles[:], false, copy_separator(tab.env.post.copy_separator))
 	defer delete(copied_facings)
 	read_only_block("Best Facing", display_facings, copied_facings)
 }
@@ -1003,7 +1044,9 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 		if state.last_solution_discrete {
 			facings[i] = solution.thetas[i]
 		} else {
-			raw_facing := solution.thetas[i]*180/math.PI-state.angle_offset[i]
+			offset := 0.0
+			if i < len(state.angle_offset) do offset = state.angle_offset[i]
+			raw_facing := solution.thetas[i]*180/math.PI-offset
 			wrapped := wrap_degrees_180(raw_facing)
 			facings[i] = math.round(200*wrapped)*0.005
 		}

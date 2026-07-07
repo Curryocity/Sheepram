@@ -8,8 +8,7 @@ Optimizer_Progress :: struct {
 	mutex: sync.Atomic_Mutex,
 	has_best: bool,
 	best_objective: f64,
-	angle_count: int,
-	angles: [N_MAX]f64,
+	angles: [dynamic]f64,
 	completed_chefs: int,
 	total_chefs: int,
 }
@@ -24,6 +23,13 @@ Optimizer_Job :: struct {
 	environment: Environment,
 	control:     ^Optimizer_Control,
 	started_at:  time.Tick,
+	continuous_multistart_requested: bool,
+}
+
+destroy_optimizer_control :: proc(control: ^Optimizer_Control) {
+	if control == nil do return
+	delete(control.progress.angles)
+	free(control)
 }
 
 optimizer_job_worker :: proc(data: rawptr) {
@@ -59,8 +65,8 @@ publish_optimizer_progress :: proc(
 
 	progress.has_best = true
 	progress.best_objective = objective
-	progress.angle_count = min(len(angles), N_MAX)
-	copy(progress.angles[:progress.angle_count], angles[:progress.angle_count])
+	resize(&progress.angles, len(angles))
+	copy(progress.angles[:], angles)
 	progress.completed_chefs = completed_chefs
 	progress.total_chefs = total_chefs
 }
@@ -76,6 +82,7 @@ start_optimizer_job :: proc(tab: ^Tab_State) -> bool {
 	job := new(Optimizer_Job)
 	job.environment = tab.env
 	job.environment.last_solution = nil
+	job.continuous_multistart_requested = tab.env.continuous_scan_initial_angles
 	job.control = new(Optimizer_Control)
 	job.started_at = time.tick_now()
 	job.worker = thread.create_and_start_with_data(
@@ -83,7 +90,7 @@ start_optimizer_job :: proc(tab: ^Tab_State) -> bool {
 		optimizer_job_worker,
 	)
 	if job.worker == nil {
-		free(job.control)
+		destroy_optimizer_control(job.control)
 		free(job)
 		buffer_set(tab.env.last_error[:], "Error:\nFailed to start optimizer thread.")
 		return false
@@ -109,13 +116,19 @@ poll_optimizer_job :: proc(tab: ^Tab_State) -> bool {
 	state.compile_time_seconds = result.compile_time_seconds
 	state.continuous_time_seconds = result.continuous_time_seconds
 	state.discrete_time_seconds = result.discrete_time_seconds
+	if job.continuous_multistart_requested {
+		state.continuous_initial_angle_degrees = result.continuous_initial_angle_degrees
+		state.continuous_scan_initial_angles = false
+	}
 	state.x_origin = result.x_origin
 	state.z_origin = result.z_origin
 	state.angle_offset = result.angle_offset
+	result.angle_offset = nil
 	state.last_jump_ticks = result.last_jump_ticks
+	result.last_jump_ticks = nil
 	state.last_error = result.last_error
 
-	free(job.control)
+	destroy_optimizer_control(job.control)
 	free(job)
 	tab.optimizer_job = nil
 	return true
@@ -127,7 +140,7 @@ destroy_optimizer_job :: proc(tab: ^Tab_State) {
 	request_optimizer_cancel(tab)
 	thread.destroy(job.worker)
 	clear_solution(&job.environment)
-	free(job.control)
+	destroy_optimizer_control(job.control)
 	free(job)
 	tab.optimizer_job = nil
 }
