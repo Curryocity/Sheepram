@@ -15,9 +15,9 @@
   - [ALM Algorithm](#alm-algorithm-outer-loop)
   - [Inner Loop](#inner-loop)
   - [Pseudocode](#pseudocode)
-- [Discrete Exact Search](#discrete-exact-search)
-  - [Lookup-Table Angles](#lookup-table-angles)
-  - [Hybrid Continuous-Discrete Solver](#hybrid-continuous-discrete-solver)
+- [Dealing With Discrete Angles in Minecraft](#dealing-with-discrete-angles-in-minecraft)
+  - [Trigonometric Lookup-Table](#trigonometric-lookup-table)
+  - [Hybrid Workflow](#hybrid-workflow)
   - [Local Search](#local-search)
 
 ## Project Components
