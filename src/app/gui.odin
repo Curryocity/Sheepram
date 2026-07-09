@@ -92,6 +92,8 @@ apply_ui_size :: proc(level: int, theme: Theme) {
 		im.Style_ScaleAllSizes(style, new_scale)
 	}
 	style.WindowBorderHoverPadding = max(style.WindowBorderHoverPadding, f32(1))
+	style.SeparatorSize = max(style.SeparatorSize, f32(1))
+	style.SeparatorTextBorderSize = max(style.SeparatorTextBorderSize, f32(1))
 	ui_scale = new_scale
 	font_index := clamped_level-1
 	code_font = code_fonts[font_index]
