@@ -323,11 +323,13 @@ Then open `Sheepram.desktop` from your desktop environment.
 
 ## User Data Location
 
-Sheepram stores preferences and presets in the user data directory:
+Sheepram stores preferences and presets in the user data directory. By default:
 
 * macOS: `~/Library/Application Support/Sheepram`
-* Windows: `%APPDATA%\Sheepram`
+* Windows: `%LOCALAPPDATA%\Sheepram`
 * Linux: `~/.local/share/Sheepram`
+
+The legacy C++ version used `%APPDATA%\Sheepram` on Windows.
 
 ## Build and run from source
 
