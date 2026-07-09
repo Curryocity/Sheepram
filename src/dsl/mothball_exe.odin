@@ -555,6 +555,7 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 			append(&state.drag_z, drag_z)
 			append(&state.accel, accel)
 			append(&state.angle_offset, 0)
+			append(&state.jump_ticks, false)
 		}
 		state.n += duration
 		return
