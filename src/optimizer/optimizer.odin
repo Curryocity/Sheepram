@@ -51,6 +51,26 @@ Workspace :: struct {
 	temp_g:    [dynamic]f64,
 	sin_cache: [dynamic]f64,
 	cos_cache: [dynamic]f64,
+	gradient:  [dynamic]Compiled_Expr,
+}
+
+make_workspace :: proc(n: int) -> Workspace {
+	work := Workspace {
+		temp_g    = make([dynamic]f64, n),
+		sin_cache = make([dynamic]f64, n),
+		cos_cache = make([dynamic]f64, n),
+		gradient  = make([dynamic]Compiled_Expr, n),
+	}
+	for i in 0..<n do work.gradient[i] = make_compiled_expr(n)
+	return work
+}
+
+destroy_workspace :: proc(work: ^Workspace) {
+	delete(work.temp_g)
+	delete(work.sin_cache)
+	delete(work.cos_cache)
+	destroy_compiled_expr_array(&work.gradient)
+	work^ = {}
 }
 
 destroy_model :: proc(model: ^Model) {
@@ -362,28 +382,17 @@ solution_better :: proc(candidate: ^Solution, candidate_violation: f64, best: ^S
 	return candidate.optimum < best.optimum
 }
 
-solution_violation :: proc(problem: ^Problem, solution: ^Solution) -> f64 {
-	work := Workspace {
-		temp_g    = make([dynamic]f64, problem.n),
-		sin_cache = make([dynamic]f64, problem.n),
-		cos_cache = make([dynamic]f64, problem.n),
-	}
-	defer delete(work.temp_g)
-	defer delete(work.sin_cache)
-	defer delete(work.cos_cache)
-	return constraint_violation(problem, solution.thetas[:], &work)
-}
-
-optimize :: proc(model: ^Model, problem: ^Problem, seed: f64 = math.PI/4) -> Solution {
+optimize_with_workspace :: proc(
+	model: ^Model,
+	problem: ^Problem,
+	seed: f64,
+	work: ^Workspace,
+) -> Solution {
 	n := model.n
-	work := Workspace {
-		temp_g    = make([dynamic]f64, n),
-		sin_cache = make([dynamic]f64, n),
-		cos_cache = make([dynamic]f64, n),
-	}
-	defer delete(work.temp_g)
-	defer delete(work.sin_cache)
-	defer delete(work.cos_cache)
+	assert(len(work.temp_g) == n)
+	assert(len(work.sin_cache) == n)
+	assert(len(work.cos_cache) == n)
+	assert(len(work.gradient) == n)
 
 	thetas := make([dynamic]f64, n)
 	for &theta in thetas do theta = seed
@@ -399,20 +408,20 @@ optimize :: proc(model: ^Model, problem: ^Problem, seed: f64 = math.PI/4) -> Sol
 	max_outer :: 25
 	for _ in 0..<max_outer {
 		// [Outer Loop]: Augmented Lagrangian Method
-		bfgs(thetas[:], problem, lamb[:], nu[:], pen, &work)
+		bfgs(thetas[:], problem, lamb[:], nu[:], pen, work)
 
 		// Update multipliers
 		max_gi := 0.0
 		max_hj := 0.0
-		update_trig_cache(&work, thetas[:])
+		update_trig_cache(work, thetas[:])
 
 		for i in 0..<len(problem.ineq_cons) {
-			gi := eval(problem.ineq_cons[i], thetas[:], &work)
+			gi := eval(problem.ineq_cons[i], thetas[:], work)
 			lamb[i] = max(0.0, lamb[i]+pen*gi)
 			max_gi = max(max_gi, max(0.0, gi))
 		}
 		for j in 0..<len(problem.eq_cons) {
-			hj := eval(problem.eq_cons[j], thetas[:], &work)
+			hj := eval(problem.eq_cons[j], thetas[:], work)
 			nu[j] += pen*hj
 			max_hj = max(max_hj, math.abs(hj))
 		}
@@ -433,26 +442,34 @@ optimize :: proc(model: ^Model, problem: ^Problem, seed: f64 = math.PI/4) -> Sol
 		xs     = make([dynamic]f64, n),
 		zs     = make([dynamic]f64, n),
 	}
-	update_trig_cache(&work, thetas[:])
-	solution.optimum = eval(problem.objective, thetas[:], &work)
+	update_trig_cache(work, thetas[:])
+	solution.optimum = eval(problem.objective, thetas[:], work)
 	for i in 0..<n {
-		solution.xs[i] = eval(model.x[i], thetas[:], &work)
-		solution.zs[i] = eval(model.z[i], thetas[:], &work)
+		solution.xs[i] = eval(model.x[i], thetas[:], work)
+		solution.zs[i] = eval(model.z[i], thetas[:], work)
 	}
 
 	return solution
 }
 
-optimize_best_of :: proc(model: ^Model, problem: ^Problem, seeds: []f64) -> (Solution, int) {
-	if len(seeds) == 0 do return optimize(model, problem, 0), -1
+optimize :: proc(model: ^Model, problem: ^Problem, seed: f64 = math.PI/4) -> Solution {
+	work := make_workspace(model.n)
+	defer destroy_workspace(&work)
+	return optimize_with_workspace(model, problem, seed, &work)
+}
 
-	best := optimize(model, problem, seeds[0])
-	best_violation := solution_violation(problem, &best)
+optimize_best_of :: proc(model: ^Model, problem: ^Problem, seeds: []f64) -> (Solution, int) {
+	work := make_workspace(model.n)
+	defer destroy_workspace(&work)
+	if len(seeds) == 0 do return optimize_with_workspace(model, problem, 0, &work), -1
+
+	best := optimize_with_workspace(model, problem, seeds[0], &work)
+	best_violation := constraint_violation(problem, best.thetas[:], &work)
 	best_index := 0
 
 	for seed, index in seeds[1:] {
-		candidate := optimize(model, problem, seed)
-		candidate_violation := solution_violation(problem, &candidate)
+		candidate := optimize_with_workspace(model, problem, seed, &work)
+		candidate_violation := constraint_violation(problem, candidate.thetas[:], &work)
 
 		if solution_better(&candidate, candidate_violation, &best, best_violation) {
 			destroy_solution(&best)

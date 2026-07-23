@@ -254,12 +254,8 @@ local_search :: proc(
 		trial.indices[i] = index(f32(facing))
 	}
 
-	work := Workspace {
-		sin_cache = make([dynamic]f64, model.n),
-		cos_cache = make([dynamic]f64, model.n),
-	}
-	defer delete(work.sin_cache)
-	defer delete(work.cos_cache)
+	work := make_workspace(model.n)
+	defer destroy_workspace(&work)
 
 	exact_work := make_exact_workspace(model.n)
 	defer destroy_exact_workspace(&exact_work)

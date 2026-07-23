@@ -189,6 +189,9 @@ $$
 
 where $\lambda_i$ are the Lagrange multipliers and $\rho$ is the penalty parameter.
 
+> **Implementation note:**
+The expression above is a simplified explanation, not the exact ALM form used by Sheepram. For inequalities $g_i(\theta)\leq 0$, I used $\frac{1}{2\rho}\left(\max(0,\lambda_i+\rho g_i(\theta))^2-\lambda_i^2\right)$. Equality constraints are still $\nu_j h_j(\theta)+\frac{\rho}{2}h_j(\theta)^2$. Might explain this in the future.
+
 ### ALM Algorithm (Outer Loop)
 
 #### Step 1: Solve the unconstrained subproblem
