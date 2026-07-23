@@ -2,7 +2,7 @@ package optimizer
 
 import "core:math"
 
-optimize_new :: proc(model: ^Model, problem: ^Problem, seed: f64 = math.PI / 4) -> Solution {
+snowpea_optimize :: proc(model: ^Model, problem: ^Problem, seed: f64 = math.PI / 4) -> Solution {
 	n := model.n
 	work := make_workspace(n)
 	defer destroy_workspace(&work)
@@ -27,8 +27,9 @@ optimize_new :: proc(model: ^Model, problem: ^Problem, seed: f64 = math.PI / 4) 
 
 	max_vio := math.INF_F64
 	prev_max_vio := max_vio
+	update_effective_multipliers(thetas[:], problem, lamb[:], nu[:], pen, eff_lamb[:], eff_nu[:], &work)
 
-	max_outer :: 25
+	max_outer :: 100
 	for _ in 0..<max_outer {
 		// [Outer Loop]: Augmented Lagrangian Method
 		frozen_solve(thetas[:], problem, eff_lamb[:], eff_nu[:], &work)
@@ -40,18 +41,18 @@ optimize_new :: proc(model: ^Model, problem: ^Problem, seed: f64 = math.PI / 4) 
 
 		for i in 0..<len(problem.ineq_cons) {
 			gi := eval(problem.ineq_cons[i], thetas[:], &work)
-            max_gi = max(max_gi, max(0.0, gi))
+			max_gi = max(max_gi, max(0.0, gi))
 
 			lamb[i] = max(0.0, lamb[i] + pen * gi)
-            eff_lamb[i] = max(0.0, lamb[i] + pen * gi)
+			eff_lamb[i] = max(0.0, lamb[i] + pen * gi)
 
 		}
 		for j in 0..<len(problem.eq_cons) {
 			hj := eval(problem.eq_cons[j], thetas[:], &work)
-            max_hj = max(max_hj, math.abs(hj))
+			max_hj = max(max_hj, math.abs(hj))
 
 			nu[j] += pen * hj
-            eff_nu[j] += pen * hj
+			eff_nu[j] = nu[j] + pen * hj
 
 		}
 		max_vio = max(max_gi, max_hj)
@@ -61,7 +62,10 @@ optimize_new :: proc(model: ^Model, problem: ^Problem, seed: f64 = math.PI / 4) 
 
 		// Increase penalty if violation didn't decrease enough
 		// The exact parameters here are questionable but works fine at the moment
-		if max_vio > 0.5 * prev_max_vio do pen *= 2
+		if max_vio > 0.5 * prev_max_vio {
+			pen *= 2
+			update_effective_multipliers(thetas[:], problem, lamb[:], nu[:], pen, eff_lamb[:], eff_nu[:], &work)
+		}
 		prev_max_vio = max_vio
 	}
 
@@ -79,6 +83,30 @@ optimize_new :: proc(model: ^Model, problem: ^Problem, seed: f64 = math.PI / 4) 
 	}
 
 	return solution
+}
+
+update_effective_multipliers :: proc(
+	thetas: []f64,
+	problem: ^Problem,
+	lamb, nu: []f64,
+	pen: f64,
+	eff_lamb, eff_nu: []f64,
+	work: ^Workspace,
+) {
+	assert(len(lamb) == len(problem.ineq_cons))
+	assert(len(nu) == len(problem.eq_cons))
+	assert(len(eff_lamb) == len(lamb))
+	assert(len(eff_nu) == len(nu))
+
+	update_trig_cache(work, thetas)
+	for constraint, i in problem.ineq_cons {
+		gi := eval(constraint, thetas, work)
+		eff_lamb[i] = max(0.0, lamb[i] + pen * gi)
+	}
+	for constraint, j in problem.eq_cons {
+		hj := eval(constraint, thetas, work)
+		eff_nu[j] = nu[j] + pen * hj
+	}
 }
 
 // Solving for ALM's gradient's zero while freezing the effective multiplier
