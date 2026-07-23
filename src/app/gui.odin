@@ -1046,10 +1046,7 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 		if state.last_solution_discrete {
 			facings[i] = solution.thetas[i]
 		} else {
-			offset := 0.0
-			if i < len(state.angle_offset) do offset = state.angle_offset[i]
-			raw_facing := solution.thetas[i]*180/math.PI-offset
-			wrapped := wrap_degrees_180(raw_facing)
+			wrapped := wrap_degrees_180(solution.thetas[i]*180/math.PI)
 			facings[i] = math.round(200*wrapped)*0.005
 		}
 	}

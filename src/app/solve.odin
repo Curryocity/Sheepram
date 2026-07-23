@@ -369,6 +369,12 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 		solution.optimum *= -1 // Invert solution again when maximizing
 	}
 
+	if !state.last_solution_discrete {
+		for &theta, i in solution.thetas {
+			theta -= m.angle_offset[i]*math.PI/180
+		}
+	}
+
 	for constraint in constraints {
 		residual := eval_raw_solution(constraint.lhs, solution, state.last_solution_discrete)
 		margin := math.abs(residual) if constraint.cmp == .Equal else -residual
