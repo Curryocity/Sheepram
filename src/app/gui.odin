@@ -73,8 +73,8 @@ ui_scale_for_level :: proc(level: int) -> f32 {
 	return scales[clamp(level, 1, 3)-1]
 }
 
-ui_px :: proc(value: f32) -> f32 {
-	return value*ui_scale
+ui_px :: proc(value: f32, min_px: f32 = 1) -> f32 {
+	return max(value*ui_scale, min_px)
 }
 
 ui_pad :: proc(value: f32) -> f32 {
@@ -91,9 +91,6 @@ apply_ui_size :: proc(level: int, theme: Theme) {
 		style^ = base_style
 		im.Style_ScaleAllSizes(style, new_scale)
 	}
-	style.WindowBorderHoverPadding = max(style.WindowBorderHoverPadding, f32(1))
-	style.SeparatorSize = max(style.SeparatorSize, f32(1))
-	style.SeparatorTextBorderSize = max(style.SeparatorTextBorderSize, f32(1))
 	ui_scale = new_scale
 	font_index := clamped_level-1
 	code_font = code_fonts[font_index]
@@ -203,6 +200,10 @@ apply_theme :: proc(theme: Theme) {
 	style.GrabRounding = ui_px(4)
 	style.ScrollbarRounding = ui_px(6)
 	style.WindowBorderSize = ui_px(1)
+	style.ChildBorderSize = ui_px(1)
+	style.WindowBorderHoverPadding = ui_px(4)
+	style.SeparatorSize = ui_px(1)
+	style.SeparatorTextBorderSize = ui_px(3)
 	style.FrameBorderSize = 0
 	style.WindowPadding = {ui_pad(12), ui_pad(10)}
 	style.FramePadding = {ui_px(9), ui_px(6)}
