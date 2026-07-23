@@ -374,7 +374,7 @@ solution_violation :: proc(problem: ^Problem, solution: ^Solution) -> f64 {
 	return constraint_violation(problem, solution.thetas[:], &work)
 }
 
-optimize_from_seed :: proc(model: ^Model, problem: ^Problem, seed: f64) -> Solution {
+optimize :: proc(model: ^Model, problem: ^Problem, seed: f64 = math.PI/4) -> Solution {
 	n := model.n
 	work := Workspace {
 		temp_g    = make([dynamic]f64, n),
@@ -444,14 +444,14 @@ optimize_from_seed :: proc(model: ^Model, problem: ^Problem, seed: f64) -> Solut
 }
 
 optimize_best_of :: proc(model: ^Model, problem: ^Problem, seeds: []f64) -> (Solution, int) {
-	if len(seeds) == 0 do return optimize_from_seed(model, problem, 0), -1
+	if len(seeds) == 0 do return optimize(model, problem, 0), -1
 
-	best := optimize_from_seed(model, problem, seeds[0])
+	best := optimize(model, problem, seeds[0])
 	best_violation := solution_violation(problem, &best)
 	best_index := 0
 
 	for seed, index in seeds[1:] {
-		candidate := optimize_from_seed(model, problem, seed)
+		candidate := optimize(model, problem, seed)
 		candidate_violation := solution_violation(problem, &candidate)
 
 		if solution_better(&candidate, candidate_violation, &best, best_violation) {
@@ -465,8 +465,4 @@ optimize_best_of :: proc(model: ^Model, problem: ^Problem, seeds: []f64) -> (Sol
 	}
 
 	return best, best_index
-}
-
-optimize :: proc(model: ^Model, problem: ^Problem, initial_theta: f64 = math.PI/4) -> Solution {
-	return optimize_from_seed(model, problem, initial_theta)
 }
