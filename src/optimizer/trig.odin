@@ -110,8 +110,3 @@ compute_index_facing :: proc "contextless" (idx: u16) -> f64 {
 
 	return f64(base) * step
 }
-
-
-same_trig_bucketQ :: proc "contextless" (deg: f32, idx: u16) -> bool {
-	return facing_sin_index(deg) == idx
-}

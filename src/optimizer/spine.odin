@@ -2,8 +2,6 @@ package optimizer
 
 import "core:math"
 
-// Spine uses the expressions' diagonal curvature as its backbone and
-// constraint-Jacobian products as the connections between angle variables.
 STRUCTURED_MAX_INNER        :: 64
 STRUCTURED_MAX_DAMPING_TRIES :: 8
 STRUCTURED_MAX_LINE_SEARCH  :: 16
@@ -146,29 +144,6 @@ spine_evaluate :: proc(
 	return value
 }
 
-// Applies the damped structured Hessian without constructing its dense
-// angle-space matrix. Kept as the reference operation for solver tests.
-spine_hessian_product :: proc(
-	out, vector, diagonal, jacobian: []f64,
-	active: []bool,
-	pen, damping: f64,
-) {
-	n := len(vector)
-	for tick in 0..<n {
-		out[tick] = (diagonal[tick] + damping) * vector[tick]
-	}
-	for row in 0..<len(active) {
-		if !active[row] do continue
-		row_dot := 0.0
-		for tick in 0..<n {
-			row_dot += jacobian[row * n + tick] * vector[tick]
-		}
-		for tick in 0..<n {
-			out[tick] +=
-				pen * jacobian[row * n + tick] * row_dot
-		}
-	}
-}
 
 spine_prepare_schur :: proc(
 	step, inverse_diagonal, rhs: []f64,
@@ -347,8 +322,6 @@ spine_inner_solve :: proc(
 	assert(len(jacobian) == constraint_count * n)
 	assert(len(active) == constraint_count)
 
-	// BFGS's gradual curvature learning is useful for selecting the basin.
-	// Once there, the structured Newton system gives the cheaper local solve.
 	bfgs(thetas, problem, lamb, nu, pen, work, STRUCTURED_BFGS_WARMUP_STEPS)
 
 	damping := 1e-4
@@ -492,16 +465,14 @@ spine_optimize_from_thetas :: proc(
 		was_feasible := has_feasible
 		if max_vio < CONTINUOUS_TOL {
 			objective_value := eval(problem.objective, thetas[:], work)
-			// Polishing can cross a basin boundary. Preserve the best feasible
-			// point so extra KKT work cannot make the returned result worse.
+
 			if !has_feasible || objective_value < best_feasible_value {
 				copy(best_feasible_thetas[:], thetas[:])
 				best_feasible_value = objective_value
 			}
 			has_feasible = true
 			if !was_feasible {
-				// Usually feasibility and complementarity arrive together.
-				// Polish only when multiplier convergence clearly lags behind.
+
 				polish_needed = max_complementarity >= ACCEPT_TOL
 			}
 		}
