@@ -73,11 +73,6 @@ destroy_discrete_cand :: proc(cand: ^Discrete_Cand) {
 	cand^ = {}
 }
 
-destroy_discrete_cand_arr :: proc(cands: ^[dynamic]Discrete_Cand) {
-	for i in 0..<len(cands^) do destroy_discrete_cand(&cands^[i])
-	delete(cands^)
-}
-
 destroy_discrete_model :: proc(model: ^Discrete_Model) {
 	delete(model.exact_movement)
 	delete(model.angle_offset)

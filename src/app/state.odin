@@ -21,6 +21,17 @@ Objective_Type :: enum {
 	Custom,
 }
 
+Continuous_Optimizer :: enum {
+	BFGS,
+	Spine,
+	Pancake,
+}
+
+Pancake_Secondary :: enum {
+	Spine,
+	BFGS,
+}
+
 Separator_Type :: enum {
 	Comma,
 	Space,
@@ -50,6 +61,8 @@ Environment :: struct {
 	continuous_initial_angle_degrees: f64,
 	continuous_scan_initial_angles: bool,
 	continuous_initial_angle_samples: int,
+	continuous_optimizer: Continuous_Optimizer,
+	pancake_secondary:    Pancake_Secondary,
 
 	curr_obj:  Objective_Type,
 	dir_x:     [CELL_CAPACITY]byte,
@@ -161,6 +174,7 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	buffer_set(tab.name[:], fmt.tprintf("Untitled %d", tab_id))
 	buffer_set(tab.name_draft[:], buffer_string(tab.name[:]))
 	tab.env.curr_obj = .X
+	tab.env.continuous_optimizer = .Pancake
 	tab.env.chefs = 5
 	tab.env.continuous_initial_angle_degrees = 45
 	tab.env.continuous_initial_angle_samples = 8

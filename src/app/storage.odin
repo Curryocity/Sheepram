@@ -31,6 +31,8 @@ Saved_Tab :: struct {
 	multistart:        bool       `json:"multistart"`,
 	try_preset_initial_angles: bool `json:"tryPresetInitialAngles,omitempty"`,
 	initial_angle_samples: int    `json:"initialAngleSamples"`,
+	continuous_optimizer: int     `json:"continuousOptimizer,omitempty"`,
+	pancake_secondary:    int     `json:"pancakeSecondary,omitempty"`,
 	curr_obj:          int        `json:"currObj"`,
 	movement_script:   string     `json:"movementScript"`,
 	global_names:      []string   `json:"globalNames"`,
@@ -74,6 +76,8 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 		initial_angle_deg = env.continuous_initial_angle_degrees,
 		multistart        = env.continuous_scan_initial_angles,
 		initial_angle_samples = env.continuous_initial_angle_samples,
+		continuous_optimizer = int(env.continuous_optimizer),
+		pancake_secondary    = int(env.pancake_secondary),
 		curr_obj          = int(env.curr_obj),
 		movement_script   = buffer_string(env.movement_script[:]),
 		global_names      = make([]string, env.var_capacity),
@@ -168,6 +172,19 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	if saved.curr_obj < int(Objective_Type.X) || saved.curr_obj > int(Objective_Type.Custom) {
 		return strings.clone("Invalid field: currObj")
 	}
+	// Brief development builds stored Pancake + BFGS as engine value 3.
+	if saved.continuous_optimizer == 3 {
+		saved.continuous_optimizer = int(Continuous_Optimizer.Pancake)
+		saved.pancake_secondary = int(Pancake_Secondary.BFGS)
+	}
+	if saved.continuous_optimizer < int(Continuous_Optimizer.BFGS) ||
+	   saved.continuous_optimizer > int(Continuous_Optimizer.Pancake) {
+		return strings.clone("Invalid field: continuousOptimizer")
+	}
+	if saved.pancake_secondary < int(Pancake_Secondary.Spine) ||
+	   saved.pancake_secondary > int(Pancake_Secondary.BFGS) {
+		return strings.clone("Invalid field: pancakeSecondary")
+	}
 	if strings.trim_space(saved.movement_script) == "" {
 		return strings.clone("movementScript cannot be empty")
 	}
@@ -196,6 +213,8 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	env.continuous_initial_angle_degrees = saved.initial_angle_deg
 	env.continuous_scan_initial_angles = saved.multistart || saved.try_preset_initial_angles
 	env.continuous_initial_angle_samples = clamp(saved.initial_angle_samples, 8, 256)
+	env.continuous_optimizer = Continuous_Optimizer(saved.continuous_optimizer)
+	env.pancake_secondary = Pancake_Secondary(saved.pancake_secondary)
 	env.curr_obj = Objective_Type(saved.curr_obj)
 	env.color_jump_ticks = true
 	buffer_set(env.movement_script[:], saved.movement_script)

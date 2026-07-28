@@ -101,6 +101,7 @@ test_current_postprocessor_origins_round_trip :: proc(t: ^testing.T) {
 
 	buffer_set(tab.env.post.x_origin[:], "x1 + 0.3")
 	buffer_set(tab.env.post.z_origin[:], "Z[n] - 0.6")
+	tab.env.continuous_optimizer = .Pancake
 
 	data, save_err := build_tab_json(tab)
 	defer delete(data)
@@ -117,6 +118,39 @@ test_current_postprocessor_origins_round_trip :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, buffer_string(loaded.env.post.x_origin[:]), "x1 + 0.3")
 	testing.expect_value(t, buffer_string(loaded.env.post.z_origin[:]), "Z[n] - 0.6")
+	testing.expect_value(t, loaded.env.continuous_optimizer, Continuous_Optimizer.Pancake)
+}
+
+@(test)
+test_pancake_bfgs_optimizer_round_trip :: proc(t: ^testing.T) {
+	tab := make_default_tab(103)
+	defer destroy_tab(tab)
+	tab.env.continuous_optimizer = .Pancake
+	tab.env.pancake_secondary = .BFGS
+
+	data, save_err := build_tab_json(tab)
+	defer delete(data)
+	defer delete(save_err)
+	testing.expect_value(t, save_err, "")
+	if save_err != "" do return
+
+	loaded := make_default_tab(104)
+	defer destroy_tab(loaded)
+	load_err := load_tab_from_json(loaded, data)
+	defer delete(load_err)
+	testing.expect_value(t, load_err, "")
+	if load_err != "" do return
+
+	testing.expect_value(
+		t,
+		loaded.env.continuous_optimizer,
+		Continuous_Optimizer.Pancake,
+	)
+	testing.expect_value(
+		t,
+		loaded.env.pancake_secondary,
+		Pancake_Secondary.BFGS,
+	)
 }
 
 @(test)

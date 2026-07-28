@@ -17,6 +17,13 @@ make_compiled_expr :: proc(n: int) -> Compiled_Expr {
 	}
 }
 
+pure_position_expr :: proc(expr: Compiled_Expr) -> bool {
+	for coefficient in expr.theta_coeff {
+		if math.abs(coefficient) > EPS do return false
+	}
+	return true
+}
+
 clone_compiled_expr :: proc(expr: Compiled_Expr) -> Compiled_Expr {
 	out := make_compiled_expr(len(expr.theta_coeff))
 	out.constant = expr.constant

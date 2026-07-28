@@ -38,6 +38,20 @@ wrap_radians_pi :: proc(rad: f64) -> f64 {
 	return wrapped-math.PI
 }
 
+solution_is_finite :: proc(solution: ^opt.Solution) -> bool {
+	if math.is_nan(solution.optimum) || math.is_inf(solution.optimum, 0) do return false
+	for theta in solution.thetas {
+		if math.is_nan(theta) || math.is_inf(theta, 0) do return false
+	}
+	for x in solution.xs {
+		if math.is_nan(x) || math.is_inf(x, 0) do return false
+	}
+	for z in solution.zs {
+		if math.is_nan(z) || math.is_inf(z, 0) do return false
+	}
+	return true
+}
+
 run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	// 0. Reset optimizer
 	clear_solution(state)
@@ -214,30 +228,77 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 
 	problem := opt.reduce_problem(&raw_problem, model, m.angle_offset[:])
 	defer opt.destroy_problem(&problem)
+	if !opt.pure_position_expr(problem.objective) {
+		set_error(state, "Error:\nFacing and turn expressions (F and T) are not allowed in the objective.")
+		return
+	}
 	state.compile_time_seconds = time.duration_seconds(time.tick_since(compile_start))
 
 	// 11. Phase I: solve the continuous problem
 	solution := new(opt.Solution)
 	optimize_start := time.tick_now()
 	initial_theta := f64(state.continuous_initial_angle_degrees) * math.PI / 180
+	pancake_fallback := opt.Pancake_Fallback.Spine
+	if state.pancake_secondary == .BFGS {
+		pancake_fallback = .BFGS
+	}
+	if state.continuous_optimizer == .Pancake {
+		state.continuous_scan_initial_angles = false
+	}
 	if state.continuous_scan_initial_angles {
 		sample_count := clamp(state.continuous_initial_angle_samples, 8, 256)
-		seeds := make([dynamic]f64, sample_count)
-		defer delete(seeds)
-		for i in 0..<sample_count {
-			seeds[i] = 2 * math.PI * f64(i) / f64(sample_count)
-		}
+			seeds := make([dynamic]f64, sample_count)
+			defer delete(seeds)
+			for i in 0..<sample_count {
+				seed_degrees := 360 * f64(i) / f64(sample_count)
+				seeds[i] = seed_degrees * math.PI / 180
+			}
 		best_seed_index: int
-		solution^, best_seed_index = opt.optimize_best_of(&model, &problem, seeds[:])
+		switch state.continuous_optimizer {
+		case .Pancake:
+			solution^ = opt.pancake_optimize(
+				&model,
+				&problem,
+				pancake_fallback,
+			)
+			best_seed_index = -1
+		case .Spine:
+			solution^, best_seed_index = opt.spine_optimize_best_of(&model, &problem, seeds[:])
+		case .BFGS:
+			solution^, best_seed_index = opt.optimize_best_of(&model, &problem, seeds[:])
+		}
 		if best_seed_index >= 0 && best_seed_index < sample_count {
 			state.continuous_initial_angle_degrees = 360 * f64(best_seed_index) / f64(sample_count)
 		}
 		state.continuous_scan_initial_angles = false
 	} else {
-		solution^ = opt.optimize(&model, &problem, initial_theta)
+		switch state.continuous_optimizer {
+		case .Pancake:
+			solution^ = opt.pancake_optimize(
+				&model,
+				&problem,
+				pancake_fallback,
+			)
+		case .Spine:
+			solution^ = opt.spine_optimize(&model, &problem, initial_theta)
+		case .BFGS:
+			solution^ = opt.optimize(&model, &problem, initial_theta)
+		}
+	}
+	if !solution_is_finite(solution) {
+		opt.destroy_solution(solution)
+		free(solution)
+		set_error(state, "Error:\nThe continuous optimizer returned a non-finite solution.")
+		return
 	}
 	for &theta in solution.thetas do theta = wrap_radians_pi(theta)
 	state.continuous_time_seconds = time.duration_seconds(time.tick_since(optimize_start))
+	continuous_globally_certified := solution.continuous_globally_optimal
+	continuous_pancake_used := solution.pancake_used
+	continuous_pancake_used_recovery := solution.pancake_used_recovery
+	continuous_pancake_recovery_reasons :=
+		solution.pancake_recovery_reasons
+	continuous_pancake_dual_bound := solution.pancake_dual_bound
 
 	// 12. Phase II: optimize the discrete/exact model when requested
 	if state.discrete_search {
@@ -354,6 +415,14 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 
 		exact_solution := opt.create_exact_solution(&discrete_model, best_discrete_state)
 		exact_solution.optimum = eval_raw_solution(raw_problem.objective, &exact_solution, true)
+		exact_solution.continuous_globally_optimal = continuous_globally_certified
+		exact_solution.pancake_used = continuous_pancake_used
+		exact_solution.pancake_used_recovery =
+			continuous_pancake_used_recovery
+		exact_solution.pancake_recovery_reasons =
+			continuous_pancake_recovery_reasons
+		exact_solution.pancake_dual_bound =
+			continuous_pancake_dual_bound
 
 		opt.destroy_solution(solution)
 		solution^ = exact_solution
@@ -367,6 +436,7 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	// 13. Convert optimizer-space results back into UI/reporting-space results
 	if state.maximize {
 		solution.optimum *= -1 // Invert solution again when maximizing
+		if solution.pancake_used do solution.pancake_dual_bound *= -1
 	}
 
 	if !state.last_solution_discrete {

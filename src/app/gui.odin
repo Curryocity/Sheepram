@@ -404,38 +404,81 @@ draw_discrete_search_options :: proc(state: ^Environment) {
 draw_continuous_optimizer_options :: proc(state: ^Environment) {
 	im.SeparatorText("Continuous Optimizer")
 	im.AlignTextToFramePadding()
-	im.Text("Initial Guess:")
-	im.SameLine()
-	initial_angle := state.continuous_initial_angle_degrees
-	im.SetNextItemWidth(ui_px(90))
-	if im.InputDouble("deg##continuous_initial_angle", &initial_angle, 0, 0, "%.6g") {
-		state.continuous_initial_angle_degrees = initial_angle
+	im.Text("Engine:")
+	im.SameLine(0, ui_px(8))
+	engine := c.int(state.continuous_optimizer)
+	engine_items := [?]cstring{
+		"Classic",
+		"Spine",
+		"Pancake",
 	}
-	_ = im.Checkbox("##continuous_multistart", &state.continuous_scan_initial_angles)
-	im.SameLine(0, ui_px(8))
-	im.AlignTextToFramePadding()
-	im.Text("Multistart")
-	im.SameLine(0, ui_px(8))
-	im.AlignTextToFramePadding()
-	im.Text("|")
-	im.SameLine(0, ui_px(8))
-	im.AlignTextToFramePadding()
-	im.Text("Uniform Samples:")
-	im.SameLine(0, ui_px(8))
-	sample_index := c.int(0)
-	sample_values := [?]int{8, 16, 32, 64, 128, 256}
-	for value, i in sample_values {
-		if state.continuous_initial_angle_samples == value {
-			sample_index = c.int(i)
-			break
+	im.SetNextItemWidth(ui_px(230))
+	if combo_select("##continuous_optimizer", &engine, engine_items[:]) {
+		state.continuous_optimizer = Continuous_Optimizer(engine)
+		if state.continuous_optimizer == .Pancake {
+			state.continuous_scan_initial_angles = false
 		}
 	}
-	sample_items := [?]cstring{"8", "16", "32", "64", "128", "256"}
-	im.SetNextItemWidth(ui_px(80))
-	if combo_select("##continuous_initial_angle_samples", &sample_index, sample_items[:]) {
-		state.continuous_initial_angle_samples = sample_values[sample_index]
+	if state.continuous_optimizer == .Pancake {
+		state.continuous_scan_initial_angles = false
+	} else {
+		im.AlignTextToFramePadding()
+		im.Text("Initial Guess:")
+		im.SameLine()
+		initial_angle := state.continuous_initial_angle_degrees
+		im.SetNextItemWidth(ui_px(90))
+		if im.InputDouble(
+			"deg##continuous_initial_angle",
+			&initial_angle,
+			0,
+			0,
+			"%.9g",
+		) {
+			state.continuous_initial_angle_degrees = initial_angle
+		}
+
+		_ = im.Checkbox("##continuous_multistart", &state.continuous_scan_initial_angles)
+		im.SameLine(0, ui_px(8))
+		im.AlignTextToFramePadding()
+		im.Text("Multistart")
+		im.SameLine(0, ui_px(8))
+		im.AlignTextToFramePadding()
+		im.Text("|")
+		im.SameLine(0, ui_px(8))
+		im.AlignTextToFramePadding()
+		im.Text("Uniform Samples:")
+		im.SameLine(0, ui_px(8))
+		sample_index := c.int(0)
+		sample_values := [?]int{8, 16, 32, 64, 128, 256}
+		for value, i in sample_values {
+			if state.continuous_initial_angle_samples == value {
+				sample_index = c.int(i)
+				break
+			}
+		}
+		sample_items := [?]cstring{"8", "16", "32 (Recommended)", "64", "128", "256"}
+		im.SetNextItemWidth(ui_px(155))
+		if combo_select("##continuous_initial_angle_samples", &sample_index, sample_items[:]) {
+			state.continuous_initial_angle_samples = sample_values[sample_index]
+		}
+		im.TextDisabled("(Slower) Use when it seems stuck at a local optimum.")
 	}
-	im.TextDisabled("(Slower) Use when it seems stuck at a local optimum.")
+
+	if state.continuous_optimizer == .Pancake {
+		im.AlignTextToFramePadding()
+		im.Text("Recovery Engine:")
+		im.SameLine(0, ui_px(8))
+		secondary := c.int(state.pancake_secondary)
+		secondary_items := [?]cstring{"Spine", "Classic"}
+		im.SetNextItemWidth(ui_px(180))
+		if combo_select(
+			"##pancake_secondary",
+			&secondary,
+			secondary_items[:],
+		) {
+			state.pancake_secondary = Pancake_Secondary(secondary)
+		}
+	}
 }
 
 draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
@@ -1039,6 +1082,51 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 			"Discrete" if state.last_solution_discrete else "Continuous",
 		)
 	}
+	if solution.pancake_used {
+		im.Spacing()
+		pushed_ui := push_font(ui_font)
+		im.Text("Pancake Log")
+		pop_font(pushed_ui)
+		recovery_text: cstring =
+			"true" if solution.pancake_used_recovery else "false"
+		im.TextDisabled(
+			"Used Recovery Engine: %s",
+			recovery_text,
+		)
+		if solution.pancake_used_recovery {
+			reasons := solution.pancake_recovery_reasons
+			reason_codes := strings.builder_make()
+			defer strings.builder_destroy(&reason_codes)
+			first := true
+			if .Facing_Constraint in reasons {
+				strings.write_string(&reason_codes, "1")
+				first = false
+			}
+			if .Non_Unit_Vector_Strength in reasons {
+				if !first do strings.write_string(&reason_codes, ", ")
+				strings.write_string(&reason_codes, "2")
+				first = false
+			}
+			if .Large_Dual_Gap in reasons {
+				if !first do strings.write_string(&reason_codes, ", ")
+				strings.write_string(&reason_codes, "3")
+				first = false
+			}
+			if .Infeasible_Solution in reasons {
+				if !first do strings.write_string(&reason_codes, ", ")
+				strings.write_string(&reason_codes, "4")
+			}
+			reason_codes_text := strings.to_string(reason_codes)
+			reason_codes_c := strings.clone_to_cstring(reason_codes_text)
+			defer delete(reason_codes_c)
+			im.TextDisabled("Reason: %s", reason_codes_c)
+			im.TextDisabled("1. Facing constraint exists")
+			im.TextDisabled("2. Non-unit vector strength")
+			im.TextDisabled("3. Large dual gap")
+			im.TextDisabled("4. Infeasible solution")
+		}
+		im.TextDisabled("Dual Bound: %.12f", solution.pancake_dual_bound)
+	}
 	im.Spacing(); im.Spacing()
 
 	count := len(solution.xs)
@@ -1415,7 +1503,7 @@ draw_split_app :: proc(app_state: ^App_State) {
 		available := im.GetContentRegionAvail()
 		divider := ui_px(8)
 		min_panel_width := ui_px(250)
-		if tab.left_width <= 0 do tab.left_width = available.x*0.7
+		if tab.left_width <= 0 do tab.left_width = (available.x-divider)*0.5
 		tab.left_width = clamp(tab.left_width, min_panel_width, available.x-min_panel_width-divider)
 		right_width := available.x-tab.left_width-divider
 

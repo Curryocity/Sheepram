@@ -4,6 +4,8 @@ import "core:math"
 
 EPS :: 1e-12
 ACCEPT_TOL :: 1e-5
+CONTINUOUS_TOL :: 5e-7
+CONTINUOUS_MAX_OUTER :: 50
 
 Cmp :: enum {
 	Less,
@@ -39,19 +41,30 @@ Problem :: struct {
 	eq_cons:   [dynamic]Compiled_Expr,
 }
 
+assert_valid_objective :: proc(problem: ^Problem) {
+	assert(
+		pure_position_expr(problem.objective),
+		"Optimization objective cannot contain theta terms",
+	)
+}
+
 Solution :: struct {
-	optimum: f64,
-	thetas:  [dynamic]f64,
-	xs:      [dynamic]f64,
-	zs:      [dynamic]f64,
-	constraints: [dynamic]Constraint_Result,
+	optimum:                       f64,
+	continuous_globally_optimal: bool,
+	pancake_used:                  bool,
+	pancake_used_recovery:         bool,
+	pancake_recovery_reasons:      Pancake_Recovery_Reasons,
+	pancake_dual_bound:            f64,
+	thetas:                        [dynamic]f64,
+	xs:                            [dynamic]f64,
+	zs:                            [dynamic]f64,
+	constraints:                   [dynamic]Constraint_Result,
 }
 
 Workspace :: struct {
 	temp_g:    [dynamic]f64,
 	sin_cache: [dynamic]f64,
 	cos_cache: [dynamic]f64,
-	gradient:  [dynamic]Compiled_Expr,
 }
 
 make_workspace :: proc(n: int) -> Workspace {
@@ -59,9 +72,7 @@ make_workspace :: proc(n: int) -> Workspace {
 		temp_g    = make([dynamic]f64, n),
 		sin_cache = make([dynamic]f64, n),
 		cos_cache = make([dynamic]f64, n),
-		gradient  = make([dynamic]Compiled_Expr, n),
 	}
-	for i in 0..<n do work.gradient[i] = make_compiled_expr(n)
 	return work
 }
 
@@ -69,7 +80,6 @@ destroy_workspace :: proc(work: ^Workspace) {
 	delete(work.temp_g)
 	delete(work.sin_cache)
 	delete(work.cos_cache)
-	destroy_compiled_expr_array(&work.gradient)
 	work^ = {}
 }
 
@@ -149,30 +159,36 @@ compute_aug_l :: proc(
 	pen: f64,
 	work: ^Workspace,
 ) -> f64 {
-	// Evaluates Augmented Lagrangian's value & gradient
+	// Evaluates the augmented Lagrangian and optionally gradient.
+	compute_gradient := len(g_out) > 0
+	assert(!compute_gradient || len(g_out) == problem.n)
 	update_trig_cache(work, thetas)
 
 	value := eval(problem.objective, thetas, work)
-	grad(problem.objective, thetas, g_out, work)
+	if compute_gradient do grad(problem.objective, thetas, g_out, work)
 
 	for i in 0..<len(problem.ineq_cons) {
 		ineq := problem.ineq_cons[i]
 		v_ineq := eval(ineq, thetas, work)
-		grad(ineq, thetas, work.temp_g[:], work)
 
 		t := max(0.0, lamb[i]+v_ineq*pen)
 		value += 0.5/pen*(t*t-lamb[i]*lamb[i])
-		add_scaled(g_out, work.temp_g[:], t)
+		if compute_gradient {
+			grad(ineq, thetas, work.temp_g[:], work)
+			add_scaled(g_out, work.temp_g[:], t)
+		}
 	}
 
 	for j in 0..<len(problem.eq_cons) {
 		eq := problem.eq_cons[j]
 		v_eq := eval(eq, thetas, work)
-		grad(eq, thetas, work.temp_g[:], work)
 
 		value += nu[j]*v_eq
 		value += 0.5*pen*v_eq*v_eq
-		add_scaled(g_out, work.temp_g[:], nu[j]+pen*v_eq)
+		if compute_gradient {
+			grad(eq, thetas, work.temp_g[:], work)
+			add_scaled(g_out, work.temp_g[:], nu[j]+pen*v_eq)
+		}
 	}
 	return value
 }
@@ -187,51 +203,108 @@ Line_Search_Ctx :: struct {
 	val:       f64,
 	deri:      f64,
 	work:      ^Workspace,
-	temp_grad: [dynamic]f64,
-	trial:     [dynamic]f64,
+	temp_grad: []f64,
+	trial:     []f64,
 }
 
 line_search_phi :: proc(ctx: ^Line_Search_Ctx, alpha: f64, grad_out: []f64) -> f64 {
 	for i in 0..<ctx.problem.n {
 		ctx.trial[i] = ctx.thetas[i]+alpha*ctx.step[i]
 	}
-	return compute_aug_l(
-		grad_out,
-		ctx.trial[:],
-		ctx.problem,
-		ctx.lamb,
-		ctx.nu,
-		ctx.pen,
-		ctx.work,
-	)
+	return compute_aug_l(grad_out, ctx.trial[:], ctx.problem, ctx.lamb, ctx.nu, ctx.pen, ctx.work)
 }
 
-line_search_zoom :: proc(ctx: ^Line_Search_Ctx, lo_in, hi_in: f64) -> f64 {
+polynomial_zoom_trial :: proc(
+	lo, hi: f64,
+	val_lo, val_hi: f64,
+	deri_lo, deri_hi: f64,
+) -> f64 {
+	lower := min(lo, hi)
+	upper := max(lo, hi)
+	width := upper-lower
+	safe_lower := lower+0.1*width
+	safe_upper := upper-0.1*width
+	if width <= 0 do return lo
+
+	// Cubic Hermite interpolation from the values and derivatives at both
+	// bracket endpoints.
+	delta := hi-lo
+	d1 := deri_lo+deri_hi-3*(val_lo-val_hi)/(lo-hi)
+	radicand := d1*d1-deri_lo*deri_hi
+	if radicand >= 0 {
+		d2 := math.copy_sign(math.sqrt(radicand), delta)
+		denominator := deri_hi-deri_lo+2*d2
+		if math.abs(denominator) > EPS {
+			trial := hi-delta*(deri_hi+d2-d1)/denominator
+			if !math.is_nan(trial) &&
+			   !math.is_inf(trial, 0) &&
+			   trial >= safe_lower &&
+			   trial <= safe_upper {
+				return trial
+			}
+		}
+	}
+
+	// Quadratic interpolation using the low endpoint's derivative.
+	denominator := 2*(val_hi-val_lo-deri_lo*delta)
+	if math.abs(denominator) > EPS {
+		trial := lo-deri_lo*delta*delta/denominator
+		if !math.is_nan(trial) &&
+		   !math.is_inf(trial, 0) &&
+		   trial >= safe_lower &&
+		   trial <= safe_upper {
+			return trial
+		}
+	}
+
+	return 0.5*(lo+hi)
+}
+
+line_search_zoom :: proc(
+	ctx: ^Line_Search_Ctx,
+	lo_in, hi_in: f64,
+	val_hi_in, deri_hi_in: f64,
+) -> f64 {
 	c1 :: 1e-4
 	c2 :: 0.9
 	lo, hi := lo_in, hi_in
 	val_lo := line_search_phi(ctx, lo, ctx.temp_grad[:])
+	deri_lo := dot(ctx.temp_grad[:], ctx.step)
+	val_hi := val_hi_in
+	deri_hi := deri_hi_in
 	max_zoom_iter :: 20
 	for _ in 0..<max_zoom_iter {
-		mid := 0.5*(lo+hi)
-		val_mid := line_search_phi(ctx, mid, ctx.temp_grad[:])
+		trial_alpha := polynomial_zoom_trial(
+			lo,
+			hi,
+			val_lo,
+			val_hi,
+			deri_lo,
+			deri_hi,
+		)
+		val_trial := line_search_phi(ctx, trial_alpha, ctx.temp_grad[:])
+		deri_trial := dot(ctx.temp_grad[:], ctx.step)
 
-		// Armijo fail or Value increase -> Step too large -> zoom(lo, mid)
-		if val_mid > ctx.val+c1*mid*ctx.deri || val_mid >= val_lo {
-			hi = mid
+		// Armijo fail or value increase: keep the low side of the bracket.
+		if val_trial > ctx.val+c1*trial_alpha*ctx.deri ||
+		   val_trial >= val_lo {
+			hi = trial_alpha
+			val_hi = val_trial
+			deri_hi = deri_trial
 		} else {
-			// Curvature satisfied -> accept mid
-			deri_mid := dot(ctx.temp_grad[:], ctx.step)
-			if math.abs(deri_mid) <= -c2*ctx.deri do return mid
-			// zoom(mid, hi)
-			lo = mid
-			val_lo = val_mid
+			if math.abs(deri_trial) <= -c2*ctx.deri {
+				return trial_alpha
+			}
+			// Sufficient decrease but not curvature: advance the low side.
+			lo = trial_alpha
+			val_lo = val_trial
+			deri_lo = deri_trial
 		}
 	}
 	return 0.5*(lo+hi)
 }
 
-// Strong Wolfe, weaker version of scipy/optimize/_line_search: "scalar_search_wolfe2()"
+// Strong Wolfe
 line_search :: proc(
 	thetas: []f64,
 	problem: ^Problem,
@@ -240,7 +313,10 @@ line_search :: proc(
 	step: []f64,
 	val, deri: f64,
 	work: ^Workspace,
+	temp_grad, trial: []f64,
 ) -> f64 {
+	assert(len(temp_grad) == problem.n)
+	assert(len(trial) == problem.n)
 	ctx := Line_Search_Ctx {
 		thetas    = thetas,
 		problem   = problem,
@@ -251,11 +327,9 @@ line_search :: proc(
 		val       = val,
 		deri      = deri,
 		work      = work,
-		temp_grad = make([dynamic]f64, problem.n),
-		trial     = make([dynamic]f64, problem.n),
+		temp_grad = temp_grad,
+		trial     = trial,
 	}
-	defer delete(ctx.temp_grad)
-	defer delete(ctx.trial)
 
 	base := 0.0
 	alpha := 1.0
@@ -267,17 +341,43 @@ line_search :: proc(
 	for _ in 0..<max_bracket_iter {
 		// Armijo fail -> zoom
 		val_alpha := line_search_phi(&ctx, alpha, ctx.temp_grad[:])
-		if val_alpha > val+c1*alpha*deri do return line_search_zoom(&ctx, base, alpha)
+		deri_alpha := dot(ctx.temp_grad[:], step)
+		if val_alpha > val+c1*alpha*deri {
+			return line_search_zoom(
+				&ctx,
+				base,
+				alpha,
+				val_alpha,
+				deri_alpha,
+			)
+		}
 
 		// Value increase -> zoom
-		if base > 0 && val_alpha >= val_prev do return line_search_zoom(&ctx, base, alpha)
+		if base > 0 && val_alpha >= val_prev {
+			return line_search_zoom(
+				&ctx,
+				base,
+				alpha,
+				val_alpha,
+				deri_alpha,
+			)
+		}
 
 		// Curvature satisfied -> accept alpha
-		deri_alpha := dot(ctx.temp_grad[:], step)
-		if math.abs(deri_alpha) <= -c2*deri do return alpha
+		if math.abs(deri_alpha) <= -c2*deri {
+			return alpha
+		}
 
 		// Derivative became positive -> zoom
-		if deri_alpha >= 0 do return line_search_zoom(&ctx, base, alpha)
+		if deri_alpha >= 0 {
+			return line_search_zoom(
+				&ctx,
+				base,
+				alpha,
+				val_alpha,
+				deri_alpha,
+			)
+		}
 
 		val_prev = val_alpha
 		base = alpha
@@ -292,6 +392,7 @@ bfgs :: proc(
 	lamb, nu: []f64,
 	pen: f64,
 	work: ^Workspace,
+	max_inner: int = 80,
 ) {
 	n := problem.n
 	h := matrix_make(n)
@@ -302,10 +403,13 @@ bfgs :: proc(
 	defer delete(grad_vec)
 	grad_new := make([dynamic]f64, n)
 	defer delete(grad_new)
+	line_search_grad := make([dynamic]f64, n)
+	defer delete(line_search_grad)
+	line_search_trial := make([dynamic]f64, n)
+	defer delete(line_search_trial)
 	val := compute_aug_l(grad_vec[:], thetas, problem, lamb, nu, pen, work)
 
 	tar_grad :: 1e-6 // Gradient norm threshold; below? -> Leave Inner Loop
-	max_inner :: 80
 	for _ in 0..<max_inner {
 		// [Inner Loop]: Optimize Augmented Lagrangian via BFGS
 		if dot(grad_vec[:], grad_vec[:]) < tar_grad*tar_grad do break
@@ -320,7 +424,7 @@ bfgs :: proc(
 			deri = dot(grad_vec[:], step[:])
 		}
 
-		alpha := line_search(thetas, problem, lamb, nu, pen, step[:], val, deri, work)
+		alpha := line_search(thetas, problem, lamb, nu, pen, step[:], val, deri, work, line_search_grad[:], line_search_trial[:])
 		scale_vector(step[:], alpha)
 		// Modify/update thetas by step
 		add_scaled(thetas, step[:], 1)
@@ -332,10 +436,10 @@ bfgs :: proc(
 		a := dot(step[:], curv[:])
 		ss := dot(step[:], step[:])
 		cc := dot(curv[:], curv[:])
-		// a < 0 -> violate positive definiteness
-		// cos(angle between step and curv) <= 1e-12 -> curvature information is unreliable
+		// Reject non-positive curvature to preserve positive definiteness.
+		// Tiny positive curvature is also too unreliable to use.
 		eps :: 1e-12
-		if a*a <= (eps*eps)*ss*cc {
+		if a <= eps*math.sqrt(ss*cc) {
 			copy(grad_vec[:], grad_new[:])
 			val = val_new
 			delete(curv)
@@ -382,20 +486,18 @@ solution_better :: proc(candidate: ^Solution, candidate_violation: f64, best: ^S
 	return candidate.optimum < best.optimum
 }
 
-optimize_with_workspace :: proc(
+optimize_thetas_with_workspace :: proc(
 	model: ^Model,
 	problem: ^Problem,
-	seed: f64,
+	thetas: [dynamic]f64,
 	work: ^Workspace,
 ) -> Solution {
+	assert_valid_objective(problem)
 	n := model.n
+	assert(len(thetas) == n)
 	assert(len(work.temp_g) == n)
 	assert(len(work.sin_cache) == n)
 	assert(len(work.cos_cache) == n)
-	assert(len(work.gradient) == n)
-
-	thetas := make([dynamic]f64, n)
-	for &theta in thetas do theta = seed
 	lamb := make([dynamic]f64, len(problem.ineq_cons)) // "lambda" in inequality
 	defer delete(lamb)
 	nu := make([dynamic]f64, len(problem.eq_cons)) // "nu" in equality
@@ -405,8 +507,7 @@ optimize_with_workspace :: proc(
 	max_vio := math.INF_F64
 	prev_max_vio := max_vio
 
-	max_outer :: 25
-	for _ in 0..<max_outer {
+	for _ in 0..<CONTINUOUS_MAX_OUTER {
 		// [Outer Loop]: Augmented Lagrangian Method
 		bfgs(thetas[:], problem, lamb[:], nu[:], pen, work)
 
@@ -428,7 +529,7 @@ optimize_with_workspace :: proc(
 		max_vio = max(max_gi, max_hj)
 
 		// Check Feasibility
-		if max_vio < ACCEPT_TOL do break
+		if max_vio < CONTINUOUS_TOL do break
 
 		// Increase penalty if violation didn't decrease enough
 		// The exact parameters here are questionable but works fine at the moment
@@ -450,6 +551,29 @@ optimize_with_workspace :: proc(
 	}
 
 	return solution
+}
+
+optimize_with_workspace :: proc(
+	model: ^Model,
+	problem: ^Problem,
+	seed: f64,
+	work: ^Workspace,
+) -> Solution {
+	thetas := make([dynamic]f64, model.n)
+	for &theta in thetas do theta = seed
+	return optimize_thetas_with_workspace(model, problem, thetas, work)
+}
+
+optimize_from_thetas_with_workspace :: proc(
+	model: ^Model,
+	problem: ^Problem,
+	initial_thetas: []f64,
+	work: ^Workspace,
+) -> Solution {
+	assert(len(initial_thetas) == model.n)
+	thetas := make([dynamic]f64, model.n)
+	copy(thetas[:], initial_thetas)
+	return optimize_thetas_with_workspace(model, problem, thetas, work)
 }
 
 optimize :: proc(model: ^Model, problem: ^Problem, seed: f64 = math.PI/4) -> Solution {

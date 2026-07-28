@@ -22,6 +22,15 @@ wrap_degrees_180 :: proc(degrees: f64) -> f64 {
 	return wrapped-180
 }
 
+max_wrapped_angle_change :: proc(current, previous: []f64) -> f64 {
+	max_change := 0.0
+	for theta, i in current {
+		delta := wrap_degrees_180((theta - previous[i]) * 180 / math.PI)
+		max_change = max(max_change, math.abs(delta) * math.PI / 180)
+	}
+	return max_change
+}
+
 @(test)
 c4_5p2p :: proc(t: ^testing.T) {
     code, err := parse_mothball(" initGnd(0.3169516131491288) sj.w sa.wa(11)")
@@ -91,6 +100,18 @@ c4_5p2p :: proc(t: ^testing.T) {
 
 	solution := opt.optimize(&model, &problem)
 	defer opt.destroy_solution(&solution)
+
+	spine_solution := opt.spine_optimize(&model, &problem)
+	defer opt.destroy_solution(&spine_solution)
+	continuous_work := opt.make_workspace(model.n)
+	defer opt.destroy_workspace(&continuous_work)
+	spine_violation := opt.constraint_violation(&problem, spine_solution.thetas[:], &continuous_work)
+	testing.expect(t, spine_violation < opt.ACCEPT_TOL)
+	testing.expect(t, math.abs(spine_solution.optimum - solution.optimum) < 1e-4)
+
+	// The terminal facing does not affect the stored terminal position.
+	max_active_angle_difference := max_wrapped_angle_change(spine_solution.thetas[:model.n - 1], solution.thetas[:model.n - 1])
+	testing.expect(t, max_active_angle_difference < 1 * math.PI / 180)
 
 	adjusted_facings := make([dynamic]f64, len(solution.thetas))
 	defer delete(adjusted_facings)
