@@ -8,15 +8,16 @@ STRUCTURED_MAX_LINE_SEARCH  :: 16
 STRUCTURED_GRADIENT_TOL     :: 1e-6
 STRUCTURED_MAX_ANGLE_STEP   :: math.PI / 9
 STRUCTURED_BFGS_WARMUP_STEPS        :: 10
-STRUCTURED_FEASIBLE_POLISH_STEPS     :: 4
+SPINE_KKT_TOL               :: ACCEPT_TOL
+SPINE_OBJECTIVE_CHANGE_TOL  :: 1e-9
 
 Structured_Workspace :: struct {
-	gradient:       [dynamic]f64,
-	diagonal:       [dynamic]f64,
-	jacobian:       [dynamic]f64,
-	active:         [dynamic]bool,
-	step:           [dynamic]f64,
-	trial:          [dynamic]f64,
+	gradient: [dynamic]f64,
+	diagonal: [dynamic]f64,
+	jacobian: [dynamic]f64,
+	active:   [dynamic]bool,
+	step:     [dynamic]f64,
+	trial:    [dynamic]f64,
 }
 
 Schur_Workspace :: struct {
@@ -31,12 +32,12 @@ make_spine_workspace :: proc(
 	n, constraint_count: int,
 ) -> Structured_Workspace {
 	return {
-		gradient       = make([dynamic]f64, n),
-		diagonal       = make([dynamic]f64, n),
-		jacobian       = make([dynamic]f64, constraint_count * n),
-		active         = make([dynamic]bool, constraint_count),
-		step           = make([dynamic]f64, n),
-		trial          = make([dynamic]f64, n),
+		gradient = make([dynamic]f64, n),
+		diagonal = make([dynamic]f64, n),
+		jacobian = make([dynamic]f64, constraint_count * n),
+		active   = make([dynamic]bool, constraint_count),
+		step     = make([dynamic]f64, n),
+		trial    = make([dynamic]f64, n),
 	}
 }
 
@@ -144,6 +145,35 @@ spine_evaluate :: proc(
 	return value
 }
 
+spine_kkt_stationarity :: proc(
+	gradient: []f64,
+	thetas: []f64,
+	problem: ^Problem,
+	lamb, nu: []f64,
+	work: ^Workspace,
+) -> f64 {
+	grad(problem.objective, thetas, gradient, work)
+	for constraint, i in problem.ineq_cons {
+		if lamb[i] == 0 do continue
+		grad(constraint, thetas, work.temp_g[:], work)
+		for tick in 0..<problem.n {
+			gradient[tick] += lamb[i] * work.temp_g[tick]
+		}
+	}
+	for constraint, j in problem.eq_cons {
+		if nu[j] == 0 do continue
+		grad(constraint, thetas, work.temp_g[:], work)
+		for tick in 0..<problem.n {
+			gradient[tick] += nu[j] * work.temp_g[tick]
+		}
+	}
+
+	max_stationarity := 0.0
+	for component in gradient {
+		max_stationarity = max(max_stationarity, math.abs(component))
+	}
+	return max_stationarity
+}
 
 spine_prepare_schur :: proc(
 	step, inverse_diagonal, rhs: []f64,
@@ -388,13 +418,16 @@ spine_inner_solve :: proc(
 	}
 }
 
-spine_optimize_from_thetas :: proc(
+spine_solve_from_thetas :: proc(
 	model: ^Model,
 	problem: ^Problem,
 	initial_thetas: []f64,
 	workspace: ^Workspace = nil,
+	stop_at_first_feasible: bool = false,
+	kkt_converged_out: ^bool = nil,
 ) -> Solution {
 	assert_valid_objective(problem)
+	if kkt_converged_out != nil do kkt_converged_out^ = false
 	n := model.n
 	assert(len(initial_thetas) == n)
 	owned_workspace: Workspace
@@ -421,6 +454,7 @@ spine_optimize_from_thetas :: proc(
 	)
 	defer destroy_schur_workspace(&schur_work)
 
+	// ALM stuffs
 	pen := 1.0
 	max_vio := math.INF_F64
 	prev_max_vio := max_vio
@@ -428,8 +462,7 @@ spine_optimize_from_thetas :: proc(
 	defer delete(best_feasible_thetas)
 	best_feasible_value := math.INF_F64
 	has_feasible := false
-	polish_needed := false
-	polish_iterations := 0
+	previous_feasible_value := math.INF_F64
 	for _ in 0..<CONTINUOUS_MAX_OUTER {
 		spine_inner_solve(
 			thetas[:],
@@ -449,9 +482,9 @@ spine_optimize_from_thetas :: proc(
 		for constraint, i in problem.ineq_cons {
 			gi := eval(constraint, thetas[:], work)
 			max_gi = max(max_gi, max(0.0, gi))
+
 			lamb[i] = max(0.0, lamb[i] + pen * gi)
-			max_complementarity =
-				max(max_complementarity, math.abs(lamb[i] * gi))
+			max_complementarity = max(max_complementarity, math.abs(lamb[i] * gi))
 		}
 		for constraint, j in problem.eq_cons {
 			hj := eval(constraint, thetas[:], work)
@@ -459,31 +492,41 @@ spine_optimize_from_thetas :: proc(
 			nu[j] += pen * hj
 		}
 		max_vio = max(max_gi, max_hj)
-		if has_feasible {
-			polish_iterations += 1
-		}
-		was_feasible := has_feasible
 		if max_vio < CONTINUOUS_TOL {
 			objective_value := eval(problem.objective, thetas[:], work)
+			objective_stalled := false
+			if has_feasible {
+				objective_scale := max(1.0, max(math.abs(objective_value), math.abs(previous_feasible_value)))
+				objective_stalled =
+					math.abs(objective_value - previous_feasible_value) <=
+						SPINE_OBJECTIVE_CHANGE_TOL * objective_scale
+			}
 
 			if !has_feasible || objective_value < best_feasible_value {
 				copy(best_feasible_thetas[:], thetas[:])
 				best_feasible_value = objective_value
 			}
 			has_feasible = true
-			if !was_feasible {
+			previous_feasible_value = objective_value
+			if objective_stalled do break
 
-				polish_needed = max_complementarity >= ACCEPT_TOL
+			if max_complementarity < SPINE_KKT_TOL {
+				max_stationarity := spine_kkt_stationarity(
+					structured_work.gradient[:],
+					thetas[:],
+					problem,
+					lamb[:],
+					nu[:],
+					work,
+				)
+				if max_stationarity < SPINE_KKT_TOL {
+					if kkt_converged_out != nil {
+						kkt_converged_out^ = true
+					}
+					break
+				}
 			}
-		}
-		if max_vio < CONTINUOUS_TOL &&
-		   max_complementarity < CONTINUOUS_TOL {
-			break
-		}
-		if has_feasible && !polish_needed do break
-		if has_feasible &&
-		   polish_iterations >= STRUCTURED_FEASIBLE_POLISH_STEPS {
-			break
+			if stop_at_first_feasible do break
 		}
 
 		if max_vio > 0.5 * prev_max_vio do pen *= 2
@@ -505,6 +548,20 @@ spine_optimize_from_thetas :: proc(
 	return solution
 }
 
+spine_optimize_from_thetas :: proc(
+	model: ^Model,
+	problem: ^Problem,
+	initial_thetas: []f64,
+	workspace: ^Workspace = nil,
+) -> Solution {
+	return spine_solve_from_thetas(
+		model,
+		problem,
+		initial_thetas,
+		workspace,
+	)
+}
+
 spine_optimize :: proc(
 	model: ^Model,
 	problem: ^Problem,
@@ -514,7 +571,7 @@ spine_optimize :: proc(
 	initial_thetas := make([dynamic]f64, model.n)
 	defer delete(initial_thetas)
 	for &theta in initial_thetas do theta = seed
-	return spine_optimize_from_thetas(
+	return spine_solve_from_thetas(
 		model,
 		problem,
 		initial_thetas[:],
@@ -533,12 +590,32 @@ spine_optimize_best_of :: proc(
 		return spine_optimize(model, problem, 0, &work), -1
 	}
 
-	best := spine_optimize(model, problem, seeds[0], &work)
+	seed_thetas := make([dynamic]f64, model.n)
+	defer delete(seed_thetas)
+	for &theta in seed_thetas do theta = seeds[0]
+	best_kkt_converged := false
+	best := spine_solve_from_thetas(
+		model,
+		problem,
+		seed_thetas[:],
+		&work,
+		true,
+		&best_kkt_converged,
+	)
 	best_violation := constraint_violation(problem, best.thetas[:], &work)
 	best_index := 0
 
 	for seed, index in seeds[1:] {
-		candidate := spine_optimize(model, problem, seed, &work)
+		for &theta in seed_thetas do theta = seed
+		candidate_kkt_converged := false
+		candidate := spine_solve_from_thetas(
+			model,
+			problem,
+			seed_thetas[:],
+			&work,
+			true,
+			&candidate_kkt_converged,
+		)
 		candidate_violation := constraint_violation(problem, candidate.thetas[:], &work)
 
 		if solution_better(&candidate, candidate_violation, &best, best_violation) {
@@ -546,10 +623,37 @@ spine_optimize_best_of :: proc(
 			best = candidate
 			best_violation = candidate_violation
 			best_index = index + 1
+			best_kkt_converged = candidate_kkt_converged
 		} else {
 			destroy_solution(&candidate)
 		}
 	}
 
+	// Compare basins cheaply at first feasibility. Only the winning basin
+	// needs a full convergence solve when it does not already satisfy KKT.
+	if best_violation >= ACCEPT_TOL || best_kkt_converged {
+		return best, best_index
+	}
+	refined_kkt_converged := false
+	refined := spine_solve_from_thetas(
+		model,
+		problem,
+		best.thetas[:],
+		&work,
+		kkt_converged_out = &refined_kkt_converged,
+	)
+	refined_violation :=
+		constraint_violation(problem, refined.thetas[:], &work)
+	if refined_kkt_converged ||
+	   solution_better(
+		&refined,
+		refined_violation,
+		&best,
+		best_violation,
+	   ) {
+		destroy_solution(&best)
+		return refined, best_index
+	}
+	destroy_solution(&refined)
 	return best, best_index
 }
