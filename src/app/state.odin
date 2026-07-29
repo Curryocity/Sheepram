@@ -49,6 +49,7 @@ Post_State :: struct {
 	x_origin:           [SCRIPT_CAPACITY]byte,
 	z_origin:           [SCRIPT_CAPACITY]byte,
 	copy_separator:     Separator_Type,
+	include_initial_angle: bool,
 	position_precision: int,
 }
 

@@ -19,6 +19,7 @@ Saved_Post :: struct {
 	z_tick:             string   `json:"zTick,omitempty"`,
 	z_add:              string   `json:"zAdd,omitempty"`,
 	copy_separator:     int      `json:"copySeparator"`,
+	include_initial_angle: bool  `json:"includeInitialAngle,omitempty"`,
 	position_precision: int      `json:"positionPrecision"`,
 }
 
@@ -87,6 +88,7 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 			x_origin           = buffer_string(env.post.x_origin[:]),
 			z_origin           = buffer_string(env.post.z_origin[:]),
 			copy_separator     = int(env.post.copy_separator),
+			include_initial_angle = env.post.include_initial_angle,
 			position_precision = env.post.position_precision,
 		},
 	}
@@ -254,6 +256,7 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	buffer_set(env.post.x_origin[:], saved.post.x_origin)
 	buffer_set(env.post.z_origin[:], saved.post.z_origin)
 	env.post.copy_separator = Separator_Type(saved.post.copy_separator)
+	env.post.include_initial_angle = saved.post.include_initial_angle
 	env.post.position_precision = saved.post.position_precision
 
 	title := strings.trim_space(saved.title)

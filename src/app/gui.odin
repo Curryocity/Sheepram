@@ -1189,13 +1189,17 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	}
 	im.Spacing(); im.Spacing()
 
-	display_facings := format_angle_list(facings[:], false, ", ")
+	copy_angles := facings[:]
+	if !state.post.include_initial_angle && len(copy_angles) > 0 {
+		copy_angles = copy_angles[1:]
+	}
+	display_facings := format_angle_list(copy_angles, false, ", ")
 	defer delete(display_facings)
-	display_turns := format_angle_list(facings[:], true, ", ")
+	display_turns := format_angle_list(copy_angles, true, ", ")
 	defer delete(display_turns)
-	copied_facings := format_angle_list(facings[:], false, copy_separator(state.post.copy_separator))
+	copied_facings := format_angle_list(copy_angles, false, copy_separator(state.post.copy_separator))
 	defer delete(copied_facings)
-	copied_turns := format_angle_list(facings[:], true, copy_separator(state.post.copy_separator))
+	copied_turns := format_angle_list(copy_angles, true, copy_separator(state.post.copy_separator))
 	defer delete(copied_turns)
 	read_only_block("Facing", display_facings, copied_facings)
 	im.Spacing()
@@ -1209,6 +1213,9 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	im.SetNextItemWidth(ui_px(90))
 	items := [?]cstring{"comma", "space", "\\n"}
 	if combo_select("##copySeparator", &separator, items[:]) do state.post.copy_separator = Separator_Type(separator)
+	pop_font(pushed_ui)
+	pushed_ui = push_font(ui_font)
+	_ = im.Checkbox(" Include Initial Angle", &state.post.include_initial_angle)
 	pop_font(pushed_ui)
 	im.Spacing()
 
