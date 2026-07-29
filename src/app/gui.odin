@@ -813,10 +813,13 @@ draw_constraint_results :: proc(solution: ^opt.Solution, discrete_solution: bool
 	}
 
 	im.PushStyleVarImVec2(.CellPadding, {ui_px(10), ui_px(3)})
+	visible_rows := min(len(solution.constraints), 13)
+	table_height := ui_px(f32(visible_rows)*34+50)
 	table_flags := im.TableFlags_RowBg | im.TableFlags_BordersOuter |
 	               im.TableFlags_BordersV | im.TableFlags_SizingFixedFit |
-	               im.TableFlags_NoHostExtendX
-	if im.BeginTable("ConstraintResults", 3, table_flags) {
+	               im.TableFlags_NoHostExtendX | im.TableFlags_ScrollY
+	if im.BeginTable("ConstraintResults", 3, table_flags, {0, table_height}) {
+		im.TableSetupScrollFreeze(0, 1)
 		im.TableSetupColumn("Constraint", {.WidthFixed}, ui_px(430))
 		im.TableSetupColumn("Margin / Error", {.WidthFixed}, ui_px(130))
 		im.TableSetupColumn("Status", {.WidthFixed}, ui_px(100))
