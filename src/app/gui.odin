@@ -1201,6 +1201,18 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	defer delete(copied_facings)
 	copied_turns := format_angle_list(copy_angles, true, copy_separator(state.post.copy_separator))
 	defer delete(copied_turns)
+
+	initial_angle := solution.thetas[0]
+	if !state.last_solution_discrete {
+		initial_angle = wrap_degrees_180(initial_angle*180/math.PI)
+	}
+	pushed_ui = push_font(ui_font)
+	_ = im.Checkbox(" Include Initial Angle", &state.post.include_initial_angle)
+	im.SameLine(0, 10)
+	im.TextDisabled("(Value: %.9f)", initial_angle)
+	pop_font(pushed_ui)
+	im.Spacing()
+
 	read_only_block("Facing", display_facings, copied_facings)
 	im.Spacing()
 	read_only_block("Turn", display_turns, copied_turns)
@@ -1213,9 +1225,6 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	im.SetNextItemWidth(ui_px(90))
 	items := [?]cstring{"comma", "space", "\\n"}
 	if combo_select("##copySeparator", &separator, items[:]) do state.post.copy_separator = Separator_Type(separator)
-	pop_font(pushed_ui)
-	pushed_ui = push_font(ui_font)
-	_ = im.Checkbox(" Include Initial Angle", &state.post.include_initial_angle)
 	pop_font(pushed_ui)
 	im.Spacing()
 
