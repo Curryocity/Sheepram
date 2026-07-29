@@ -216,6 +216,128 @@ cancel_requested :: proc(
 	return control.cancel_check(control.cancel_data)
 }
 
+one_opt_descent :: proc(
+	model: ^Discrete_Model,
+	p: ^Problem,
+	exact_p: ^Raw_Problem,
+	current: ^Discrete_Cand,
+	mode: ^Discrete_Mode,
+	trial: ^Discrete_State,
+	work: ^Workspace,
+	exact_work: ^Exact_Workspace,
+	search_mode: Local_Search_Mode,
+	cancel_last_check: ^time.Tick,
+	control: ^LS_Control,
+	max_delta: int = 1,
+	exhaustive_exact_polish: bool = false,
+) -> (improved, cancelled: bool) {
+	ilen := discrete_angle_len(model)
+	cands := make([dynamic]One_Opt_Cand, 0, MAX_ROUND_CANDIDATES)
+	defer delete(cands)
+	local_current := clone_discrete_cand(current^)
+	defer destroy_discrete_cand(&local_current)
+
+	grade: Grade
+	exact_grade: Grade
+	for {
+		if cancel_requested(cancel_last_check, control) {
+			return improved, true
+		}
+		local_improved := false
+		resize(&cands, 0)
+		copy_discrete_cand(&local_current, current^)
+
+		copy_discrete_state(trial, current.state)
+		prev_t := 0
+		prev_delta := 0
+
+		for t in 0..<ilen {
+			for magnitude in 1..=max_delta {
+				for sign in 0..=1 {
+					delta := sign == 0 ? magnitude : -magnitude
+
+					trial.indices[prev_t] = offset_index(trial.indices[prev_t], -prev_delta)
+					trial.indices[t] = offset_index(trial.indices[t], delta)
+
+					update_discrete_trig_cache(work, trial^, model.angle_offset[:])
+					grading(&grade, model, p, trial^, work, mode^)
+
+					if exhaustive_exact_polish && mode^ == .Polish {
+						exact_grading(&exact_grade, model, exact_p, trial^, exact_work)
+						if improveQ(&exact_grade, &current.grade, .Polish) {
+							insert_one_opt_cand(
+								&cands,
+								One_Opt_Cand {
+									tick  = t,
+									delta = delta,
+									grade = exact_grade,
+								},
+								.Polish,
+							)
+						}
+					} else {
+						if improveQ(&grade, &local_current.grade, mode^) {
+							copy_discrete_state(&local_current.state, trial^)
+							local_current.grade = grade
+							local_improved = true
+						}
+
+						if good_candQ(&grade, &current.grade, p, mode^, search_mode) {
+							insert_one_opt_cand(
+								&cands,
+								One_Opt_Cand {
+									tick  = t,
+									delta = delta,
+									grade = grade,
+								},
+								mode^,
+							)
+						}
+					}
+
+					prev_t = t
+					prev_delta = delta
+				}
+			}
+		}
+
+		accept := false
+		if len(cands) > 0 {
+			copy_discrete_state(trial, current.state)
+			prev_t = 0
+			prev_delta = 0
+
+			for c in cands {
+				trial.indices[prev_t] = offset_index(trial.indices[prev_t], -prev_delta)
+				trial.indices[c.tick] = offset_index(trial.indices[c.tick], c.delta)
+
+				prev_t = c.tick
+				prev_delta = c.delta
+
+				exact_grading(&exact_grade, model, exact_p, trial^, exact_work)
+				if !exact_grade.feasible do continue
+				if mode^ == .Polish &&
+				   !improveQ(&exact_grade, &current.grade, mode^) {
+					continue
+				}
+
+				copy_discrete_state(&current.state, trial^)
+				current.grade = exact_grade
+				mode^ = .Polish
+				accept = true
+				break
+			}
+		}
+
+		if !accept && mode^ == .Repair && local_improved {
+			copy_discrete_cand(current, local_current)
+			accept = true
+		}
+		if !accept do return improved, false
+		improved = true
+	}
+}
+
 local_search :: proc(
 	model: ^Discrete_Model,
 	p: ^Problem,
@@ -310,101 +432,10 @@ local_search :: proc(
 	// End condition:
 	// -> No accepted 1-opt move this round, go to 2-opt phase.
 
-	cands := make([dynamic]One_Opt_Cand, 0, MAX_ROUND_CANDIDATES)
-	defer delete(cands)
-
 	local_current := clone_discrete_cand(current)
 	defer destroy_discrete_cand(&local_current)
 
-	for {
-		if cancel_requested(&cancel_last_check, control) {
-			search_cancelled = true
-			break
-		}
-		local_improved := false
-		resize(&cands, 0)
-		copy_discrete_cand(&local_current, current)
-
-		copy_discrete_state(&trial, current.state)
-		prev_t := 0
-		prev_delta := 0
-
-
-		for t in 0..<ilen {
-
-			for sign in 0..=1 {
-				delta := sign == 0 ? 1 : -1
-
-				// backtrack and apply
-				trial.indices[prev_t] = offset_index(trial.indices[prev_t], -prev_delta)
-				trial.indices[t] = offset_index(trial.indices[t], delta)
-
-				update_discrete_trig_cache(&work, trial, model.angle_offset[:])
-				grading(&grade, model, p, trial, &work, mode)
-
-				if improveQ(&grade, &local_current.grade, mode) {
-					copy_discrete_state(&local_current.state, trial)
-					local_current.grade = grade
-					local_improved = true
-				}
-
-				if good_candQ(&grade, &current.grade, p, mode, search_mode) {
-					insert_one_opt_cand(&cands, One_Opt_Cand {
-						tick  = t,
-						delta = delta,
-						grade = grade,
-					}, mode)
-				}
-
-				prev_t = t
-				prev_delta = delta
-			}
-		}
-		if search_cancelled do break
-
-		accept := false
-
-		if len(cands) > 0 {
-			// Case B/C:
-			// exact-check top-K fast-feasible candidates from best to worst
-
-			copy_discrete_state(&trial, current.state)
-			prev_t = 0
-			prev_delta = 0
-
-			for c in cands {
-				trial.indices[prev_t] = offset_index(trial.indices[prev_t], -prev_delta)
-				trial.indices[c.tick] = offset_index(trial.indices[c.tick], c.delta)
-
-				prev_t = c.tick
-				prev_delta = c.delta
-
-				exact_grading(&exact_grade, model, exact_p, trial, &exact_work)
-
-				if !exact_grade.feasible {
-					continue
-				}
-
-				if mode == .Polish && !improveQ(&exact_grade, &current.grade, mode) {
-					continue
-				}
-
-				accept = true
-				copy_discrete_state(&current.state, trial)
-				current.grade = exact_grade
-				mode = .Polish
-				break
-			}
-		}
-		
-		if !accept && mode == .Repair && local_improved {
-			// Case A: it is also a fallback of case B
-			copy_discrete_cand(&current, local_current)
-			accept = true
-		}
-
-		if !accept do break
-	}
+	_, search_cancelled = one_opt_descent(model, p, exact_p, &current, &mode, &trial, &work, &exact_work, search_mode, &cancel_last_check, control)
 
 	// 4. Greedy randomized 2-opt
 	//
@@ -553,6 +584,11 @@ local_search :: proc(
 		if search_cancelled do break
 
 		if !accept do break
+	}
+
+	// 1-opt cleanup for final improvement
+	if !search_cancelled {
+		_, search_cancelled = one_opt_descent(model, p, exact_p, &current, &mode, &trial, &work, &exact_work, search_mode, &cancel_last_check, control, 3, true)
 	}
 
 	if mode == .Polish && (!has_best || improveQ(&current.grade, &best.grade, .Polish)) {
