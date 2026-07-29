@@ -402,7 +402,7 @@ pancake_optimize :: proc(
 			// Pancake has already selected the basin, so use the faster exact
 			// structured solve for local recovery.
 			solution =
-				spine_optimize_from_thetas(
+				spine_optimize_thetas_slice(
 					model,
 					problem,
 					relaxation.thetas[:],
@@ -410,7 +410,7 @@ pancake_optimize :: proc(
 				)
 		case .BFGS:
 			solution =
-				optimize_from_thetas_with_workspace(
+				optimize_thetas_slice(
 					model,
 					problem,
 					relaxation.thetas[:],
@@ -418,7 +418,7 @@ pancake_optimize :: proc(
 				)
 		case:
 			solution =
-				spine_optimize_from_thetas(
+				spine_optimize_thetas_slice(
 					model,
 					problem,
 					relaxation.thetas[:],

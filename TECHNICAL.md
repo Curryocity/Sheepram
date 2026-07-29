@@ -2,6 +2,9 @@
 
 [← Back to README](README.md)
 
+> **Note:** This guide covers only the Classic optimization mode. The newer Pancake
+> and Spine optimizers are not described here.
+
 ## Table of Contents
 
 - [Project Components](#project-components)
@@ -24,7 +27,9 @@
 
 The system consists of these main components:
 
-- **Numerical optimization engine**: `src/optimizer/optimizer.odin`
+- **Numerical optimization engine**: shared model and workspace types live in
+  `src/optimizer/model.odin`, shared ALM machinery in `src/optimizer/alm.odin`,
+  and the Classic BFGS solver in `src/optimizer/classic.odin`.
 - **DSL package**: `src/dsl/` contains the shared lexer, optimization problem language, and Mothball movement language.
 - **Application startup and rendering loop**: `src/main.odin`
 - **GUI built with Dear ImGui**: `src/app/gui.odin`

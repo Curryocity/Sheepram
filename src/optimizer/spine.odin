@@ -418,10 +418,11 @@ spine_inner_solve :: proc(
 	}
 }
 
-spine_solve_from_thetas :: proc(
+// Takes ownership of thetas; the returned Solution owns the same allocation.
+spine_optimize :: proc(
 	model: ^Model,
 	problem: ^Problem,
-	initial_thetas: []f64,
+	thetas: [dynamic]f64,
 	workspace: ^Workspace = nil,
 	stop_at_first_feasible: bool = false,
 	kkt_converged_out: ^bool = nil,
@@ -429,7 +430,7 @@ spine_solve_from_thetas :: proc(
 	assert_valid_objective(problem)
 	if kkt_converged_out != nil do kkt_converged_out^ = false
 	n := model.n
-	assert(len(initial_thetas) == n)
+	assert(len(thetas) == n)
 	owned_workspace: Workspace
 	work := workspace
 	if work == nil {
@@ -440,8 +441,6 @@ spine_solve_from_thetas :: proc(
 		if workspace == nil do destroy_workspace(&owned_workspace)
 	}
 
-	thetas := make([dynamic]f64, n)
-	copy(thetas[:], initial_thetas)
 	lamb := make([dynamic]f64, len(problem.ineq_cons))
 	defer delete(lamb)
 	nu := make([dynamic]f64, len(problem.eq_cons))
@@ -548,38 +547,46 @@ spine_solve_from_thetas :: proc(
 	return solution
 }
 
-spine_optimize_from_thetas :: proc(
+// Copies borrowed angles into an owned vector before optimizing.
+spine_optimize_thetas_slice :: proc(
 	model: ^Model,
 	problem: ^Problem,
 	initial_thetas: []f64,
 	workspace: ^Workspace = nil,
+	stop_at_first_feasible: bool = false,
+	kkt_converged_out: ^bool = nil,
 ) -> Solution {
-	return spine_solve_from_thetas(
+	assert(len(initial_thetas) == model.n)
+	thetas := make([dynamic]f64, model.n)
+	copy(thetas[:], initial_thetas)
+	return spine_optimize(
 		model,
 		problem,
-		initial_thetas,
+		thetas,
 		workspace,
+		stop_at_first_feasible,
+		kkt_converged_out,
 	)
 }
 
-spine_optimize :: proc(
+// Builds a uniform angle vector, then delegates to the primary optimizer.
+spine_optimize_1seed :: proc(
 	model: ^Model,
 	problem: ^Problem,
 	seed: f64 = math.PI / 4,
 	workspace: ^Workspace = nil,
 ) -> Solution {
-	initial_thetas := make([dynamic]f64, model.n)
-	defer delete(initial_thetas)
-	for &theta in initial_thetas do theta = seed
-	return spine_solve_from_thetas(
+	thetas := make([dynamic]f64, model.n)
+	for &theta in thetas do theta = seed
+	return spine_optimize(
 		model,
 		problem,
-		initial_thetas[:],
+		thetas,
 		workspace,
 	)
 }
 
-spine_optimize_best_of :: proc(
+spine_optimize_multistart :: proc(
 	model: ^Model,
 	problem: ^Problem,
 	seeds: []f64,
@@ -587,17 +594,16 @@ spine_optimize_best_of :: proc(
 	work := make_workspace(model.n)
 	defer destroy_workspace(&work)
 	if len(seeds) == 0 {
-		return spine_optimize(model, problem, 0, &work), -1
+		return spine_optimize_1seed(model, problem, 0, &work), -1
 	}
 
 	seed_thetas := make([dynamic]f64, model.n)
-	defer delete(seed_thetas)
 	for &theta in seed_thetas do theta = seeds[0]
 	best_kkt_converged := false
-	best := spine_solve_from_thetas(
+	best := spine_optimize(
 		model,
 		problem,
-		seed_thetas[:],
+		seed_thetas,
 		&work,
 		true,
 		&best_kkt_converged,
@@ -606,12 +612,13 @@ spine_optimize_best_of :: proc(
 	best_index := 0
 
 	for seed, index in seeds[1:] {
-		for &theta in seed_thetas do theta = seed
+		candidate_thetas := make([dynamic]f64, model.n)
+		for &theta in candidate_thetas do theta = seed
 		candidate_kkt_converged := false
-		candidate := spine_solve_from_thetas(
+		candidate := spine_optimize(
 			model,
 			problem,
-			seed_thetas[:],
+			candidate_thetas,
 			&work,
 			true,
 			&candidate_kkt_converged,
@@ -629,13 +636,12 @@ spine_optimize_best_of :: proc(
 		}
 	}
 
-	// Compare basins cheaply at first feasibility. Only the winning basin
-	// needs a full convergence solve when it does not already satisfy KKT.
+	// Compare basins cheaply at first feasibility. Only the winning basin needs full solve. 
 	if best_violation >= ACCEPT_TOL || best_kkt_converged {
 		return best, best_index
 	}
 	refined_kkt_converged := false
-	refined := spine_solve_from_thetas(
+	refined := spine_optimize_thetas_slice(
 		model,
 		problem,
 		best.thetas[:],

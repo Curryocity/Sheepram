@@ -98,10 +98,10 @@ c4_5p2p :: proc(t: ^testing.T) {
     problem := opt.reduce_problem(&raw_problem, model, state.angle_offset[:])
 	defer opt.destroy_problem(&problem)
 
-	solution := opt.optimize(&model, &problem)
+	solution := opt.optimize_1seed(&model, &problem)
 	defer opt.destroy_solution(&solution)
 
-	spine_solution := opt.spine_optimize(&model, &problem)
+	spine_solution := opt.spine_optimize_1seed(&model, &problem)
 	defer opt.destroy_solution(&spine_solution)
 	continuous_work := opt.make_workspace(model.n)
 	defer opt.destroy_workspace(&continuous_work)

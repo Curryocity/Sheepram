@@ -2,196 +2,7 @@ package optimizer
 
 import "core:math"
 
-EPS :: 1e-12
-ACCEPT_TOL :: 1e-5
-CONTINUOUS_TOL :: 5e-7
-CONTINUOUS_MAX_OUTER :: 50
-
-Cmp :: enum {
-	Less,
-	Equal,
-}
-
-Constraint_Result :: struct {
-	source: string,
-	margin: f64,
-	cmp:    Cmp,
-}
-
-Model :: struct {
-	// Require initialization
-	n:      int,
-	drag_x: [dynamic]f64,
-	drag_z: [dynamic]f64,
-	accel:  [dynamic]f64,
-
-	// Compile later
-	vx: [dynamic]Compiled_Expr,
-	vz: [dynamic]Compiled_Expr,
-	x:  [dynamic]Compiled_Expr,
-	z:  [dynamic]Compiled_Expr,
-}
-
-Problem :: struct {
-	n: int,
-	// Assuming minimize
-	objective: Compiled_Expr,
-	// Constraints
-	ineq_cons: [dynamic]Compiled_Expr,
-	eq_cons:   [dynamic]Compiled_Expr,
-}
-
-assert_valid_objective :: proc(problem: ^Problem) {
-	assert(
-		pure_position_expr(problem.objective),
-		"Optimization objective cannot contain theta terms",
-	)
-}
-
-Solution :: struct {
-	optimum:                       f64,
-	continuous_globally_optimal: bool,
-	pancake_used:                  bool,
-	pancake_used_recovery:         bool,
-	pancake_recovery_reasons:      Pancake_Recovery_Reasons,
-	pancake_dual_bound:            f64,
-	thetas:                        [dynamic]f64,
-	xs:                            [dynamic]f64,
-	zs:                            [dynamic]f64,
-	constraints:                   [dynamic]Constraint_Result,
-}
-
-Workspace :: struct {
-	temp_g:    [dynamic]f64,
-	sin_cache: [dynamic]f64,
-	cos_cache: [dynamic]f64,
-}
-
-make_workspace :: proc(n: int) -> Workspace {
-	work := Workspace {
-		temp_g    = make([dynamic]f64, n),
-		sin_cache = make([dynamic]f64, n),
-		cos_cache = make([dynamic]f64, n),
-	}
-	return work
-}
-
-destroy_workspace :: proc(work: ^Workspace) {
-	delete(work.temp_g)
-	delete(work.sin_cache)
-	delete(work.cos_cache)
-	work^ = {}
-}
-
-destroy_model :: proc(model: ^Model) {
-	delete(model.drag_x)
-	delete(model.drag_z)
-	delete(model.accel)
-	destroy_compiled_expr_array(&model.vx)
-	destroy_compiled_expr_array(&model.vz)
-	destroy_compiled_expr_array(&model.x)
-	destroy_compiled_expr_array(&model.z)
-	model^ = {}
-}
-
-destroy_problem :: proc(problem: ^Problem) {
-	destroy_compiled_expr(&problem.objective)
-	for i in 0..<len(problem.ineq_cons) do destroy_compiled_expr(&problem.ineq_cons[i])
-	for i in 0..<len(problem.eq_cons) do destroy_compiled_expr(&problem.eq_cons[i])
-	delete(problem.ineq_cons)
-	delete(problem.eq_cons)
-	problem^ = {}
-}
-
-destroy_solution :: proc(solution: ^Solution) {
-	delete(solution.thetas)
-	delete(solution.xs)
-	delete(solution.zs)
-	for result in solution.constraints do delete(result.source)
-	delete(solution.constraints)
-	solution^ = {}
-}
-
-compile_model :: proc(model: ^Model) {
-	n := model.n
-	destroy_compiled_expr_array(&model.vx)
-	destroy_compiled_expr_array(&model.vz)
-	destroy_compiled_expr_array(&model.x)
-	destroy_compiled_expr_array(&model.z)
-	model.vx = make([dynamic]Compiled_Expr, n)
-	model.vz = make([dynamic]Compiled_Expr, n)
-	model.x  = make([dynamic]Compiled_Expr, n)
-	model.z  = make([dynamic]Compiled_Expr, n)
-	for i in 0..<n {
-		model.vx[i] = make_compiled_expr(n)
-		model.vz[i] = make_compiled_expr(n)
-		model.x[i]  = make_compiled_expr(n)
-		model.z[i]  = make_compiled_expr(n)
-	}
-
-	// Generate Vx, Vz
-	// Initial velocity is stored in accel[0].
-	model.vx[0].sin_coeff[0] = model.accel[0]
-	model.vz[0].cos_coeff[0] = model.accel[0]
-	for t in 1..<n {
-		// v[t] = drag[t-1] * v[t-1] + accel[t] * trig(F[t])
-		add_scaled_expr(&model.vx[t], model.vx[t-1], model.drag_x[t-1])
-		add_scaled_expr(&model.vz[t], model.vz[t-1], model.drag_z[t-1])
-		model.vx[t].sin_coeff[t] = model.accel[t]
-		model.vz[t].cos_coeff[t] = model.accel[t]
-	}
-
-	// Generate X, Z
-	// pos[0] = 0, pos[t] = pos[t-1] + v[t-1]
-	for t in 1..<n {
-		add_scaled_expr(&model.x[t], model.x[t-1], 1)
-		add_scaled_expr(&model.x[t], model.vx[t-1], 1)
-		add_scaled_expr(&model.z[t], model.z[t-1], 1)
-		add_scaled_expr(&model.z[t], model.vz[t-1], 1)
-	}
-}
-
-compute_aug_l :: proc(
-	g_out: []f64,
-	thetas: []f64,
-	problem: ^Problem,
-	lamb, nu: []f64,
-	pen: f64,
-	work: ^Workspace,
-) -> f64 {
-	// Evaluates the augmented Lagrangian and optionally gradient.
-	compute_gradient := len(g_out) > 0
-	assert(!compute_gradient || len(g_out) == problem.n)
-	update_trig_cache(work, thetas)
-
-	value := eval(problem.objective, thetas, work)
-	if compute_gradient do grad(problem.objective, thetas, g_out, work)
-
-	for i in 0..<len(problem.ineq_cons) {
-		ineq := problem.ineq_cons[i]
-		v_ineq := eval(ineq, thetas, work)
-
-		t := max(0.0, lamb[i]+v_ineq*pen)
-		value += 0.5/pen*(t*t-lamb[i]*lamb[i])
-		if compute_gradient {
-			grad(ineq, thetas, work.temp_g[:], work)
-			add_scaled(g_out, work.temp_g[:], t)
-		}
-	}
-
-	for j in 0..<len(problem.eq_cons) {
-		eq := problem.eq_cons[j]
-		v_eq := eval(eq, thetas, work)
-
-		value += nu[j]*v_eq
-		value += 0.5*pen*v_eq*v_eq
-		if compute_gradient {
-			grad(eq, thetas, work.temp_g[:], work)
-			add_scaled(g_out, work.temp_g[:], nu[j]+pen*v_eq)
-		}
-	}
-	return value
-}
+// Classic continuous optimizer: ALM outer + BFGS inner
 
 Line_Search_Ctx :: struct {
 	thetas:    []f64,
@@ -461,40 +272,25 @@ bfgs :: proc(
 	}
 }
 
-constraint_violation :: proc(problem: ^Problem, thetas: []f64, work: ^Workspace) -> f64 {
-	update_trig_cache(work, thetas)
-
-	max_gi := 0.0
-	max_hj := 0.0
-	for con in problem.ineq_cons {
-		gi := eval(con, thetas, work)
-		max_gi = max(max_gi, max(0.0, gi))
-	}
-	for con in problem.eq_cons {
-		hj := eval(con, thetas, work)
-		max_hj = max(max_hj, math.abs(hj))
-	}
-	return max(max_gi, max_hj)
-}
-
-solution_better :: proc(candidate: ^Solution, candidate_violation: f64, best: ^Solution, best_violation: f64) -> bool {
-	candidate_feasible := candidate_violation < ACCEPT_TOL
-	best_feasible := best_violation < ACCEPT_TOL
-	if candidate_feasible != best_feasible do return candidate_feasible
-	if candidate_feasible do return candidate.optimum < best.optimum
-	if candidate_violation != best_violation do return candidate_violation < best_violation
-	return candidate.optimum < best.optimum
-}
-
-optimize_thetas_with_workspace :: proc(
+// Takes ownership of thetas; the returned Solution owns the same allocation.
+optimize :: proc(
 	model: ^Model,
 	problem: ^Problem,
 	thetas: [dynamic]f64,
-	work: ^Workspace,
+	workspace: ^Workspace = nil,
 ) -> Solution {
 	assert_valid_objective(problem)
 	n := model.n
 	assert(len(thetas) == n)
+	owned_workspace: Workspace
+	work := workspace
+	if work == nil {
+		owned_workspace = make_workspace(n)
+		work = &owned_workspace
+	}
+	defer {
+		if workspace == nil do destroy_workspace(&owned_workspace)
+	}
 	assert(len(work.temp_g) == n)
 	assert(len(work.sin_cache) == n)
 	assert(len(work.cos_cache) == n)
@@ -553,46 +349,42 @@ optimize_thetas_with_workspace :: proc(
 	return solution
 }
 
-optimize_with_workspace :: proc(
+// Builds a uniform angle vector seed
+optimize_1seed :: proc(
 	model: ^Model,
 	problem: ^Problem,
-	seed: f64,
-	work: ^Workspace,
+	seed: f64 = math.PI / 4,
+	workspace: ^Workspace = nil,
 ) -> Solution {
 	thetas := make([dynamic]f64, model.n)
 	for &theta in thetas do theta = seed
-	return optimize_thetas_with_workspace(model, problem, thetas, work)
+	return optimize(model, problem, thetas, workspace)
 }
 
-optimize_from_thetas_with_workspace :: proc(
+// Shortcut
+optimize_thetas_slice :: proc(
 	model: ^Model,
 	problem: ^Problem,
 	initial_thetas: []f64,
-	work: ^Workspace,
+	workspace: ^Workspace = nil,
 ) -> Solution {
 	assert(len(initial_thetas) == model.n)
 	thetas := make([dynamic]f64, model.n)
 	copy(thetas[:], initial_thetas)
-	return optimize_thetas_with_workspace(model, problem, thetas, work)
+	return optimize(model, problem, thetas, workspace)
 }
 
-optimize :: proc(model: ^Model, problem: ^Problem, seed: f64 = math.PI/4) -> Solution {
+optimize_multistart :: proc(model: ^Model, problem: ^Problem, seeds: []f64) -> (Solution, int) {
 	work := make_workspace(model.n)
 	defer destroy_workspace(&work)
-	return optimize_with_workspace(model, problem, seed, &work)
-}
+	if len(seeds) == 0 do return optimize_1seed(model, problem, 0, &work), -1
 
-optimize_best_of :: proc(model: ^Model, problem: ^Problem, seeds: []f64) -> (Solution, int) {
-	work := make_workspace(model.n)
-	defer destroy_workspace(&work)
-	if len(seeds) == 0 do return optimize_with_workspace(model, problem, 0, &work), -1
-
-	best := optimize_with_workspace(model, problem, seeds[0], &work)
+	best := optimize_1seed(model, problem, seeds[0], &work)
 	best_violation := constraint_violation(problem, best.thetas[:], &work)
 	best_index := 0
 
 	for seed, index in seeds[1:] {
-		candidate := optimize_with_workspace(model, problem, seed, &work)
+		candidate := optimize_1seed(model, problem, seed, &work)
 		candidate_violation := constraint_violation(problem, candidate.thetas[:], &work)
 
 		if solution_better(&candidate, candidate_violation, &best, best_violation) {

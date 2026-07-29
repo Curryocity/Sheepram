@@ -263,9 +263,9 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 			)
 			best_seed_index = -1
 		case .Spine:
-			solution^, best_seed_index = opt.spine_optimize_best_of(&model, &problem, seeds[:])
+			solution^, best_seed_index = opt.spine_optimize_multistart(&model, &problem, seeds[:])
 		case .BFGS:
-			solution^, best_seed_index = opt.optimize_best_of(&model, &problem, seeds[:])
+			solution^, best_seed_index = opt.optimize_multistart(&model, &problem, seeds[:])
 		}
 		if best_seed_index >= 0 && best_seed_index < sample_count {
 			state.continuous_initial_angle_degrees = 360 * f64(best_seed_index) / f64(sample_count)
@@ -280,9 +280,9 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 				pancake_fallback,
 			)
 		case .Spine:
-			solution^ = opt.spine_optimize(&model, &problem, initial_theta)
+			solution^ = opt.spine_optimize_1seed(&model, &problem, initial_theta)
 		case .BFGS:
-			solution^ = opt.optimize(&model, &problem, initial_theta)
+			solution^ = opt.optimize_1seed(&model, &problem, initial_theta)
 		}
 	}
 	if !solution_is_finite(solution) {
