@@ -803,8 +803,9 @@ read_only_block :: proc(label: cstring, text: string, copy_text: string) {
 
 draw_constraint_results :: proc(solution: ^opt.Solution, discrete_solution: bool) {
 	pushed_ui := push_font(ui_font)
-	im.Text("Constraint Results")
+	open := im.CollapsingHeader("Constraint Results", {.DefaultOpen})
 	pop_font(pushed_ui)
+	if !open do return
 
 	if len(solution.constraints) == 0 {
 		im.TextDisabled("No constraints.")
@@ -1122,65 +1123,67 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	im.Spacing(); im.Spacing()
 
 	pushed_ui = push_font(ui_font)
-	im.Text("Movement Log")
+	movement_log_open := im.CollapsingHeader("Movement Log", {.DefaultOpen})
 	pop_font(pushed_ui)
 
-	im.PushStyleVarImVec2(.CellPadding, {ui_px(10), ui_px(3)})
-	available := im.GetContentRegionAvail()
-	table_width := min(ui_px(877), available.x)
-	visible_rows := min(count, 13)
-	table_height := ui_px(f32(visible_rows)*34+50)
-	table_flags := im.TableFlags_RowBg | im.TableFlags_BordersOuter | im.TableFlags_BordersV |
-	               im.TableFlags_ScrollY | im.TableFlags_ScrollX | im.TableFlags_SizingFixedFit |
-	               im.TableFlags_NoHostExtendX
-	if im.BeginTable("ResultTable", 9, table_flags, {table_width, table_height}) {
-		im.TableSetupScrollFreeze(1, 1)
-		headers := [?]cstring{
-			"Tick",
-			"Facing",
-			"Turn",
-			"X",
-			"Z",
-			"Vx",
-			"Vz",
-			"Speed",
-			"Direction",
-		}
-		widths := [?]f32{50, 100, 100, 120, 120, 120, 120, 120, 100}
-		for i in 0..<9 do im.TableSetupColumn(headers[i], {.WidthFixed}, ui_px(widths[i]))
-		im.TableNextRow({.Headers}, ui_px(20))
-		for i in 0..<9 {
-			im.TableSetColumnIndex(c.int(i))
-			center_text(string(headers[i]))
-		}
-		jump_text_color := im.Vec4{0.72, 0.62, 0.95, 1}
-		for tick in 0..<count {
-			im.TableNextRow({}, ui_px(20))
-			jump_row := state.color_jump_ticks && tick < len(state.last_jump_ticks) && state.last_jump_ticks[tick]
-			angle := "-" if tick >= count-1 else fmt.tprintf("%.3f", facings[tick])
-			values := [?]string{
-				fmt.tprintf("%d", tick),
-				angle,
-				turns[tick],
-				fmt.tprintf("%.*f", position_precision, xvals[tick]),
-				fmt.tprintf("%.*f", position_precision, zvals[tick]),
-				vxvals[tick],
-				vzvals[tick],
-				speedvals[tick],
-				directionvals[tick],
+	if movement_log_open {
+		im.PushStyleVarImVec2(.CellPadding, {ui_px(10), ui_px(3)})
+		available := im.GetContentRegionAvail()
+		table_width := min(ui_px(877), available.x)
+		visible_rows := min(count, 13)
+		table_height := ui_px(f32(visible_rows)*34+50)
+		table_flags := im.TableFlags_RowBg | im.TableFlags_BordersOuter | im.TableFlags_BordersV |
+		               im.TableFlags_ScrollY | im.TableFlags_ScrollX | im.TableFlags_SizingFixedFit |
+		               im.TableFlags_NoHostExtendX
+		if im.BeginTable("ResultTable", 9, table_flags, {table_width, table_height}) {
+			im.TableSetupScrollFreeze(1, 1)
+			headers := [?]cstring{
+				"Tick",
+				"Facing",
+				"Turn",
+				"X",
+				"Z",
+				"Vx",
+				"Vz",
+				"Speed",
+				"Direction",
 			}
-			for column in 0..<9 {
-				im.TableSetColumnIndex(c.int(column))
-				if jump_row {
-					center_text_colored(values[column], jump_text_color)
-				} else {
-					center_text(values[column])
+			widths := [?]f32{50, 100, 100, 120, 120, 120, 120, 120, 100}
+			for i in 0..<9 do im.TableSetupColumn(headers[i], {.WidthFixed}, ui_px(widths[i]))
+			im.TableNextRow({.Headers}, ui_px(20))
+			for i in 0..<9 {
+				im.TableSetColumnIndex(c.int(i))
+				center_text(string(headers[i]))
+			}
+			jump_text_color := im.Vec4{0.72, 0.62, 0.95, 1}
+			for tick in 0..<count {
+				im.TableNextRow({}, ui_px(20))
+				jump_row := state.color_jump_ticks && tick < len(state.last_jump_ticks) && state.last_jump_ticks[tick]
+				angle := "-" if tick >= count-1 else fmt.tprintf("%.3f", facings[tick])
+				values := [?]string{
+					fmt.tprintf("%d", tick),
+					angle,
+					turns[tick],
+					fmt.tprintf("%.*f", position_precision, xvals[tick]),
+					fmt.tprintf("%.*f", position_precision, zvals[tick]),
+					vxvals[tick],
+					vzvals[tick],
+					speedvals[tick],
+					directionvals[tick],
+				}
+				for column in 0..<9 {
+					im.TableSetColumnIndex(c.int(column))
+					if jump_row {
+						center_text_colored(values[column], jump_text_color)
+					} else {
+						center_text(values[column])
+					}
 				}
 			}
+			im.EndTable()
 		}
-		im.EndTable()
+		im.PopStyleVar()
 	}
-	im.PopStyleVar()
 	im.Spacing(); im.Spacing()
 
 	display_facings := format_angle_list(facings[:], false, ", ")

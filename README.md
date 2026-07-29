@@ -180,7 +180,7 @@ Vx[it] < 0.005/0.91
 
 Nonlinear expressions such as `X[1] * X[2]` are not supported and will not compile.
 
-### 5. Postprocessor
+### 4. Postprocessor
 
 The postprocessor lets you:
 
