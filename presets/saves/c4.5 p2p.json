@@ -2,7 +2,7 @@
   "title": "c4.5 p2p",
   "maximize": false,
   "currObj": 0,
-  "movementScript": "initGnd(0.3169516131491288) sj.w sa.wa(11)\nset(m, 2) set(m2, 8)",
+  "movementScript": "initGnd(0.3169516131491288) sj.w sa.wa(11)\nset(m, 2) set(m2, 8)\n\n// (>_<)",
   "objScript": "X[n] - X[0]",
   "constraintScript": "// c4.5 p2p\nX[m] - X[0] > 7/16\nX[m2] - X[0] > 7/16\nZ[m2] - Z[m-1] > 1 + bx\n",
   "post": {

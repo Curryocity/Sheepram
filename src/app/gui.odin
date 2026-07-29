@@ -500,7 +500,7 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	)
 	im.Spacing()
 
-	// === Core ===
+	// === Objective ===
 	im.SeparatorText("Objective")
 	objective := c.int(state.curr_obj)
 	im.SetNextItemWidth(ui_px(120))

@@ -48,8 +48,22 @@ is_alnum :: proc(ch: u8) -> bool {
 }
 
 lexer_skip_space :: proc(lexer: ^Lexer) {
-	for lexer.pos < len(lexer.data) && is_space(lexer.data[lexer.pos]) {
-		lexer.pos += 1
+	for {
+		for lexer.pos < len(lexer.data) && is_space(lexer.data[lexer.pos]) {
+			lexer.pos += 1
+		}
+
+		if lexer.pos + 1 >= len(lexer.data) ||
+		   lexer.data[lexer.pos] != '/' ||
+		   lexer.data[lexer.pos+1] != '/' {
+			return
+		}
+
+		// skip comments
+		lexer.pos += 2
+		for lexer.pos < len(lexer.data) && lexer.data[lexer.pos] != '\n' {
+			lexer.pos += 1
+		}
 	}
 }
 

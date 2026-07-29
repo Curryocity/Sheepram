@@ -168,7 +168,9 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	buffer_set(
 		tab.env.movement_script[:],
 		"initGnd(0.3169516131491288) sj.w sa.wa(11)\n" +
-		"set(m, 2) set(m2, 8)",
+		"set(m, 2) set(m2, 8)\n" +
+		"\n" +
+		"// (>_<)",
 	)
 	buffer_set(
 		tab.env.constraint_script[:],
