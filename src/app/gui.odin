@@ -501,8 +501,7 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	im.Spacing()
 
 	// === Core ===
-	im.SeparatorText("Core")
-	im.AlignTextToFramePadding(); im.Text("Objective Function: "); im.SameLine()
+	im.SeparatorText("Objective")
 	objective := c.int(state.curr_obj)
 	im.SetNextItemWidth(ui_px(120))
 	objective_items := [?]cstring{"X[n]", "Z[n]", "Custom"}

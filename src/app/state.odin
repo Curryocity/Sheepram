@@ -163,7 +163,7 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	buffer_set(tab.env.dir_z[:], "0")
 	buffer_set(
 		tab.env.obj_script[:],
-		"Optimize along vec(a, b) := a * (X[t1] - X[t0]) + b * (Z[t1] - Z[t0])",
+		"X[n] - X[0]",
 	)
 	buffer_set(
 		tab.env.movement_script[:],
