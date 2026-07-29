@@ -56,7 +56,7 @@ Movement functions support these modifiers:
 | `j` suffix | Performs the movement as a jump, for example `sj`.  |
 | `a` suffix | Performs the movement in air, for example `sa`. |
 | `.input` | Sets the movement keys using any valid combination of `w`, `a`, `s`, and `d`, for example `s.wa` or `sa.d`. Without it, movement defaults to forward (`w`). |
-| `(duration)` | Repeats the movement for a positive whole-number duration, for example `sa.wa(11)`. The duration may be a literal or a global variable. |
+| `(duration)` | Repeats the movement for a positive whole-number duration, for example `sa.wa(11)`. |
 
 Examples:
 
@@ -75,13 +75,20 @@ r(3) { s.w sa.w }
 | `initGnd(vel)`/ `initAir(vel)` | Sets the initial velocity. Two variants differs by previous slip (initGnd takes the current slip when it is executed). One of them must appear exactly once and should normally be the first command. |
 | `slip(value)` | Sets the ground slipperiness used by subsequent ground movements. The default is `0.6`. |
 | `speed(level)`/`slow(level)` | Sets the Speed/Slowness effect level. The level must be a whole number from `0` to `255`. |
+| `set(name, value)` | Evaluates `value` immediately and assigns it to `name`. Later commands and movements can use the variable. |
+| `t(name)` | Records the current tick into the named variable. |
 | `ix` / `ix(ticks)` | Forces X inertia by setting X drag to zero for the next movement tick, or for the next positive-integer number of movement ticks. Calling `ix(...)` while an X inertia queue is still active is an error. |
 | `iz` / `iz(ticks)` | Forces Z inertia by setting Z drag to zero for the next movement tick, or for the next positive-integer number of movement ticks. Calling `iz(...)` while a Z inertia queue is still active is an error. |
 | `mv(drag, accel, duration = 1)` | Adds a custom movement segment with the given drag, acceleration and optional duration. |
-| `r(count) { ... }` | Repeats a non-empty block of movement functions and commands. `loop(...)` and `repeat(...)` are aliases. |
+| `r(count) { ... }` | Repeats a non-empty block of movement functions and commands. `repeat(...)` is an alias. |
 
-Command arguments may use arithmetic and variables from the global-variable
-table.
+These built-in constants are always available and cannot be redefined:
+
+| Constant | Value |
+| --- | --- |
+| `bx` | Minecraft player width, stored as `f32(0.6)` |
+| `px` | One pixel, `1/16` block |
+| `pi` | π |
 
 #### Markers
 
@@ -117,7 +124,7 @@ In this case, equivalent to:
 Z[8] - Z[1] > 1.6
 ```
 
-A marker name cannot conflict with a global variable, reserved name, or
+A marker name cannot conflict with a script variable, reserved name, or
 another marker. `Vx()`, `Vz()`, and `T()` cannot mark the terminal tick because
 they require a following tick.
 
@@ -132,14 +139,7 @@ Examples:
 * `Z[n]`
 * a custom expression written in the scripting language
 
-### 3. Global Variables
-
-Optional, but useful for:
-
-* reusing constants
-* defining indices relative to something else
-
-### 4. Constraints
+### 3. Constraints
 
 You can write constraints using the custom scripting language.
 
@@ -198,21 +198,12 @@ Z Origin: Z[m-1]
 
 ## Tips
 
-### Global variable declaration order
+### What is `n`?
 
-Table entries are evaluated from top to bottom. A variable may reference
-previously defined variables. Redefining a user variable overwrites its
-previous value.
+The tick length of mothball script.
 
-The declaration order is:
-
-```text
-global variables → Mothball model → n
-```
-
-Global variables cannot reference `n`. After Mothball generates the model,
-`n` becomes available to the objective, constraints, and postprocessor. It is
-reserved and cannot be redefined.
+Mothball variables cannot reference `n`. Since it is defined only after parsing the mothball script,
+`n`. It is reserved and cannot be redefined.
 
 ### Double Rotator Trick: Optimizing Initial Velocity
 

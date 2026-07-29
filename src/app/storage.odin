@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import dsl "../dsl"
 
 APP_NAME :: "Sheepram"
 PREFERENCE_FILE :: "preference.json"
@@ -35,8 +36,8 @@ Saved_Tab :: struct {
 	pancake_secondary:    int     `json:"pancakeSecondary,omitempty"`,
 	curr_obj:          int        `json:"currObj"`,
 	movement_script:   string     `json:"movementScript"`,
-	global_names:      []string   `json:"globalNames"`,
-	global_values:     []string   `json:"globalValues"`,
+	global_names:      []string   `json:"globalNames,omitempty"`,
+	global_values:     []string   `json:"globalValues,omitempty"`,
 	obj_script:        string     `json:"objScript"`,
 	constraint_script: string     `json:"constraintScript"`,
 	post:              Saved_Post `json:"post"`,
@@ -80,8 +81,6 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 		pancake_secondary    = int(env.pancake_secondary),
 		curr_obj          = int(env.curr_obj),
 		movement_script   = buffer_string(env.movement_script[:]),
-		global_names      = make([]string, env.var_capacity),
-		global_values     = make([]string, env.var_capacity),
 		obj_script        = buffer_string(env.obj_script[:]),
 		constraint_script = buffer_string(env.constraint_script[:]),
 		post = {
@@ -91,23 +90,11 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 			position_precision = env.post.position_precision,
 		},
 	}
-	for i in 0..<env.var_capacity {
-		saved.global_names[i] = buffer_string(env.global_names[i][:])
-		saved.global_values[i] = buffer_string(env.global_values[i][:])
-	}
 	return saved
-}
-
-free_saved_view :: proc(saved: ^Saved_Tab) {
-	// saved_from_tab only owns its slice containers; strings point into Tab_State.
-	delete(saved.global_names)
-	delete(saved.global_values)
-	saved^ = {}
 }
 
 build_tab_json :: proc(tab: ^Tab_State, pretty := false) -> ([]byte, string) {
 	saved := saved_from_tab(tab)
-	defer free_saved_view(&saved)
 	data, err := json.marshal(
 		saved,
 		{pretty = pretty, use_spaces = true, spaces = 2},
@@ -131,6 +118,49 @@ is_tab_modified :: proc(tab: ^Tab_State) -> bool {
 	fingerprint := build_tab_fingerprint(tab)
 	defer delete(fingerprint)
 	return fingerprint != buffer_string(tab.saved_fingerprint[:])
+}
+
+migrate_saved_global_table :: proc(saved: ^Saved_Tab) -> string {
+	if len(saved.global_names) != len(saved.global_values) {
+		return strings.clone("globalNames/globalValues size mismatch")
+	}
+	if len(saved.global_names) == 0 do return ""
+
+	has_variables := false
+	for raw_name in saved.global_names {
+		name := strings.trim_space(raw_name)
+		if name != "" && !dsl.builtin_moth_name(name) {
+			has_variables = true
+			break
+		}
+	}
+	if !has_variables do return ""
+
+	builder := strings.builder_make()
+	wrote_variable := false
+	for raw_name, i in saved.global_names {
+		name := strings.trim_space(raw_name)
+		if name == "" || dsl.builtin_moth_name(name) do continue
+		if wrote_variable do strings.write_byte(&builder, ' ')
+		fmt.sbprintf(
+			&builder,
+			"set(%s, %s)",
+			name,
+			strings.trim_space(saved.global_values[i]),
+		)
+		wrote_variable = true
+	}
+	strings.write_string(&builder, "\n\n")
+	strings.write_string(&builder, saved.movement_script)
+	migrated := strings.to_string(builder)
+	if len(migrated) >= MOVEMENT_SCRIPT_CAPACITY {
+		delete(migrated)
+		return strings.clone("Migrated movement script is too large")
+	}
+
+	delete(saved.movement_script)
+	saved.movement_script = migrated
+	return ""
 }
 
 commit_tab_title :: proc(tab: ^Tab_State) {
@@ -168,6 +198,9 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 		free_saved_tab(&saved)
 		saved = legacy_to_saved_tab(&legacy, movement_script)
 	}
+	if globals_err := migrate_saved_global_table(&saved); globals_err != "" {
+		return globals_err
+	}
 
 	if saved.curr_obj < int(Objective_Type.X) || saved.curr_obj > int(Objective_Type.Custom) {
 		return strings.clone("Invalid field: currObj")
@@ -187,9 +220,6 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	}
 	if strings.trim_space(saved.movement_script) == "" {
 		return strings.clone("movementScript cannot be empty")
-	}
-	if len(saved.global_names) != len(saved.global_values) {
-		return strings.clone("globalNames/globalValues size mismatch")
 	}
 	if saved.post.copy_separator < int(Separator_Type.Comma) ||
 	   saved.post.copy_separator > int(Separator_Type.Newline) {
@@ -220,16 +250,6 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	buffer_set(env.movement_script[:], saved.movement_script)
 	buffer_set(env.obj_script[:], saved.obj_script)
 	buffer_set(env.constraint_script[:], saved.constraint_script)
-
-	env.var_capacity = clamp(len(saved.global_names), 1, MAX_GLOBALS)
-	for i in 0..<env.var_capacity {
-		buffer_set(env.global_names[i][:], saved.global_names[i])
-		buffer_set(env.global_values[i][:], saved.global_values[i])
-	}
-	if len(saved.global_names) == 0 {
-		buffer_clear(env.global_names[0][:])
-		buffer_clear(env.global_values[0][:])
-	}
 
 	buffer_set(env.post.x_origin[:], saved.post.x_origin)
 	buffer_set(env.post.z_origin[:], saved.post.z_origin)

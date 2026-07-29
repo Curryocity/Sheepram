@@ -31,6 +31,8 @@ test_commit_tab_title_uses_draft :: proc(t: ^testing.T) {
 	defer delete(err)
 	testing.expect_value(t, err, "")
 	testing.expect(t, strings.contains(string(data), `"title":"My Preset"`))
+	testing.expect(t, !strings.contains(string(data), `"globalNames"`))
+	testing.expect(t, !strings.contains(string(data), `"globalValues"`))
 }
 
 @(test)
@@ -61,6 +63,13 @@ test_legacy_preset_migration :: proc(t: ^testing.T) {
 		return
 	}
 	script := buffer_string(tab.env.movement_script[:])
+	testing.expect(
+		t,
+		strings.has_prefix(
+			script,
+			"set(gnd, 0.546) set(air, 0.91) set(a, 0.02)\n\n",
+		),
+	)
 	testing.expect(t, strings.contains(script, "initGnd"))
 	testing.expect(t, !strings.contains(script, "slip("))
 	testing.expect(t, strings.contains(script, "mv(air, a, 2)"))
@@ -71,17 +80,7 @@ test_legacy_preset_migration :: proc(t: ^testing.T) {
 
 	state := dsl.Moth_Compiler{}
 	defer dsl.destroy_moth_compiler(&state)
-	globals_err := dsl.add_moth_variables(
-		&state,
-		[]string{"gnd", "air", "a"},
-		[]string{"0.546", "0.91", "0.02"},
-	)
-	testing.expect_value(t, globals_err, "")
-	if globals_err != "" {
-		delete(globals_err)
-		return
-	}
-	code, parse_err := dsl.parse_mothball(script, state.variables)
+	code, parse_err := dsl.parse_mothball(script)
 	defer dsl.destroy_moth_code(&code)
 	testing.expect_value(t, parse_err, "")
 	if parse_err != "" do return
@@ -92,6 +91,54 @@ test_legacy_preset_migration :: proc(t: ^testing.T) {
 	testing.expect_value(t, state.drag_x[3], 0.0)
 	testing.expect_value(t, state.drag_z[3], 0.91)
 	testing.expect_value(t, state.accel[4], 0.0)
+}
+
+@(test)
+test_current_global_table_migrates_to_set_commands :: proc(t: ^testing.T) {
+	tab := make_default_tab(105)
+	defer destroy_tab(tab)
+
+	current_with_table := `{
+		"title":"table migration",
+		"maximize":false,
+		"currObj":0,
+		"movementScript":"initGnd(0.3) w(m2)",
+		"globalNames":["loop","m2","bx",""],
+		"globalValues":["2","loop + 6","0.6000000238418579",""],
+		"objScript":"",
+		"constraintScript":"X[m2] > 0",
+		"post":{"xOrigin":"X[0]","zOrigin":"Z[0]","copySeparator":0,"positionPrecision":6}
+	}`
+
+	err := load_tab_from_json(tab, transmute([]byte)current_with_table)
+	defer delete(err)
+	testing.expect_value(t, err, "")
+	if err != "" do return
+
+	script := buffer_string(tab.env.movement_script[:])
+	testing.expect_value(
+		t,
+		script,
+		"set(loop, 2) set(m2, loop + 6)\n\ninitGnd(0.3) w(m2)",
+	)
+	testing.expect(t, !strings.contains(script, "set(bx"))
+
+	code, parse_err := dsl.parse_mothball(script)
+	defer dsl.destroy_moth_code(&code)
+	testing.expect_value(t, parse_err, "")
+	if parse_err != "" do return
+	compiler := dsl.Moth_Compiler{}
+	defer dsl.destroy_moth_compiler(&compiler)
+	dsl.compile_mothball(&compiler, code[:])
+	testing.expect(t, compiler.ok)
+	testing.expect_value(t, compiler.n, 9)
+
+	data, save_err := build_tab_json(tab)
+	defer delete(data)
+	defer delete(save_err)
+	testing.expect_value(t, save_err, "")
+	testing.expect(t, !strings.contains(string(data), `"globalNames"`))
+	testing.expect(t, !strings.contains(string(data), `"globalValues"`))
 }
 
 @(test)

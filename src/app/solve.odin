@@ -58,41 +58,19 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	buffer_clear(state.last_error[:])
 	compile_start := time.tick_now()
 
-	// 1. Collect global variable from table
-	global_names := make([dynamic]string, 0, state.var_capacity)
-	global_values := make([dynamic]string, 0, state.var_capacity)
-	defer delete(global_names)
-	defer delete(global_values)
-	for i in 0..<state.var_capacity {
-		append(&global_names, buffer_string(state.global_names[i][:]))
-		append(&global_values, buffer_string(state.global_values[i][:]))
-	}
-
-	// 2. Resolve globals
+	// 1. Initialize the sequential Mothball compiler
 	m := dsl.Moth_Compiler{}
 	defer dsl.destroy_moth_compiler(&m)
-	if globals_err := dsl.add_moth_variables(
-		&m,
-		global_names[:],
-		global_values[:],
-	); globals_err != "" {
-		set_error(state, fmt.tprintf("Error:\n%s", globals_err))
-		delete(globals_err)
-		return
-	}
 
-	// 3. Parse Mothball into a command tree
-	code, movement_err := dsl.parse_mothball(
-		buffer_string(state.movement_script[:]),
-		m.variables,
-	)
+	// 2. Parse Mothball into a command tree
+	code, movement_err := dsl.parse_mothball(buffer_string(state.movement_script[:]))
 	defer dsl.destroy_moth_code(&code)
 	if movement_err != "" {
 		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", movement_err))
 		return
 	}
 
-	// 4. Convert movement script into optimizer model arrays
+	// 3. Convert movement script into optimizer model arrays
 	dsl.compile_mothball(&m, code[:])
 	if !m.ok {
 		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", m.err))
@@ -139,7 +117,7 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 		state.last_jump_ticks[tick] = jump_tick
 	}
 
-	// 5. Compile the continuous movement recurrence
+	// 4. Compile the continuous movement recurrence
 	parser := dsl.init_parser(&model)
 	defer dsl.destroy(&parser)
 	dsl.add_resolved_variables(&parser, m.variables)
@@ -147,14 +125,14 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 
 	opt.compile_model(&model)
 
-	// 6. Resolve markers against the compiled movement expressions
+	// 5. Resolve markers against the compiled movement expressions
 	if marker_err := dsl.resolve_markers(&parser, m.markers[:]); marker_err != "" {
 		set_error(state, fmt.tprintf("Error:\nMovement markers:\n%s", marker_err))
 		delete(marker_err)
 		return
 	}
 
-	// 7. Parse objective expression
+	// 6. Parse objective expression
 	objective: opt.Raw_Expr
 	switch state.curr_obj {
 	case .X:
@@ -178,7 +156,7 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 		objective = inverted
 	}
 
-	// 8. Parse constraints
+	// 7. Parse constraints
 	constraints, constraint_err := dsl.parse_multi_constraints(
 		&parser,
 		buffer_string(state.constraint_script[:]),
@@ -190,7 +168,7 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	}
 	defer dsl.destroy_constraints(&constraints)
 
-	// 9. Parse postprocessor origin expressions
+	// 8. Parse postprocessor origin expressions
 	// Compile postprocessor origins. These may reference globals, markers,
 	// model expressions, and n just like the objective and constraints.
 	x_origin_expr, post_err := dsl.parse_expr(
@@ -216,7 +194,7 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	}
 	defer opt.destroy_raw_expr(&z_origin_expr)
 
-	// 10. Build the raw problem and reduce it to the continuous optimizer problem
+	// 9. Build the raw problem and reduce it to the continuous optimizer problem
 	raw_problem := opt.make_raw_problem(objective, constraints[:], n)
 	defer opt.destroy_raw_problem(&raw_problem)
 	if m.has_init_angle {
@@ -234,7 +212,7 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	}
 	state.compile_time_seconds = time.duration_seconds(time.tick_since(compile_start))
 
-	// 11. Phase I: solve the continuous problem
+	// 10. Phase I: solve the continuous problem
 	solution := new(opt.Solution)
 	optimize_start := time.tick_now()
 	initial_theta := f64(state.continuous_initial_angle_degrees) * math.PI / 180
@@ -300,7 +278,7 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 		solution.pancake_recovery_reasons
 	continuous_pancake_dual_bound := solution.pancake_dual_bound
 
-	// 12. Phase II: optimize the discrete/exact model when requested
+	// 11. Phase II: optimize the discrete/exact model when requested
 	if state.discrete_search {
 		discrete_start := time.tick_now()
 		discrete_model := opt.Discrete_Model {
@@ -433,7 +411,7 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 		state.discrete_time_seconds = time.duration_seconds(time.tick_since(discrete_start))
 	}
 
-	// 13. Convert optimizer-space results back into UI/reporting-space results
+	// 12. Convert optimizer-space results back into UI/reporting-space results
 	if state.maximize {
 		solution.optimum *= -1 // Invert solution again when maximizing
 		if solution.pancake_used do solution.pancake_dual_bound *= -1

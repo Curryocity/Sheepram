@@ -5,7 +5,6 @@ import opt "../optimizer"
 
 N_MIN :: 1
 MAX_TABS :: 16
-MAX_GLOBALS :: 128
 
 CELL_CAPACITY :: 64
 NAME_CAPACITY :: 128
@@ -71,10 +70,6 @@ Environment :: struct {
 
 	movement_script: [MOVEMENT_SCRIPT_CAPACITY]byte,
 
-	var_capacity: int,
-	global_names:  [MAX_GLOBALS][CELL_CAPACITY]byte,
-	global_values: [MAX_GLOBALS][CELL_CAPACITY]byte,
-
 	constraint_script: [SCRIPT_CAPACITY]byte,
 	post:              Post_State,
 
@@ -106,7 +101,6 @@ Tab_State :: struct {
 	left_width:          f32,
 	movement_editor_height: f32,
 	cons_editor_height:  f32,
-	selected_global_var_index: int,
 	optimizer_job: ^Optimizer_Job,
 }
 
@@ -153,21 +147,6 @@ destroy_app :: proc(app: ^App_State) {
 	app^ = {}
 }
 
-init_globals :: proc(state: ^Environment) {
-	state.var_capacity = 4
-	default_names := [?]string{"m", "m2", "bx", ""}
-	default_values := [?]string{
-		"2",
-		"8",
-		"0.6000000238418579",
-		"",
-	}
-	for i in 0..<state.var_capacity {
-		buffer_set(state.global_names[i][:], default_names[i])
-		buffer_set(state.global_values[i][:], default_values[i])
-	}
-}
-
 make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	tab := new(Tab_State)
 	tab.id = tab_id
@@ -188,7 +167,8 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	)
 	buffer_set(
 		tab.env.movement_script[:],
-		"initGnd(0.3169516131491288) sj.w sa.wa(11)",
+		"initGnd(0.3169516131491288) sj.w sa.wa(11)\n" +
+		"set(m, 2) set(m2, 8)",
 	)
 	buffer_set(
 		tab.env.constraint_script[:],
@@ -199,8 +179,6 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	)
 	buffer_set(tab.env.post.x_origin[:], "X[0]")
 	buffer_set(tab.env.post.z_origin[:], "Z[m-1]")
-	init_globals(&tab.env)
-	tab.selected_global_var_index = -1
 	tab.movement_editor_height = 86
 	tab.cons_editor_height = 120
 	fingerprint := build_tab_fingerprint(tab)

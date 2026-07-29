@@ -5,6 +5,10 @@ import "core:math"
 import "core:strings"
 import opt "../optimizer"
 
+MOTH_BX :: f64(f32(0.6))
+MOTH_PX :: f64(1.0/16.0)
+MOTH_PI :: math.PI
+
 Moth_Compiler :: struct {
 	speed: u8,
 	slow: u8,
@@ -63,10 +67,7 @@ destroy_moth_compiler :: proc(state: ^Moth_Compiler) {
 }
 
 marker_name_conflicts :: proc(state: ^Moth_Compiler, name: string) -> bool {
-	if name == "n" || name == "X" || name == "Z" ||
-	   name == "F" || name == "Vx" || name == "Vz" || name == "T" {
-		return true
-	}
+	if reserved_moth_name(name) do return true
 	for marker in state.markers {
 		if marker.name == name do return true
 	}
@@ -76,32 +77,28 @@ marker_name_conflicts :: proc(state: ^Moth_Compiler, name: string) -> bool {
 	return false
 }
 
-add_moth_variables :: proc(
-	state: ^Moth_Compiler,
-	names, values: []string,
-) -> string {
-	if len(names) != len(values) {
-		return strings.clone("Variable name/value size mismatch")
+reserved_moth_name :: proc(name: string) -> bool {
+	return name == "n" || name == "X" || name == "Z" ||
+	       name == "F" || name == "Vx" || name == "Vz" || name == "T" ||
+	       builtin_moth_name(name)
+}
+
+builtin_moth_name :: proc(name: string) -> bool {
+	return name == "bx" || name == "px" || name == "pi"
+}
+
+marker_name_exists :: proc(state: ^Moth_Compiler, name: string) -> bool {
+	for marker in state.markers {
+		if marker.name == name do return true
 	}
+	return false
+}
 
-	model := opt.Model{n = 1}
-	parser := init_parser_without_n(&model)
-	defer destroy(&parser)
-	if err := add_variables(&parser, names, values); err != "" do return err
-
+ensure_moth_variables :: proc(state: ^Moth_Compiler) {
 	if state.variables == nil do state.variables = make(map[string]f64)
-	for raw_name in names {
-		name := trim(raw_name)
-		if name == "" do continue
-		value, found := parser.var_map[name]
-		if !found do continue
-		if name in state.variables {
-			state.variables[name] = value
-		} else {
-			state.variables[strings.clone(name)] = value
-		}
-	}
-	return ""
+	if _, found := state.variables["bx"]; !found do state.variables[strings.clone("bx")] = MOTH_BX
+	if _, found := state.variables["px"]; !found do state.variables[strings.clone("px")] = MOTH_PX
+	if _, found := state.variables["pi"]; !found do state.variables[strings.clone("pi")] = MOTH_PI
 }
 
 set_model_error :: proc(state: ^Moth_Compiler, message: string) {
@@ -114,6 +111,7 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 	state.slip = 0.6
 	state.ok = true
 	state.discrete_supported = true
+	ensure_moth_variables(state)
 	state.n = 1
     append(&state.drag_x, 0)
     append(&state.drag_z, 0)
@@ -154,7 +152,30 @@ exe_code :: proc(state: ^Moth_Compiler, code: []Arg) {
 		#partial switch ins.type {
 		case .MoveCall:
 			mf := ins.mvfunc
-			duration := mf.t
+			duration := 1
+			if mf.duration != nil {
+				duration_value, duration_err := eval_moth_number(
+					state,
+					mf.duration^,
+					fmt.tprintf("duration in %s(...)", mf.name),
+				)
+				if duration_err != "" {
+					set_model_error(state, duration_err)
+					return
+				}
+				rounded := math.round(duration_value)
+				if duration_value != rounded || rounded <= 0 {
+					set_model_error(
+						state,
+						fmt.tprintf(
+							"Error: duration in %s(...) must be a positive whole number",
+							mf.name,
+						),
+					)
+					return
+				}
+				duration = int(rounded)
+			}
 
 			drag := f64(0.91)
 			base_accel: f64
@@ -318,7 +339,7 @@ eval_moth_number :: proc(
 	value, ok := eval_moth_constant(state, arg)
 	if !ok {
 		return 0, fmt.tprintf(
-			"Error: %s must be a number or defined global-variable expression",
+			"Error: %s must be a number or defined-variable expression",
 			description,
 		)
 	}
@@ -354,6 +375,65 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 	}
 
 	switch cmd.type {
+	case .SetVar:
+		if message, ok := expect_moth_args(cmd, 2, 2, false); !ok {
+			set_model_error(state, message)
+			return
+		}
+
+		target := cmd.args[0]
+		if target.type != .Variable || target.text == "" {
+			set_model_error(state, "Error: first argument of set(...) must be a variable name")
+			return
+		}
+		if builtin_moth_name(target.text) {
+			set_model_error(
+				state,
+				fmt.tprintf("Error: cannot assign to built-in constant '%s'", target.text),
+			)
+			return
+		}
+		if reserved_moth_name(target.text) || marker_name_exists(state, target.text) {
+			set_model_error(
+				state,
+				fmt.tprintf("Error: marker/variable '%s' is already defined", target.text),
+			)
+			return
+		}
+
+		value, err := eval_moth_number(state, cmd.args[1], "set(...) value")
+		if err != "" {
+			set_model_error(state, err)
+			return
+		}
+		if target.text in state.variables {
+			state.variables[target.text] = value
+		} else {
+			state.variables[strings.clone(target.text)] = value
+		}
+		return
+
+	case .MarkTick:
+		if message, ok := expect_moth_args(cmd, 1, 1, false); !ok {
+			set_model_error(state, message)
+			return
+		}
+
+		target := cmd.args[0]
+		if target.type != .Variable || target.text == "" {
+			set_model_error(state, "Error: t(...) accepts only a timestamp name")
+			return
+		}
+		if marker_name_conflicts(state, target.text) {
+			set_model_error(
+				state,
+				fmt.tprintf("Error: marker/variable '%s' is already defined", target.text),
+			)
+			return
+		}
+		state.variables[strings.clone(target.text)] = f64(state.n-1)
+		return
+
 	case .SetInitGroundVel, .SetInitAirVel:
 		if state.has_init_v {
 			set_model_error(state, "init command can only be called once")
@@ -560,24 +640,24 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 		state.n += duration
 		return
 
-	case .Loop:
+	case .Repeat:
 		if message, ok := expect_moth_args(cmd, 1, 1, true); !ok {
 			set_model_error(state, message)
 			return
 		}
 		if len(cmd.code) == 0 {
-			set_model_error(state, "Error: loop requires a non-empty code block")
+			set_model_error(state, "Error: repeat requires a non-empty code block")
 			return
 		}
 
-		count_value, err := eval_moth_number(state, cmd.args[0], "loop count")
+		count_value, err := eval_moth_number(state, cmd.args[0], "repeat count")
 		if err != "" {
 			set_model_error(state, err)
 			return
 		}
 		rounded := math.round(count_value)
 		if count_value != rounded || rounded < 0 {
-			set_model_error(state, "Error: loop count must be a non-negative integer")
+			set_model_error(state, "Error: repeat count must be a non-negative integer")
 			return
 		}
 

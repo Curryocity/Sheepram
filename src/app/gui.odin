@@ -260,78 +260,6 @@ format_duration :: proc(seconds: f64) -> string {
 	return fmt.aprintf("%ds %.3fms", whole_seconds, milliseconds)
 }
 
-draw_selection_rect :: proc(minimum, maximum: im.Vec2) {
-	draw_list := im.GetForegroundDrawList()
-	im.DrawList_AddRect(draw_list, minimum, maximum, im.GetColorU32ImVec4({1, 1, 1, 0.4}), ui_px(3), {}, ui_px(2))
-}
-
-draw_global_table :: proc(tab: ^Tab_State) {
-	state := &tab.env
-	im.SeparatorText("Global Variables")
-	im.BeginChild("var_region", {0, ui_px(80)})
-	region_min := im.GetWindowPos()
-	region_size := im.GetWindowSize()
-	region_max := im.Vec2{region_min.x+region_size.x, region_min.y+region_size.y}
-	active_index := state.var_capacity-1
-	if tab.selected_global_var_index >= 0 && tab.selected_global_var_index < state.var_capacity {
-		active_index = tab.selected_global_var_index
-	}
-	im.BeginGroup()
-	if im.Button("+", {ui_px(26), im.GetFrameHeight()}) && state.var_capacity < MAX_GLOBALS {
-		insert_index := active_index+1
-		for i := state.var_capacity; i > insert_index; i -= 1 {
-			state.global_names[i] = state.global_names[i-1]
-			state.global_values[i] = state.global_values[i-1]
-		}
-		buffer_clear(state.global_names[insert_index][:])
-		buffer_clear(state.global_values[insert_index][:])
-		state.var_capacity += 1
-		tab.selected_global_var_index = insert_index
-	}
-	if im.Button("-", {ui_px(26), im.GetFrameHeight()}) && state.var_capacity > 1 {
-		for i in active_index..<state.var_capacity-1 {
-			state.global_names[i] = state.global_names[i+1]
-			state.global_values[i] = state.global_values[i+1]
-		}
-		state.var_capacity -= 1
-		tab.selected_global_var_index = max(0, active_index-1)
-	}
-	im.EndGroup()
-	im.SameLine()
-	flags := im.TableFlags_Borders | im.TableFlags_RowBg |
-	         im.TableFlags_ScrollX | im.TableFlags_ScrollY | im.TableFlags_SizingFixedFit
-	if im.BeginTable("global_table", c.int(state.var_capacity+1), flags) {
-		im.TableSetupColumn("", {.WidthFixed}, ui_px(60))
-		for i in 0..<state.var_capacity {
-			im.TableSetupColumn("", {.WidthFixed}, ui_px(70))
-		}
-		for row in 0..<2 {
-			im.TableNextRow()
-			im.TableSetColumnIndex(0)
-			center_text("Name" if row == 0 else "Value")
-			for i in 0..<state.var_capacity {
-				im.TableSetColumnIndex(c.int(i+1))
-				im.PushIDInt(c.int(row*1000+i))
-				im.SetNextItemWidth(ui_px(70))
-				if row == 0 {
-					_ = input_text("##name", state.global_names[i][:])
-				} else {
-					_ = input_text("##value", state.global_values[i][:])
-				}
-				if im.IsItemActivated() || im.IsItemClicked() do tab.selected_global_var_index = i
-				if tab.selected_global_var_index == i do draw_selection_rect(im.GetItemRectMin(), im.GetItemRectMax())
-				im.PopID()
-			}
-		}
-		im.EndTable()
-	}
-	mouse := im.GetMousePos()
-	inside := mouse.x >= region_min.x && mouse.x <= region_max.x &&
-	          mouse.y >= region_min.y && mouse.y <= region_max.y
-	if im.IsMouseClicked(.Left) && !inside do tab.selected_global_var_index = -1
-	im.EndChild()
-}
-
 draw_postprocessor :: proc(state: ^Environment) {
 	if !im.CollapsingHeader("Postprocessor", {.DefaultOpen}) do return
 	im.PushStyleVarImVec2(.FramePadding, {ui_px(4), ui_px(2)})
@@ -587,8 +515,6 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 			_ = input_text("##custom_objective_script", state.obj_script[:])
 			pop_font(objective_font_pushed)
 	}
-	draw_global_table(tab)
-
 	// === Constraints ===
 	im.SeparatorText("Constraints")
 	tab.cons_editor_height = clamp(tab.cons_editor_height, ui_px(80), ui_px(360))
