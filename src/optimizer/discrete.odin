@@ -166,20 +166,14 @@ LS_Control :: struct {
 	cancel_check: Cancel_Check,
 	cancel_data: rawptr,
 	cancelled: ^bool,
+	cancel_last_check: time.Tick,
 }
 
-MAX_ROUND_CANDIDATES :: 32
 FAST_ERR :: 5e-7
 WORSE_ACCEPT_THRESHOLD :: 256
 MAX_DROP :: ACCEPT_TOL
 MAX_DOWN_HILLS :: 128
 CANCEL_CHECK_SEC :: 0.25
-
-One_Opt_Cand :: struct {
-	tick: int,
-	delta: int,
-	grade: Incremental_Grade,
-}
 
 get_pair :: proc(rank: int, ilen: int) -> (int, int) {
 	assert(rank >= 0 && rank < ilen*(ilen-1)/2)
@@ -204,15 +198,12 @@ create_pair_orders :: proc(pair_count: int) -> [dynamic]int {
 	return pairs
 }
 
-cancel_requested :: proc(
-	last_check: ^time.Tick,
-	control: ^LS_Control,
-) -> bool {
+cancel_requested :: proc(control: ^LS_Control) -> bool {
 	if control == nil || control.cancel_check == nil do return false
-	if time.duration_seconds(time.tick_since(last_check^)) < CANCEL_CHECK_SEC {
+	if time.duration_seconds(time.tick_since(control.cancel_last_check)) < CANCEL_CHECK_SEC {
 		return false
 	}
-	last_check^ = time.tick_now()
+	control.cancel_last_check = time.tick_now()
 	return control.cancel_check(control.cancel_data)
 }
 
@@ -226,29 +217,25 @@ one_opt_descent :: proc(
 	trial: ^Discrete_State,
 	work: ^Workspace,
 	exact_work: ^Exact_Workspace,
-	search_mode: Local_Search_Mode,
-	cancel_last_check: ^time.Tick,
 	control: ^LS_Control,
 	max_delta: int = 1,
-	exhaustive_exact_polish: bool = false,
 ) -> (improved, cancelled: bool) {
 	ilen := discrete_angle_len(model)
-	cands := make([dynamic]One_Opt_Cand, 0, MAX_ROUND_CANDIDATES)
-	defer delete(cands)
-
-	incremental_grade: Incremental_Grade
 	exact_grade: Grade
+	exact_grading(&exact_grade, model, exact_p, current.state, exact_work)
+	current.grade = exact_grade
+	mode^ = .Polish if exact_grade.feasible else .Repair
+	rebuild_discrete_baseline(baseline, model, p, current.state, work, mode^)
+
 	for {
-		if cancel_requested(cancel_last_check, control) {
+		if cancel_requested(control) {
 			return improved, true
 		}
-		local_improved := false
-		resize(&cands, 0)
-		local_best := Incremental_Grade {
-			feasible = baseline.feasible,
-		}
-		local_best_tick := 0
-		local_best_delta := 0
+
+		best_found := false
+		best_tick := 0
+		best_delta := 0
+		best_grade := current.grade
 
 		copy_discrete_state(trial, current.state)
 		prev_t := 0
@@ -262,50 +249,12 @@ one_opt_descent :: proc(
 					trial.indices[prev_t] = offset_index(trial.indices[prev_t], -prev_delta)
 					trial.indices[t] = offset_index(trial.indices[t], delta)
 
-						if exhaustive_exact_polish && mode^ == .Polish {
-							exact_grading(&exact_grade, model, exact_p, trial^, exact_work)
-							exact_incremental := incremental_from_grades(exact_grade, current.grade)
-							exact_baseline := Incremental_Grade {
-								feasible = current.grade.feasible,
-							}
-							if improveQ(&exact_incremental, &exact_baseline, .Polish) {
-								insert_one_opt_cand(
-								&cands,
-								One_Opt_Cand {
-									tick  = t,
-									delta = delta,
-									grade = exact_incremental,
-								},
-								.Polish,
-							)
-						}
-					} else {
-						increment := Angle_Increment {
-							deltas = {delta, 0},
-							ticks = {t, 0},
-							count = 1,
-						}
-						incremental_grading(&incremental_grade, baseline, model, p, &increment, mode^)
-
-						if mode^ == .Repair &&
-						   improveQ(&incremental_grade, &local_best, .Repair) {
-							local_best = incremental_grade
-							local_best_tick = t
-							local_best_delta = delta
-							local_improved = true
-						}
-
-						if good_candQ(&incremental_grade, baseline, &current.grade, p, mode^, search_mode) {
-							insert_one_opt_cand(
-								&cands,
-								One_Opt_Cand {
-									tick  = t,
-									delta = delta,
-									grade = incremental_grade,
-								},
-								mode^,
-							)
-						}
+					exact_grading(&exact_grade, model, exact_p, trial^, exact_work)
+					if improveQ(&exact_grade, &best_grade, mode^) {
+						best_found = true
+						best_tick = t
+						best_delta = delta
+						best_grade = exact_grade
 					}
 
 					prev_t = t
@@ -314,42 +263,12 @@ one_opt_descent :: proc(
 			}
 		}
 
-		accept := false
-		if len(cands) > 0 {
-			copy_discrete_state(trial, current.state)
-			prev_t = 0
-			prev_delta = 0
+		if !best_found do return improved, false
 
-			for c in cands {
-				trial.indices[prev_t] = offset_index(trial.indices[prev_t], -prev_delta)
-				trial.indices[c.tick] = offset_index(trial.indices[c.tick], c.delta)
-
-				prev_t = c.tick
-				prev_delta = c.delta
-
-				exact_grading(&exact_grade, model, exact_p, trial^, exact_work)
-				if !exact_grade.feasible do continue
-				if mode^ == .Polish &&
-				   !improveQ(&exact_grade, &current.grade, mode^) {
-					continue
-				}
-
-					copy_discrete_state(&current.state, trial^)
-					current.grade = exact_grade
-					mode^ = .Polish
-					rebuild_discrete_baseline(baseline, model, p, current.state, work, mode^)
-					accept = true
-					break
-				}
-			}
-
-			if !accept && mode^ == .Repair && local_improved {
-				current.state.indices[local_best_tick] = offset_index(current.state.indices[local_best_tick], local_best_delta)
-				rebuild_discrete_baseline(baseline, model, p, current.state, work, mode^)
-				current.grade = baseline_grade(baseline)
-			accept = true
-		}
-		if !accept do return improved, false
+		current.state.indices[best_tick] = offset_index(current.state.indices[best_tick], best_delta)
+		current.grade = best_grade
+		mode^ = .Polish if best_grade.feasible else .Repair
+		rebuild_discrete_baseline(baseline, model, p, current.state, work, mode^)
 		improved = true
 	}
 }
@@ -398,62 +317,27 @@ local_search :: proc(
 	rng_state: rand.Xoshiro256_Random_State
 	rng := rand.xoshiro256_random_generator(&rng_state)
 
-	// 2. Grade the current "solution"
-
-	grade: Grade
 	exact_grade: Grade
-
-	// initial prep
-
-	rebuild_discrete_baseline(&baseline, model, p, trial, &work, mode)
-	grade = baseline_grade(&baseline)
-
 	current := Discrete_Cand {
 		state = clone_discrete_state(trial),
-		grade = grade,
 	}
 	defer destroy_discrete_cand(&current)
 
-	if mode == .Repair && grade.feasible {
-		exact_grading(&exact_grade, model, exact_p, trial, &exact_work)
+	if control != nil do control.cancel_last_check = time.tick_now()
+	search_cancelled := false
 
-		if exact_grade.feasible {
-			current.grade = exact_grade
-			mode = .Polish
-		}
-	}
+	// 2. Exact steepest 1-opt ±1 rounds
+	//
+	// Exact-grade every single-index neighbor and accept the best move.
+	// Repair minimizes exact violation; Polish minimizes exact objective.
+
+	_, search_cancelled = one_opt_descent(model, p, exact_p, &current, &baseline, &mode, &trial, &work, &exact_work, control)
 
 	best := clone_discrete_cand(current)
 	defer destroy_discrete_cand(&best)
 	has_best := mode == .Polish
-	cancel_last_check := time.tick_now()
-	search_cancelled := false
 
-	// 3. Greedy full 1-opt ±1 rounds
-	//
-	// For each round, grade every single-index ±1 neighbor.
-	//
-	// Case A: Repair mode + no fast-feasible candidates
-	// -> Accept the best repair-grade candidate:
-	//    violation_sqr, then objective.
-	//
-	// Case B: Repair mode + fast-feasible candidates exist
-	// -> Exact-check fast-feasible candidates from best to worst.
-	// -> Once exact-feasible, store current, switch to Polish,
-	//    and continue next round.
-	// -> If none exact-feasible, accept the best repair-grade candidate.
-	//
-	// Case C: Polish mode
-	// -> Exact-check fast-feasible objective-improving candidates
-	//    from best to worst.
-	// -> Accept only exact-feasible objective improvement.
-	//
-	// End condition:
-	// -> No accepted 1-opt move this round, go to 2-opt phase.
-
-	_, search_cancelled = one_opt_descent(model, p, exact_p, &current, &baseline, &mode, &trial, &work, &exact_work, search_mode, &cancel_last_check, control)
-
-	// 4. Greedy randomized 2-opt
+	// 3. Greedy randomized 2-opt
 	//
 	// Regular mode shuffles tick-pair ranks and tries each pair at most once.
 	// Cooking mode samples random pairs with replacement and allows bounded
@@ -486,11 +370,6 @@ local_search :: proc(
 		return clone_discrete_state(best.state)
 	}
 
-	if mode == .Polish && (!has_best || improveQ(&current.grade, &best.grade, .Polish)) {
-		copy_discrete_cand(&best, current)
-		has_best = true
-	}
-
 	pair_count := ilen*(ilen-1)/2
 	pairs := create_pair_orders(pair_count)
 	defer delete(pairs)
@@ -498,7 +377,7 @@ local_search :: proc(
 
 	for {
 		if search_cancelled do break
-		if cancel_requested(&cancel_last_check, control) {
+		if cancel_requested(control) {
 			search_cancelled = true
 			break
 		}
@@ -518,7 +397,7 @@ local_search :: proc(
 		}
 
 		for attempts < max_attempts {
-			if cancel_requested(&cancel_last_check, control) {
+			if cancel_requested(control) {
 				search_cancelled = true
 				break
 			}
@@ -614,9 +493,9 @@ local_search :: proc(
 		if !accept do break
 	}
 
-	// 1-opt cleanup for final improvement
+	// 4. Exact steepest 1-opt cleanup with ±1, ±2, and ±3 moves
 	if !search_cancelled {
-		_, search_cancelled = one_opt_descent(model, p, exact_p, &current, &baseline, &mode, &trial, &work, &exact_work, search_mode, &cancel_last_check, control, 3, true)
+		_, search_cancelled = one_opt_descent(model, p, exact_p, &current, &baseline, &mode, &trial, &work, &exact_work, control, 3)
 	}
 
 	if mode == .Polish && (!has_best || improveQ(&current.grade, &best.grade, .Polish)) {
@@ -723,16 +602,6 @@ baseline_grade :: proc(base: ^Discrete_Baseline) -> Grade {
 	}
 }
 
-incremental_from_grades :: proc(
-	trial, base: Grade,
-) -> Incremental_Grade {
-	return {
-		dobj = trial.objective - base.objective,
-		dvio_sqr = trial.violation_sqr - base.violation_sqr,
-		feasible = trial.feasible,
-	}
-}
-
 incremental_grading :: proc(
 	out: ^Incremental_Grade,
 	base: ^Discrete_Baseline,
@@ -835,35 +704,6 @@ good_candQ :: proc(
 	}
 
 	return false
-}
-
-// Sorted from best to worst
-insert_one_opt_cand :: proc(cands: ^[dynamic]One_Opt_Cand, cand: One_Opt_Cand, mode: Discrete_Mode) -> bool {
-	
-	candidate := cand
-	pos := len(cands^)
-	for i in 0..<len(cands^) {
-		if improveQ(&candidate.grade, &cands^[i].grade, mode) {
-			pos = i
-			break
-		}
-	}
-
-	// Overcrowd and is not top-K
-	if pos == len(cands^) && len(cands^) >= MAX_ROUND_CANDIDATES {
-		return false
-	}
-
-	if len(cands^) < MAX_ROUND_CANDIDATES {
-		append(cands, One_Opt_Cand{})
-	}
-
-	for i := len(cands^)-1; i > pos; i -= 1 {
-		cands^[i] = cands^[i-1]
-	}
-
-	cands^[pos] = candidate
-	return true
 }
 
 improve_gradeQ :: proc(new: ^Grade, src: ^Grade, mode: Discrete_Mode) -> bool {
