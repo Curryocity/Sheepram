@@ -626,6 +626,103 @@ grading :: proc(out: ^Grade, model: ^Discrete_Model, p: ^Problem, state: Discret
 	if mode == .Repair && out.violation_sqr > 0 do out.feasible = false
 }
 
+Angle_Increment :: struct {
+	deltas: [2]int,
+	ticks: [2]int, // actual tick - 1, counting from t = 1
+	counts: int,
+
+	// update later
+	dsin: [2]f64,
+	dcos: [2]f64,
+	dtheta: [2]f64,
+}
+
+Incremental_Grade :: struct {
+    dobj: f64,
+	dvio_sqr: f64,
+	feasible: bool,
+}
+
+Discrete_Baseline :: struct {
+	state: Discrete_State,
+    objective:         f64,
+    inequality_values: [dynamic]f64,
+    equality_values:   [dynamic]f64,
+	violation_sqr: f64,
+	feasible: bool,
+}
+
+incremental_grading :: proc(out: ^Incremental_Grade, base: ^Discrete_Baseline, model: ^Discrete_Model, p: ^Problem, inc: ^Angle_Increment, mode: Discrete_Mode) {
+	assert(inc.counts >= 1 && inc.counts <= 2)
+	assert(len(base.inequality_values) == len(p.ineq_cons))
+	assert(len(base.equality_values) == len(p.eq_cons))
+	if inc.counts == 2 do assert(inc.ticks[0] != inc.ticks[1])
+
+	out^ = {
+		feasible = true,
+	}
+
+	for i in 0..<inc.counts {
+		state_index := inc.ticks[i]
+		assert(state_index >= 0 && state_index < len(base.state.indices))
+
+		old_idx := base.state.indices[state_index]
+		new_idx := offset_index(old_idx, inc.deltas[i])
+		actual_t := state_index + 1
+
+		old_s, old_c := trig_index_offset(old_idx, model.angle_offset[actual_t])
+		new_s, new_c := trig_index_offset(new_idx, model.angle_offset[actual_t])
+
+		inc.dsin[i] = new_s - old_s
+		inc.dcos[i] = new_c - old_c
+		inc.dtheta[i] = index_to_radians(new_idx) - index_to_radians(old_idx)
+	}
+
+	out.dobj = delta_discrete_expr(p.objective, inc)
+
+	for constraint, i in p.ineq_cons {
+		old_val := base.inequality_values[i]
+		new_val := old_val + delta_discrete_expr(constraint, inc)
+		old_vio := max(0.0, old_val)
+		new_vio := max(0.0, new_val)
+
+		out.dvio_sqr += new_vio * new_vio - old_vio * old_vio
+		if new_vio > FAST_ERR do out.feasible = false
+	}
+
+	for constraint, i in p.eq_cons {
+		old_value := base.equality_values[i]
+		new_value := old_value + delta_discrete_expr(constraint, inc)
+		old_vio := math.abs(old_value)
+		new_vio := math.abs(new_value)
+
+		out.dvio_sqr += new_vio * new_vio - old_vio * old_vio
+		if new_vio > ACCEPT_TOL do out.feasible = false
+	}
+
+	// Keep the reconstructed violation square nonnegative despite roundoff.
+	trial_violation_sqr := max(0.0, base.violation_sqr + out.dvio_sqr)
+	out.dvio_sqr = trial_violation_sqr - base.violation_sqr
+	if mode == .Repair && trial_violation_sqr > 0 {
+		out.feasible = false
+	}
+}
+
+delta_discrete_expr :: proc(expr: Compiled_Expr, inc: ^Angle_Increment) -> f64 {
+
+	delta := f64(0)
+
+	for i in 0..<inc.counts {
+		t := inc.ticks[i] + 1
+		delta += expr.sin_coeff[t] * inc.dsin[i]
+		delta += expr.cos_coeff[t] * inc.dcos[i]
+		delta += expr.theta_coeff[t] * inc.dtheta[i]
+	}
+
+	return delta
+
+}
+
 viosqr_tol :: proc(p: ^Problem) -> f64 {
 	constraint_count := len(p.ineq_cons) + len(p.eq_cons)
 	return f64(max(1, constraint_count)) * FAST_ERR * FAST_ERR
