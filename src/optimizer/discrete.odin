@@ -178,7 +178,7 @@ CANCEL_CHECK_SEC :: 0.25
 One_Opt_Cand :: struct {
 	tick: int,
 	delta: int,
-	grade: Grade,
+	grade: Incremental_Grade,
 }
 
 get_pair :: proc(rank: int, ilen: int) -> (int, int) {
@@ -221,6 +221,7 @@ one_opt_descent :: proc(
 	p: ^Problem,
 	exact_p: ^Raw_Problem,
 	current: ^Discrete_Cand,
+	baseline: ^Discrete_Baseline,
 	mode: ^Discrete_Mode,
 	trial: ^Discrete_State,
 	work: ^Workspace,
@@ -234,10 +235,8 @@ one_opt_descent :: proc(
 	ilen := discrete_angle_len(model)
 	cands := make([dynamic]One_Opt_Cand, 0, MAX_ROUND_CANDIDATES)
 	defer delete(cands)
-	local_current := clone_discrete_cand(current^)
-	defer destroy_discrete_cand(&local_current)
 
-	grade: Grade
+	incremental_grade: Incremental_Grade
 	exact_grade: Grade
 	for {
 		if cancel_requested(cancel_last_check, control) {
@@ -245,7 +244,11 @@ one_opt_descent :: proc(
 		}
 		local_improved := false
 		resize(&cands, 0)
-		copy_discrete_cand(&local_current, current^)
+		local_best := Incremental_Grade {
+			feasible = baseline.feasible,
+		}
+		local_best_tick := 0
+		local_best_delta := 0
 
 		copy_discrete_state(trial, current.state)
 		prev_t := 0
@@ -259,36 +262,46 @@ one_opt_descent :: proc(
 					trial.indices[prev_t] = offset_index(trial.indices[prev_t], -prev_delta)
 					trial.indices[t] = offset_index(trial.indices[t], delta)
 
-					update_discrete_trig_cache(work, trial^, model.angle_offset[:])
-					grading(&grade, model, p, trial^, work, mode^)
-
-					if exhaustive_exact_polish && mode^ == .Polish {
-						exact_grading(&exact_grade, model, exact_p, trial^, exact_work)
-						if improveQ(&exact_grade, &current.grade, .Polish) {
-							insert_one_opt_cand(
+						if exhaustive_exact_polish && mode^ == .Polish {
+							exact_grading(&exact_grade, model, exact_p, trial^, exact_work)
+							exact_incremental := incremental_from_grades(exact_grade, current.grade)
+							exact_baseline := Incremental_Grade {
+								feasible = current.grade.feasible,
+							}
+							if improveQ(&exact_incremental, &exact_baseline, .Polish) {
+								insert_one_opt_cand(
 								&cands,
 								One_Opt_Cand {
 									tick  = t,
 									delta = delta,
-									grade = exact_grade,
+									grade = exact_incremental,
 								},
 								.Polish,
 							)
 						}
 					} else {
-						if improveQ(&grade, &local_current.grade, mode^) {
-							copy_discrete_state(&local_current.state, trial^)
-							local_current.grade = grade
+						increment := Angle_Increment {
+							deltas = {delta, 0},
+							ticks = {t, 0},
+							count = 1,
+						}
+						incremental_grading(&incremental_grade, baseline, model, p, &increment, mode^)
+
+						if mode^ == .Repair &&
+						   improveQ(&incremental_grade, &local_best, .Repair) {
+							local_best = incremental_grade
+							local_best_tick = t
+							local_best_delta = delta
 							local_improved = true
 						}
 
-						if good_candQ(&grade, &current.grade, p, mode^, search_mode) {
+						if good_candQ(&incremental_grade, baseline, &current.grade, p, mode^, search_mode) {
 							insert_one_opt_cand(
 								&cands,
 								One_Opt_Cand {
 									tick  = t,
 									delta = delta,
-									grade = grade,
+									grade = incremental_grade,
 								},
 								mode^,
 							)
@@ -321,16 +334,19 @@ one_opt_descent :: proc(
 					continue
 				}
 
-				copy_discrete_state(&current.state, trial^)
-				current.grade = exact_grade
-				mode^ = .Polish
-				accept = true
-				break
+					copy_discrete_state(&current.state, trial^)
+					current.grade = exact_grade
+					mode^ = .Polish
+					rebuild_discrete_baseline(baseline, model, p, current.state, work, mode^)
+					accept = true
+					break
+				}
 			}
-		}
 
-		if !accept && mode^ == .Repair && local_improved {
-			copy_discrete_cand(current, local_current)
+			if !accept && mode^ == .Repair && local_improved {
+				current.state.indices[local_best_tick] = offset_index(current.state.indices[local_best_tick], local_best_delta)
+				rebuild_discrete_baseline(baseline, model, p, current.state, work, mode^)
+				current.grade = baseline_grade(baseline)
 			accept = true
 		}
 		if !accept do return improved, false
@@ -376,6 +392,9 @@ local_search :: proc(
 	exact_work := make_exact_workspace(model.n)
 	defer destroy_exact_workspace(&exact_work)
 
+	baseline := make_discrete_baseline(model, p)
+	defer destroy_discrete_baseline(&baseline)
+
 	rng_state: rand.Xoshiro256_Random_State
 	rng := rand.xoshiro256_random_generator(&rng_state)
 
@@ -386,8 +405,8 @@ local_search :: proc(
 
 	// initial prep
 
-	update_discrete_trig_cache(&work, trial, model.angle_offset[:])
-	grading(&grade, model, p, trial, &work, mode)
+	rebuild_discrete_baseline(&baseline, model, p, trial, &work, mode)
+	grade = baseline_grade(&baseline)
 
 	current := Discrete_Cand {
 		state = clone_discrete_state(trial),
@@ -432,10 +451,7 @@ local_search :: proc(
 	// End condition:
 	// -> No accepted 1-opt move this round, go to 2-opt phase.
 
-	local_current := clone_discrete_cand(current)
-	defer destroy_discrete_cand(&local_current)
-
-	_, search_cancelled = one_opt_descent(model, p, exact_p, &current, &mode, &trial, &work, &exact_work, search_mode, &cancel_last_check, control)
+	_, search_cancelled = one_opt_descent(model, p, exact_p, &current, &baseline, &mode, &trial, &work, &exact_work, search_mode, &cancel_last_check, control)
 
 	// 4. Greedy randomized 2-opt
 	//
@@ -522,23 +538,31 @@ local_search :: proc(
 			}
 
 			local_pair_improved := false
-			copy_discrete_cand(&local_current, current)
+			local_pair_best := Incremental_Grade {
+				feasible = baseline.feasible,
+			}
+			local_pair_delta := [2]int{}
 
 			for delta in TWO_OPT_DELTAS {
-				copy_discrete_state(&trial, current.state)
-				trial.indices[t0] = offset_index(trial.indices[t0], delta[0])
-				trial.indices[t1] = offset_index(trial.indices[t1], delta[1])
+				increment := Angle_Increment {
+					deltas = delta,
+					ticks = {t0, t1},
+					count = 2,
+				}
+				incremental_grade: Incremental_Grade
+				incremental_grading(&incremental_grade, &baseline, model, p, &increment, mode)
 
-				update_discrete_trig_cache(&work, trial, model.angle_offset[:])
-				grading(&grade, model, p, trial, &work, mode)
-
-				if mode == .Repair && improveQ(&grade, &local_current.grade, mode) {
-					copy_discrete_state(&local_current.state, trial)
-					local_current.grade = grade
+				if mode == .Repair &&
+				   improveQ(&incremental_grade, &local_pair_best, .Repair) {
+					local_pair_best = incremental_grade
+					local_pair_delta = delta
 					local_pair_improved = true
 				}
 
-				if good_candQ(&grade, &current.grade, p, mode, search_mode) {
+				if good_candQ(&incremental_grade, &baseline, &current.grade, p, mode, search_mode) {
+					copy_discrete_state(&trial, current.state)
+					trial.indices[t0] = offset_index(trial.indices[t0], delta[0])
+					trial.indices[t1] = offset_index(trial.indices[t1], delta[1])
 					exact_grading(&exact_grade, model, exact_p, trial, &exact_work)
 
 					if !exact_grade.feasible do continue
@@ -557,6 +581,7 @@ local_search :: proc(
 					copy_discrete_state(&current.state, trial)
 					current.grade = exact_grade
 					mode = .Polish
+					rebuild_discrete_baseline(&baseline, model, p, current.state, &work, mode)
 					accept = true
 
 					if exact_improved {
@@ -575,7 +600,10 @@ local_search :: proc(
 			}
 
 			if !accept && mode == .Repair && local_pair_improved {
-				copy_discrete_cand(&current, local_current)
+				current.state.indices[t0] = offset_index(current.state.indices[t0], local_pair_delta[0])
+				current.state.indices[t1] = offset_index(current.state.indices[t1], local_pair_delta[1])
+				rebuild_discrete_baseline(&baseline, model, p, current.state, &work, mode)
+				current.grade = baseline_grade(&baseline)
 				accept = true
 			}
 
@@ -588,7 +616,7 @@ local_search :: proc(
 
 	// 1-opt cleanup for final improvement
 	if !search_cancelled {
-		_, search_cancelled = one_opt_descent(model, p, exact_p, &current, &mode, &trial, &work, &exact_work, search_mode, &cancel_last_check, control, 3, true)
+		_, search_cancelled = one_opt_descent(model, p, exact_p, &current, &baseline, &mode, &trial, &work, &exact_work, search_mode, &cancel_last_check, control, 3, true)
 	}
 
 	if mode == .Polish && (!has_best || improveQ(&current.grade, &best.grade, .Polish)) {
@@ -602,67 +630,127 @@ local_search :: proc(
 	return clone_discrete_state(best.state)
 }
 
-grading :: proc(out: ^Grade, model: ^Discrete_Model, p: ^Problem, state: Discrete_State, work: ^Workspace, mode: Discrete_Mode) {
-	out.objective = eval_discrete_expr(p.objective, state, model.angle_offset[:], work)
-	out.violation_sqr = 0
-	out.feasible = true
-
-	for con, i in p.ineq_cons {
-		value := eval_discrete_expr(con, state, model.angle_offset[:], work)
-
-		violation := max(0, value)
-		out.violation_sqr += violation*violation
-		if violation > FAST_ERR do out.feasible = false
-	}
-
-	for con, i in p.eq_cons {
-		value := eval_discrete_expr(con, state, model.angle_offset[:], work)
-
-		violation := math.abs(value)
-		out.violation_sqr += violation*violation
-		if violation > ACCEPT_TOL do out.feasible = false
-	}
-
-	if mode == .Repair && out.violation_sqr > 0 do out.feasible = false
-}
-
 Angle_Increment :: struct {
 	deltas: [2]int,
-	ticks: [2]int, // actual tick - 1, counting from t = 1
-	counts: int,
+	ticks: [2]int, // Indices into Discrete_State.indices.
+	count: int,
 
-	// update later
 	dsin: [2]f64,
 	dcos: [2]f64,
 	dtheta: [2]f64,
 }
 
 Incremental_Grade :: struct {
-    dobj: f64,
+	dobj: f64,
 	dvio_sqr: f64,
 	feasible: bool,
 }
 
 Discrete_Baseline :: struct {
 	state: Discrete_State,
-    objective:         f64,
-    inequality_values: [dynamic]f64,
-    equality_values:   [dynamic]f64,
+	objective: f64,
+	inequality_values: [dynamic]f64,
+	equality_values: [dynamic]f64,
 	violation_sqr: f64,
 	feasible: bool,
 }
 
-incremental_grading :: proc(out: ^Incremental_Grade, base: ^Discrete_Baseline, model: ^Discrete_Model, p: ^Problem, inc: ^Angle_Increment, mode: Discrete_Mode) {
-	assert(inc.counts >= 1 && inc.counts <= 2)
+make_discrete_baseline :: proc(
+	model: ^Discrete_Model,
+	p: ^Problem,
+) -> Discrete_Baseline {
+	return {
+		state = {
+			indices = make([dynamic]u16, discrete_angle_len(model)),
+		},
+		inequality_values = make([dynamic]f64, len(p.ineq_cons)),
+		equality_values = make([dynamic]f64, len(p.eq_cons)),
+	}
+}
+
+destroy_discrete_baseline :: proc(base: ^Discrete_Baseline) {
+	destroy_discrete_state(&base.state)
+	delete(base.inequality_values)
+	delete(base.equality_values)
+	base^ = {}
+}
+
+rebuild_discrete_baseline :: proc(
+	base: ^Discrete_Baseline,
+	model: ^Discrete_Model,
+	p: ^Problem,
+	state: Discrete_State,
+	work: ^Workspace,
+	mode: Discrete_Mode,
+) {
+	assert(len(base.state.indices) == len(state.indices))
 	assert(len(base.inequality_values) == len(p.ineq_cons))
 	assert(len(base.equality_values) == len(p.eq_cons))
-	if inc.counts == 2 do assert(inc.ticks[0] != inc.ticks[1])
+
+	copy_discrete_state(&base.state, state)
+	update_discrete_trig_cache(work, state, model.angle_offset[:])
+
+	base.objective = eval_discrete_expr(p.objective, state, model.angle_offset[:], work)
+	base.violation_sqr = 0
+	base.feasible = true
+
+	for constraint, i in p.ineq_cons {
+		value := eval_discrete_expr(constraint, state, model.angle_offset[:], work)
+		base.inequality_values[i] = value
+		violation := max(0.0, value)
+		base.violation_sqr += violation*violation
+		if violation > FAST_ERR do base.feasible = false
+	}
+
+	for constraint, i in p.eq_cons {
+		value := eval_discrete_expr(constraint, state, model.angle_offset[:], work)
+		base.equality_values[i] = value
+		violation := math.abs(value)
+		base.violation_sqr += violation*violation
+		if violation > ACCEPT_TOL do base.feasible = false
+	}
+
+	if mode == .Repair && base.violation_sqr > 0 {
+		base.feasible = false
+	}
+}
+
+baseline_grade :: proc(base: ^Discrete_Baseline) -> Grade {
+	return {
+		objective = base.objective,
+		violation_sqr = base.violation_sqr,
+		feasible = base.feasible,
+	}
+}
+
+incremental_from_grades :: proc(
+	trial, base: Grade,
+) -> Incremental_Grade {
+	return {
+		dobj = trial.objective - base.objective,
+		dvio_sqr = trial.violation_sqr - base.violation_sqr,
+		feasible = trial.feasible,
+	}
+}
+
+incremental_grading :: proc(
+	out: ^Incremental_Grade,
+	base: ^Discrete_Baseline,
+	model: ^Discrete_Model,
+	p: ^Problem,
+	inc: ^Angle_Increment,
+	mode: Discrete_Mode,
+) {
+	assert(inc.count >= 1 && inc.count <= 2)
+	assert(len(base.inequality_values) == len(p.ineq_cons))
+	assert(len(base.equality_values) == len(p.eq_cons))
+	if inc.count == 2 do assert(inc.ticks[0] != inc.ticks[1])
 
 	out^ = {
 		feasible = true,
 	}
 
-	for i in 0..<inc.counts {
+	for i in 0..<inc.count {
 		state_index := inc.ticks[i]
 		assert(state_index >= 0 && state_index < len(base.state.indices))
 
@@ -680,28 +768,25 @@ incremental_grading :: proc(out: ^Incremental_Grade, base: ^Discrete_Baseline, m
 
 	out.dobj = delta_discrete_expr(p.objective, inc)
 
+	trial_violation_sqr := 0.0
 	for constraint, i in p.ineq_cons {
 		old_val := base.inequality_values[i]
 		new_val := old_val + delta_discrete_expr(constraint, inc)
-		old_vio := max(0.0, old_val)
 		new_vio := max(0.0, new_val)
 
-		out.dvio_sqr += new_vio * new_vio - old_vio * old_vio
+		trial_violation_sqr += new_vio*new_vio
 		if new_vio > FAST_ERR do out.feasible = false
 	}
 
 	for constraint, i in p.eq_cons {
 		old_value := base.equality_values[i]
 		new_value := old_value + delta_discrete_expr(constraint, inc)
-		old_vio := math.abs(old_value)
 		new_vio := math.abs(new_value)
 
-		out.dvio_sqr += new_vio * new_vio - old_vio * old_vio
+		trial_violation_sqr += new_vio*new_vio
 		if new_vio > ACCEPT_TOL do out.feasible = false
 	}
 
-	// Keep the reconstructed violation square nonnegative despite roundoff.
-	trial_violation_sqr := max(0.0, base.violation_sqr + out.dvio_sqr)
 	out.dvio_sqr = trial_violation_sqr - base.violation_sqr
 	if mode == .Repair && trial_violation_sqr > 0 {
 		out.feasible = false
@@ -709,10 +794,9 @@ incremental_grading :: proc(out: ^Incremental_Grade, base: ^Discrete_Baseline, m
 }
 
 delta_discrete_expr :: proc(expr: Compiled_Expr, inc: ^Angle_Increment) -> f64 {
-
 	delta := f64(0)
 
-	for i in 0..<inc.counts {
+	for i in 0..<inc.count {
 		t := inc.ticks[i] + 1
 		delta += expr.sin_coeff[t] * inc.dsin[i]
 		delta += expr.cos_coeff[t] * inc.dcos[i]
@@ -720,7 +804,6 @@ delta_discrete_expr :: proc(expr: Compiled_Expr, inc: ^Angle_Increment) -> f64 {
 	}
 
 	return delta
-
 }
 
 viosqr_tol :: proc(p: ^Problem) -> f64 {
@@ -729,23 +812,26 @@ viosqr_tol :: proc(p: ^Problem) -> f64 {
 }
 
 good_candQ :: proc(
-	grade: ^Grade,
+	grade: ^Incremental_Grade,
+	base: ^Discrete_Baseline,
 	champ: ^Grade,
 	p: ^Problem,
 	mode: Discrete_Mode,
 	search_mode: Local_Search_Mode,
 ) -> bool {
-	if grade.violation_sqr > viosqr_tol(p) do return false
+	trial_violation_sqr := base.violation_sqr + grade.dvio_sqr
+	if trial_violation_sqr > viosqr_tol(p) do return false
 
 	switch mode {
 	case .Repair:
 		return true
 
 	case .Polish:
+		trial_objective := base.objective + grade.dobj
 		if search_mode == .Cooking {
-			return grade.objective < champ.objective + MAX_DROP
+			return trial_objective < champ.objective + MAX_DROP
 		}
-		return grade.objective < champ.objective + FAST_ERR
+		return trial_objective < champ.objective + FAST_ERR
 	}
 
 	return false
@@ -780,7 +866,7 @@ insert_one_opt_cand :: proc(cands: ^[dynamic]One_Opt_Cand, cand: One_Opt_Cand, m
 	return true
 }
 
-improveQ :: proc(new: ^Grade, src: ^Grade, mode: Discrete_Mode) -> bool {
+improve_gradeQ :: proc(new: ^Grade, src: ^Grade, mode: Discrete_Mode) -> bool {
 	switch mode {
 	case .Repair:
 		if new.feasible != src.feasible {
@@ -796,6 +882,33 @@ improveQ :: proc(new: ^Grade, src: ^Grade, mode: Discrete_Mode) -> bool {
 	}
 
 	return new.objective < src.objective
+}
+
+improve_incrementalQ :: proc(
+	new: ^Incremental_Grade,
+	src: ^Incremental_Grade,
+	mode: Discrete_Mode,
+) -> bool {
+	switch mode {
+	case .Repair:
+		if new.feasible != src.feasible {
+			return new.feasible
+		}
+		if !new.feasible {
+			return new.dvio_sqr < src.dvio_sqr
+		}
+
+	case .Polish:
+		if !new.feasible do return false
+		if !src.feasible do return true
+	}
+
+	return new.dobj < src.dobj
+}
+
+improveQ :: proc {
+	improve_gradeQ,
+	improve_incrementalQ,
 }
 
 create_exact_solution :: proc(discrete: ^Discrete_Model, state: Discrete_State) -> Solution {
