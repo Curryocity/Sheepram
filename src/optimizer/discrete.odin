@@ -175,6 +175,14 @@ MAX_DROP :: ACCEPT_TOL
 MAX_DOWN_HILLS :: 128
 CANCEL_CHECK_SEC :: 0.25
 
+TWO_OPT_DELTAS :: [?][2]int {
+	{ 1,  1}, { 1, -1}, {-1,  1}, {-1, -1},
+	{ 1,  2}, { 1, -2}, {-1,  2}, {-1, -2},
+	{ 1,  3}, { 1, -3}, {-1,  3}, {-1, -3},
+	{ 2,  1}, { 2, -1}, {-2,  1}, {-2, -1},
+	{ 3,  1}, { 3, -1}, {-3,  1}, {-3, -1},
+}
+
 get_pair :: proc(rank: int, ilen: int) -> (int, int) {
 	assert(rank >= 0 && rank < ilen*(ilen-1)/2)
 
@@ -263,6 +271,144 @@ one_opt_descent :: proc(
 	}
 }
 
+two_opt_descent :: #force_inline proc(
+	model: ^Discrete_Model,
+	p: ^Problem,
+	exact_p: ^Raw_Problem,
+	current: ^Discrete_Cand,
+	best: ^Discrete_Cand,
+	mode: ^Discrete_Mode,
+	trial: ^Discrete_State,
+	exact_work: ^Exact_Workspace,
+	search_mode: Local_Search_Mode,
+	control: ^LS_Control,
+) -> (cancelled: bool) {
+	ilen := discrete_angle_len(model)
+
+	work := make_workspace(model.n)
+	defer destroy_workspace(&work)
+
+	baseline := make_discrete_baseline(model, p)
+	defer destroy_discrete_baseline(&baseline)
+	rebuild_discrete_baseline(&baseline, model, p, current.state, &work, mode^)
+
+	rng_state: rand.Xoshiro256_Random_State
+	rng := rand.xoshiro256_random_generator(&rng_state)
+
+	exact_grade: Grade
+	pair_count := ilen*(ilen-1)/2
+	pairs := create_pair_orders(pair_count)
+	defer delete(pairs)
+	down_hills := 0
+
+	for {
+		if cancel_requested(control) do return true
+
+		accept := false
+		attempts := 0
+		max_attempts := pair_count
+
+		if search_mode == .Cooking {
+			max_attempts = 512 * model.n
+		} else {
+			for i := len(pairs)-1; i > 0; i -= 1 {
+				j := rand.int_max(i+1, rng)
+				tmp := pairs[i]
+				pairs[i] = pairs[j]
+				pairs[j] = tmp
+			}
+		}
+
+		for attempts < max_attempts {
+			if cancel_requested(control) do return true
+			attempts += 1
+
+			t0, t1: int
+			if search_mode == .Cooking {
+				t0 = rand.int_max(ilen, rng)
+				t1 = rand.int_max(ilen-1, rng)
+				if t1 >= t0 do t1 += 1
+				if t1 < t0 {
+					tmp := t0
+					t0 = t1
+					t1 = tmp
+				}
+			} else {
+				t0, t1 = get_pair(pairs[attempts-1], ilen)
+			}
+
+			local_pair_improved := false
+			local_pair_best := Two_Opt_Grade {
+				violation_sqr = baseline.violation_sqr,
+				feasible = baseline.feasible,
+			}
+			local_pair_delta := [2]int{}
+
+			for delta in TWO_OPT_DELTAS {
+				move := Two_Opt_Move {
+					deltas = delta,
+					ticks = {t0, t1},
+				}
+				two_opt_grade: Two_Opt_Grade
+				grade_two_opt(&two_opt_grade, &baseline, model, p, &move, mode^)
+
+				if mode^ == .Repair &&
+				   improve_two_opt_repairQ(&two_opt_grade, &local_pair_best) {
+					local_pair_best = two_opt_grade
+					local_pair_delta = delta
+					local_pair_improved = true
+				}
+
+				if good_two_opt_candQ(&two_opt_grade, &baseline, &current.grade, p, mode^, search_mode) {
+					copy_discrete_state(trial, current.state)
+					trial.indices[t0] = offset_index(trial.indices[t0], delta[0])
+					trial.indices[t1] = offset_index(trial.indices[t1], delta[1])
+					exact_grading(&exact_grade, model, exact_p, trial^, exact_work)
+
+					if !exact_grade.feasible do continue
+
+					exact_improved := improveQ(&exact_grade, &current.grade, mode^)
+					accept_worse := false
+					if !exact_improved {
+						if search_mode != .Cooking do continue
+						if mode^ != .Polish do continue
+						if attempts < WORSE_ACCEPT_THRESHOLD do continue
+						if down_hills >= MAX_DOWN_HILLS do continue
+						if exact_grade.objective >= current.grade.objective + MAX_DROP do continue
+						accept_worse = true
+					}
+
+					copy_discrete_state(&current.state, trial^)
+					current.grade = exact_grade
+					mode^ = .Polish
+					rebuild_discrete_baseline(&baseline, model, p, current.state, &work, mode^)
+					accept = true
+
+					if exact_improved &&
+					   (!best.grade.feasible || improveQ(&current.grade, &best.grade, .Polish)) {
+						copy_discrete_cand(best, current^)
+					}
+
+					if accept_worse do down_hills += 1
+					break
+				}
+			}
+
+			if !accept && mode^ == .Repair && local_pair_improved {
+				current.state.indices[t0] = offset_index(current.state.indices[t0], local_pair_delta[0])
+				current.state.indices[t1] = offset_index(current.state.indices[t1], local_pair_delta[1])
+				rebuild_discrete_baseline(&baseline, model, p, current.state, &work, mode^)
+				current.grade = baseline_grade(&baseline)
+				accept = true
+			}
+
+			if accept do break
+		}
+
+		if !accept do return false
+	}
+}
+
 local_search :: proc(
 	model: ^Discrete_Model,
 	p: ^Problem,
@@ -298,7 +444,6 @@ local_search :: proc(
 	exact_work := make_exact_workspace(model.n)
 	defer destroy_exact_workspace(&exact_work)
 
-	exact_grade: Grade
 	current := Discrete_Cand {
 		state = clone_discrete_state(trial),
 	}
@@ -310,178 +455,21 @@ local_search :: proc(
 	// 2. Exact steepest 1-opt ±1 rounds
 	//
 	// Exact-grade every single-index neighbor and accept the best move.
-	// Repair minimizes exact violation; Polish minimizes exact objective.
+	// Repair minimizes exact violation. Polish minimizes exact objective.
 
 	_, search_cancelled = one_opt_descent(model, exact_p, &current, &mode, &trial, &exact_work, control)
 
 	best := clone_discrete_cand(current)
 	defer destroy_discrete_cand(&best)
-	has_best := mode == .Polish
 
 	if ilen < 2 {
 		if control != nil && control.cancelled != nil do control.cancelled^ = search_cancelled
 		return clone_discrete_state(best.state)
 	}
 
-	work := make_workspace(model.n)
-	defer destroy_workspace(&work)
-
-	baseline := make_discrete_baseline(model, p)
-	defer destroy_discrete_baseline(&baseline)
-	rebuild_discrete_baseline(&baseline, model, p, current.state, &work, mode)
-
-	rng_state: rand.Xoshiro256_Random_State
-	rng := rand.xoshiro256_random_generator(&rng_state)
-
 	// 3. Greedy randomized 2-opt
-	//
-	// Regular mode shuffles tick-pair ranks and tries each pair at most once.
-	// Cooking mode samples random pairs with replacement and allows bounded
-	// worse exact moves after the initial attempt window.
-	// Try signed versions of:
-	//     (1,1), (1,2), (1,3), (2,1), (3,1)
-	//
-	// Repair mode:
-	// -> Prefer exact-feasible candidate if found.
-	// -> Otherwise accept best violation-reducing pair move.
-	//
-	// Polish mode:
-	// -> Exact-check candidates that are fast-feasible and
-	//    objective-improving.
-	// -> Accept only exact-feasible objective improvement.
-	//
-	// End condition:
-	// -> No improvement after the pair budget is exhausted.
-
-	TWO_OPT_DELTAS := [?][2]int {
-		{ 1,  1}, { 1, -1}, {-1,  1}, {-1, -1},
-		{ 1,  2}, { 1, -2}, {-1,  2}, {-1, -2},
-		{ 1,  3}, { 1, -3}, {-1,  3}, {-1, -3},
-		{ 2,  1}, { 2, -1}, {-2,  1}, {-2, -1},
-		{ 3,  1}, { 3, -1}, {-3,  1}, {-3, -1},
-	}
-
-	pair_count := ilen*(ilen-1)/2
-	pairs := create_pair_orders(pair_count)
-	defer delete(pairs)
-	down_hills := 0
-
-	for {
-		if search_cancelled do break
-		if cancel_requested(control) {
-			search_cancelled = true
-			break
-		}
-		accept := false
-		attempts := 0
-		max_attempts := pair_count
-
-		if search_mode == .Cooking {
-			max_attempts = 512 * model.n
-		} else {
-			for i := len(pairs)-1; i > 0; i -= 1 {
-				j := rand.int_max(i+1, rng)
-				tmp := pairs[i]
-				pairs[i] = pairs[j]
-				pairs[j] = tmp
-			}
-		}
-
-		for attempts < max_attempts {
-			if cancel_requested(control) {
-				search_cancelled = true
-				break
-			}
-			attempts += 1
-			t0, t1: int
-			if search_mode == .Cooking {
-				t0 = rand.int_max(ilen, rng)
-				t1 = rand.int_max(ilen-1, rng)
-				if t1 >= t0 do t1 += 1
-				if t1 < t0 {
-					tmp := t0
-					t0 = t1
-					t1 = tmp
-				}
-			} else {
-				t0, t1 = get_pair(pairs[attempts-1], ilen)
-			}
-
-			local_pair_improved := false
-			local_pair_best := Two_Opt_Grade {
-				violation_sqr = baseline.violation_sqr,
-				feasible = baseline.feasible,
-			}
-			local_pair_delta := [2]int{}
-
-			for delta in TWO_OPT_DELTAS {
-				move := Two_Opt_Move {
-					deltas = delta,
-					ticks = {t0, t1},
-				}
-				two_opt_grade: Two_Opt_Grade
-				grade_two_opt(&two_opt_grade, &baseline, model, p, &move, mode)
-
-				if mode == .Repair &&
-				   improve_two_opt_repairQ(&two_opt_grade, &local_pair_best) {
-					local_pair_best = two_opt_grade
-					local_pair_delta = delta
-					local_pair_improved = true
-				}
-
-				if good_two_opt_candQ(&two_opt_grade, &baseline, &current.grade, p, mode, search_mode) {
-					copy_discrete_state(&trial, current.state)
-					trial.indices[t0] = offset_index(trial.indices[t0], delta[0])
-					trial.indices[t1] = offset_index(trial.indices[t1], delta[1])
-					exact_grading(&exact_grade, model, exact_p, trial, &exact_work)
-
-					if !exact_grade.feasible do continue
-
-					exact_improved := improveQ(&exact_grade, &current.grade, mode)
-					accept_worse := false
-					if !exact_improved {
-						if search_mode != .Cooking do continue
-						if mode != .Polish do continue
-						if attempts < WORSE_ACCEPT_THRESHOLD do continue
-						if down_hills >= MAX_DOWN_HILLS do continue
-						if exact_grade.objective >= current.grade.objective + MAX_DROP do continue
-						accept_worse = true
-					}
-
-					copy_discrete_state(&current.state, trial)
-					current.grade = exact_grade
-					mode = .Polish
-					rebuild_discrete_baseline(&baseline, model, p, current.state, &work, mode)
-					accept = true
-
-					if exact_improved {
-						if !has_best || improveQ(&current.grade, &best.grade, .Polish) {
-							copy_discrete_cand(&best, current)
-							has_best = true
-						}
-					}
-
-					if accept_worse {
-						down_hills += 1
-					}
-
-					break
-				}
-			}
-
-			if !accept && mode == .Repair && local_pair_improved {
-				current.state.indices[t0] = offset_index(current.state.indices[t0], local_pair_delta[0])
-				current.state.indices[t1] = offset_index(current.state.indices[t1], local_pair_delta[1])
-				rebuild_discrete_baseline(&baseline, model, p, current.state, &work, mode)
-				current.grade = baseline_grade(&baseline)
-				accept = true
-			}
-
-			if accept do break
-		}
-		if search_cancelled do break
-
-		if !accept do break
+	if !search_cancelled {
+		search_cancelled = two_opt_descent(model, p, exact_p, &current, &best, &mode, &trial, &exact_work, search_mode, control)
 	}
 
 	// 4. Exact steepest 1-opt cleanup with ±1, ±2, and ±3 moves
@@ -489,10 +477,11 @@ local_search :: proc(
 		_, search_cancelled = one_opt_descent(model, exact_p, &current, &mode, &trial, &exact_work, control, 3)
 	}
 
-	if mode == .Polish && (!has_best || improveQ(&current.grade, &best.grade, .Polish)) {
+	if mode == .Polish &&
+	   (!best.grade.feasible || improveQ(&current.grade, &best.grade, .Polish)) {
 		copy_discrete_cand(&best, current)
-		has_best = true
-	} else if !has_best && improveQ(&current.grade, &best.grade, .Repair) {
+	} else if !best.grade.feasible &&
+	          improveQ(&current.grade, &best.grade, .Repair) {
 		copy_discrete_cand(&best, current)
 	}
 
@@ -710,10 +699,7 @@ improveQ :: proc(new: ^Grade, src: ^Grade, mode: Discrete_Mode) -> bool {
 	return new.objective < src.objective
 }
 
-improve_two_opt_repairQ :: proc(
-	new: ^Two_Opt_Grade,
-	src: ^Two_Opt_Grade,
-) -> bool {
+improve_two_opt_repairQ :: proc(new: ^Two_Opt_Grade, src: ^Two_Opt_Grade) -> bool {
 	if new.feasible != src.feasible {
 		return new.feasible
 	}
