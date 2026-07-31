@@ -149,6 +149,7 @@ test_current_postprocessor_origins_round_trip :: proc(t: ^testing.T) {
 	buffer_set(tab.env.post.x_origin[:], "x1 + 0.3")
 	buffer_set(tab.env.post.z_origin[:], "Z[n] - 0.6")
 	tab.env.continuous_optimizer = .Pancake
+	tab.env.inertia_suspicious_factor = 3.5
 
 	data, save_err := build_tab_json(tab)
 	defer delete(data)
@@ -166,6 +167,7 @@ test_current_postprocessor_origins_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, buffer_string(loaded.env.post.x_origin[:]), "x1 + 0.3")
 	testing.expect_value(t, buffer_string(loaded.env.post.z_origin[:]), "Z[n] - 0.6")
 	testing.expect_value(t, loaded.env.continuous_optimizer, Continuous_Optimizer.Pancake)
+	testing.expect_value(t, loaded.env.inertia_suspicious_factor, 3.5)
 }
 
 @(test)

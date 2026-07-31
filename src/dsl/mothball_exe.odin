@@ -35,6 +35,7 @@ Moth_Compiler :: struct {
 	accel:  [dynamic]f64,
 	angle_offset: [dynamic]f64,
 	jump_ticks: [dynamic]bool,
+	inertia_drag: [dynamic]f64,
 	init_drag: f64,
 	exact_movement: [dynamic]opt.Exact_Movement,
 	discrete_supported: bool,
@@ -61,6 +62,7 @@ destroy_moth_compiler :: proc(state: ^Moth_Compiler) {
 	delete(state.accel)
 	delete(state.angle_offset)
 	delete(state.jump_ticks)
+	delete(state.inertia_drag)
 	delete(state.exact_movement)
 	for name in state.variables do delete(name)
 	delete(state.variables)
@@ -123,6 +125,7 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
     append(&state.accel, 0)
     append(&state.angle_offset, 0)
 	append(&state.jump_ticks, false)
+	append(&state.inertia_drag, 0)
 
 	exe_code(state, code)
 
@@ -141,6 +144,7 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 		state.drag_z[0] = state.init_slip * 0.91
 		state.init_drag = f64(f32(0.91)*f32(state.init_slip))
 	}
+	state.inertia_drag[0] = state.init_drag
 
 	// The optimizer stores the terminal position after the final movement tick.
 	// Its drag/accel/offset values are unused, but the arrays share model.n.
@@ -148,6 +152,7 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 	append(&state.drag_z, 0)
 	append(&state.accel, 0)
 	append(&state.angle_offset, 0)
+	append(&state.inertia_drag, 0)
 }
 
 exe_code :: proc(state: ^Moth_Compiler, code: []Arg) {
@@ -256,6 +261,7 @@ exe_code :: proc(state: ^Moth_Compiler, code: []Arg) {
 				append(&state.accel, final_accel)
 				append(&state.angle_offset, angle_offset)
 				append(&state.jump_ticks, mf.jump)
+				append(&state.inertia_drag, exact_base.drag_x)
 				exact_cur := exact_base
 				if force_ix do exact_cur.drag_x = 0
 				if force_iz do exact_cur.drag_z = 0
@@ -647,13 +653,15 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 		}
 
 		for i in 0..<duration {
+			force_ix := state.ix_queued > 0
+			force_iz := state.iz_queued > 0
 			drag_x := drag
 			drag_z := drag
-			if state.ix_queued > 0 {
+			if force_ix {
 				drag_x = 0
 				state.ix_queued -= 1
 			}
-			if state.iz_queued > 0 {
+			if force_iz {
 				drag_z = 0
 				state.iz_queued -= 1
 			}
@@ -663,6 +671,7 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 			append(&state.accel, accel)
 			append(&state.angle_offset, 0)
 			append(&state.jump_ticks, false)
+			append(&state.inertia_drag, drag)
 		}
 		state.n += duration
 		return

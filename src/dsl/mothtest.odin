@@ -89,3 +89,20 @@ mothball_inertia_rejects_a_second_call :: proc(t: ^testing.T) {
 	testing.expect_value(t, compiler.err, "Error: inertia(...) can only be called once")
 	testing.expect_value(t, compiler.inertia_threshold, 0.01)
 }
+
+@(test)
+mothball_tracks_nominal_inertia_drag :: proc(t: ^testing.T) {
+	code, parse_err := parse_mothball("initGnd(0.3) w w")
+	defer destroy_moth_code(&code)
+	testing.expect_value(t, parse_err, "")
+	if parse_err != "" do return
+
+	compiler := Moth_Compiler{}
+	defer destroy_moth_compiler(&compiler)
+	compile_mothball(&compiler, code[:])
+
+	testing.expect(t, compiler.ok)
+	testing.expect(t, compiler.inertia_drag[0] > 0)
+	testing.expect(t, compiler.inertia_drag[1] > 0)
+	testing.expect(t, compiler.inertia_drag[2] > 0)
+}

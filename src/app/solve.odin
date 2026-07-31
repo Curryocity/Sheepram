@@ -40,6 +40,8 @@ Optimizer_Result :: struct {
 	z_origin:                 f64,
 	angle_offset:             [dynamic]f64,
 	jump_ticks:               [dynamic]bool,
+	inertia_threshold:        f64,
+	inertia_drag:             [dynamic]f64,
 	error:                    string,
 }
 
@@ -79,6 +81,7 @@ destroy_optimizer_result :: proc(result: ^Optimizer_Result) {
 	}
 	delete(result.angle_offset)
 	delete(result.jump_ticks)
+	delete(result.inertia_drag)
 	delete(result.error)
 	result^ = {}
 }
@@ -115,6 +118,9 @@ apply_optimizer_result :: proc(state: ^Environment, result: ^Optimizer_Result) {
 	result.angle_offset = nil
 	state.last_jump_ticks = result.jump_ticks
 	result.jump_ticks = nil
+	state.inertia_threshold = result.inertia_threshold
+	state.inertia_drag = result.inertia_drag
+	result.inertia_drag = nil
 	buffer_set(state.last_error[:], result.error)
 }
 
@@ -547,6 +553,9 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 
 	result.x_origin = eval_raw_solution(x_origin_expr, solution, result.discrete)
 	result.z_origin = eval_raw_solution(z_origin_expr, solution, result.discrete)
+	result.inertia_threshold = m.inertia_threshold
+	result.inertia_drag = m.inertia_drag
+	m.inertia_drag = nil
 
 	result.solution = solution
 	return result

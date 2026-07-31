@@ -264,6 +264,7 @@ legacy_to_saved_tab :: proc(legacy: ^Legacy_Saved_Tab, movement_script: string) 
 		maximize          = legacy.maximize,
 		seed              = 45,
 		initial_angle_samples = 8,
+		inertia_suspicious_factor = 2,
 		obj_type          = legacy.curr_obj,
 		movement_script   = strings.clone(movement_script),
 		global_names      = make([]string, len(legacy.global_names)),

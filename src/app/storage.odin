@@ -41,6 +41,7 @@ Saved_Tab :: struct {
 	global_values:     []string   `json:"globalValues,omitempty"`,
 	objective_script:  string     `json:"objScript"`,
 	constraint_script: string     `json:"constraintScript"`,
+	inertia_suspicious_factor: f64 `json:"inertiaSuspiciousFactor,omitempty"`,
 	post:              Saved_Post `json:"post"`,
 }
 
@@ -84,6 +85,7 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 		movement_script   = buffer_string(env.movement_script[:]),
 		objective_script  = buffer_string(env.objective_script[:]),
 		constraint_script = buffer_string(env.constraint_script[:]),
+		inertia_suspicious_factor = env.inertia_suspicious_factor,
 		post = {
 			x_origin           = buffer_string(env.post.x_origin[:]),
 			z_origin           = buffer_string(env.post.z_origin[:]),
@@ -180,7 +182,7 @@ commit_tab_title :: proc(tab: ^Tab_State) {
 }
 
 load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
-	saved := Saved_Tab{seed = 45, initial_angle_samples = 8}
+	saved := Saved_Tab{seed = 45, initial_angle_samples = 8, inertia_suspicious_factor = 2}
 	if err := json.unmarshal(data, &saved, allocator = context.allocator); err != nil {
 		return strings.clone("Invalid JSON file.")
 	}
@@ -238,6 +240,8 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 
 	clear_solution(&tab.env)
 	env := &tab.env
+	env.inertia_tick_lists = {}
+	env.inertia_tick_list_visible = {}
 	env.maximize = saved.maximize
 	env.discrete_search = saved.discrete_search
 	env.cook = saved.cook
@@ -248,6 +252,7 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	env.continuous_optimizer = Continuous_Optimizer(saved.continuous_optimizer)
 	env.pancake_recovery = Pancake_Recovery(saved.pancake_recovery)
 	env.obj_type = Objective_Type(saved.obj_type)
+	env.inertia_suspicious_factor = max(1.0, saved.inertia_suspicious_factor)
 	env.color_jump_ticks = true
 	buffer_set(env.movement_script[:], saved.movement_script)
 	buffer_set(env.objective_script[:], saved.objective_script)
