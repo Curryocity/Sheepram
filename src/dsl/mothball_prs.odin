@@ -30,7 +30,7 @@ CmdType :: enum {
 	SetInitGroundVel, SetInitAirVel,
 	ForceInertiaX, ForceInertiaZ,
 
-	SetSlip, SetSpeed, SetSlow,
+	SetSlip, SetSpeed, SetSlow, SetInertia,
 	SetVar,
 
 	Move,
@@ -341,6 +341,8 @@ get_command_type :: proc(name: string) -> CmdType {
 		return .SetSpeed
 	case "slow", "slowness":
 		return .SetSlow
+	case "inertia":
+		return .SetInertia
 	case "set":
 		return .SetVar
 	case "t":

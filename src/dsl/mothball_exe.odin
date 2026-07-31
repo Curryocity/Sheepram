@@ -8,6 +8,7 @@ import opt "../optimizer"
 MOTH_BX :: f64(f32(0.6))
 MOTH_PX :: f64(1.0/16.0)
 MOTH_PI :: math.PI
+MOTH_DEFAULT_INERTIA_THRESHOLD :: 0.005
 
 Moth_Compiler :: struct {
 	speed: u8,
@@ -15,6 +16,8 @@ Moth_Compiler :: struct {
 	slip: f64,
 	ix_queued: int,
 	iz_queued: int,
+	inertia_threshold: f64,
+	inertia_set: bool,
 
 	ok: bool,
 	err: string,
@@ -109,6 +112,8 @@ set_model_error :: proc(state: ^Moth_Compiler, message: string) {
 
 compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 	state.slip = 0.6
+	state.inertia_threshold = MOTH_DEFAULT_INERTIA_THRESHOLD
+	state.inertia_set = false
 	state.ok = true
 	state.discrete_supported = true
 	ensure_moth_variables(state)
@@ -491,6 +496,28 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 			return
 		}
 		state.slip = slip
+		return
+
+	case .SetInertia:
+		if state.inertia_set {
+			set_model_error(state, "Error: inertia(...) can only be called once")
+			return
+		}
+		if message, ok := expect_moth_args(cmd, 1, 1, false); !ok {
+			set_model_error(state, message)
+			return
+		}
+		value, err := eval_moth_number(state, cmd.args[0], "inertia(...) argument")
+		if err != "" {
+			set_model_error(state, err)
+			return
+		}
+		if value < 0 {
+			set_model_error(state, "Error: inertia(...) argument cannot be negative")
+			return
+		}
+		state.inertia_threshold = value
+		state.inertia_set = true
 		return
 
 	case .SetSpeed:
