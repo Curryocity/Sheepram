@@ -271,6 +271,26 @@ one_opt_descent :: proc(
 	}
 }
 
+exact_grade_two_opt :: #force_inline proc(
+	out: ^Grade,
+	model: ^Discrete_Model,
+	p: ^Raw_Problem,
+	state: ^Discrete_State,
+	t0, t1: int,
+	delta: [2]int,
+	work: ^Exact_Workspace,
+) {
+	old0 := state.indices[t0]
+	old1 := state.indices[t1]
+	state.indices[t0] = offset_index(old0, delta[0])
+	state.indices[t1] = offset_index(old1, delta[1])
+
+	exact_grading(out, model, p, state^, work)
+
+	state.indices[t0] = old0
+	state.indices[t1] = old1
+}
+
 two_opt_descent :: #force_inline proc(
 	model: ^Discrete_Model,
 	p: ^Problem,
@@ -278,7 +298,6 @@ two_opt_descent :: #force_inline proc(
 	current: ^Discrete_Cand,
 	best: ^Discrete_Cand,
 	mode: ^Discrete_Mode,
-	trial: ^Discrete_State,
 	exact_work: ^Exact_Workspace,
 	search_mode: Local_Search_Mode,
 	control: ^LS_Control,
@@ -360,10 +379,7 @@ two_opt_descent :: #force_inline proc(
 				}
 
 				if good_two_opt_candQ(&two_opt_grade, &baseline, &current.grade, p, mode^, search_mode) {
-					copy_discrete_state(trial, current.state)
-					trial.indices[t0] = offset_index(trial.indices[t0], delta[0])
-					trial.indices[t1] = offset_index(trial.indices[t1], delta[1])
-					exact_grading(&exact_grade, model, exact_p, trial^, exact_work)
+					exact_grade_two_opt(&exact_grade, model, exact_p, &current.state, t0, t1, delta, exact_work)
 
 					if !exact_grade.feasible do continue
 
@@ -378,7 +394,8 @@ two_opt_descent :: #force_inline proc(
 						accept_worse = true
 					}
 
-					copy_discrete_state(&current.state, trial^)
+					current.state.indices[t0] = offset_index(current.state.indices[t0], delta[0])
+					current.state.indices[t1] = offset_index(current.state.indices[t1], delta[1])
 					current.grade = exact_grade
 					mode^ = .Polish
 					rebuild_discrete_baseline(&baseline, model, p, current.state, &work, mode^)
@@ -469,7 +486,7 @@ local_search :: proc(
 
 	// 3. Greedy randomized 2-opt
 	if !search_cancelled {
-		search_cancelled = two_opt_descent(model, p, exact_p, &current, &best, &mode, &trial, &exact_work, search_mode, control)
+		search_cancelled = two_opt_descent(model, p, exact_p, &current, &best, &mode, &exact_work, search_mode, control)
 	}
 
 	// 4. Exact steepest 1-opt cleanup with ±1, ±2, and ±3 moves
