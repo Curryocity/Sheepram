@@ -23,6 +23,15 @@ Saved_Post :: struct {
 	position_precision: int      `json:"positionPrecision"`,
 }
 
+Saved_Inertia_Ticks :: struct {
+	x_hit:         string `json:"xHit,omitempty"`,
+	x_avoid_minus: string `json:"xAvoidMinus,omitempty"`,
+	x_avoid_plus:  string `json:"xAvoidPlus,omitempty"`,
+	z_hit:         string `json:"zHit,omitempty"`,
+	z_avoid_minus: string `json:"zAvoidMinus,omitempty"`,
+	z_avoid_plus:  string `json:"zAvoidPlus,omitempty"`,
+}
+
 Saved_Tab :: struct {
 	title:             string     `json:"title"`,
 	maximize:          bool       `json:"maximize"`,
@@ -42,6 +51,7 @@ Saved_Tab :: struct {
 	objective_script:  string     `json:"objScript"`,
 	constraint_script: string     `json:"constraintScript"`,
 	inertia_suspicious_factor: f64 `json:"inertiaSuspiciousFactor,omitempty"`,
+	inertia_ticks:      Saved_Inertia_Ticks `json:"inertiaTicks,omitempty"`,
 	post:              Saved_Post `json:"post"`,
 }
 
@@ -59,6 +69,12 @@ free_saved_tab :: proc(saved: ^Saved_Tab) {
 	delete(saved.global_values)
 	delete(saved.objective_script)
 	delete(saved.constraint_script)
+	delete(saved.inertia_ticks.x_hit)
+	delete(saved.inertia_ticks.x_avoid_minus)
+	delete(saved.inertia_ticks.x_avoid_plus)
+	delete(saved.inertia_ticks.z_hit)
+	delete(saved.inertia_ticks.z_avoid_minus)
+	delete(saved.inertia_ticks.z_avoid_plus)
 	delete(saved.post.x_origin)
 	delete(saved.post.z_origin)
 	delete(saved.post.x_tick)
@@ -86,6 +102,14 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 		objective_script  = buffer_string(env.objective_script[:]),
 		constraint_script = buffer_string(env.constraint_script[:]),
 		inertia_suspicious_factor = env.inertia_suspicious_factor,
+		inertia_ticks = {
+			x_hit         = buffer_string(env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Hit)-1][:]),
+			x_avoid_minus = buffer_string(env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Minus)-1][:]),
+			x_avoid_plus  = buffer_string(env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Plus)-1][:]),
+			z_hit         = buffer_string(env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Hit)-1][:]),
+			z_avoid_minus = buffer_string(env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Minus)-1][:]),
+			z_avoid_plus  = buffer_string(env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Plus)-1][:]),
+		},
 		post = {
 			x_origin           = buffer_string(env.post.x_origin[:]),
 			z_origin           = buffer_string(env.post.z_origin[:]),
@@ -257,6 +281,17 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	buffer_set(env.movement_script[:], saved.movement_script)
 	buffer_set(env.objective_script[:], saved.objective_script)
 	buffer_set(env.constraint_script[:], saved.constraint_script)
+	buffer_set(env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Hit)-1][:], saved.inertia_ticks.x_hit)
+	buffer_set(env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Minus)-1][:], saved.inertia_ticks.x_avoid_minus)
+	buffer_set(env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Plus)-1][:], saved.inertia_ticks.x_avoid_plus)
+	buffer_set(env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Hit)-1][:], saved.inertia_ticks.z_hit)
+	buffer_set(env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Minus)-1][:], saved.inertia_ticks.z_avoid_minus)
+	buffer_set(env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Plus)-1][:], saved.inertia_ticks.z_avoid_plus)
+	for axis in 0..<2 {
+		for mode in 0..<3 {
+			env.inertia_tick_list_visible[axis][mode] = buffer_string(env.inertia_tick_lists[axis][mode][:]) != ""
+		}
+	}
 
 	buffer_set(env.post.x_origin[:], saved.post.x_origin)
 	buffer_set(env.post.z_origin[:], saved.post.z_origin)

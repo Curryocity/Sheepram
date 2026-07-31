@@ -69,8 +69,6 @@ inertia_tick_list_contains :: proc(values: []int, tick: int) -> bool {
 }
 
 inertia_choice_for_tick :: proc(lists: ^[2][3][dynamic]int, tick: int, axis: Inertia_Axis) -> Inertia_Choice {
-	// TODO: When inertia lists affect optimization, report an error if the same
-	// tick appears in multiple lists for one axis instead of taking the first.
 	for list_index in 0..<3 {
 		if inertia_tick_list_contains(lists[int(axis)][list_index][:], tick) {
 			return Inertia_Choice(list_index+1)

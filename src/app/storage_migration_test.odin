@@ -150,6 +150,12 @@ test_current_postprocessor_origins_round_trip :: proc(t: ^testing.T) {
 	buffer_set(tab.env.post.z_origin[:], "Z[n] - 0.6")
 	tab.env.continuous_optimizer = .Pancake
 	tab.env.inertia_suspicious_factor = 3.5
+	buffer_set(tab.env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Hit)-1][:], "1, 4")
+	buffer_set(tab.env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Minus)-1][:], "2")
+	buffer_set(tab.env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Plus)-1][:], "3")
+	buffer_set(tab.env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Hit)-1][:], "5")
+	buffer_set(tab.env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Minus)-1][:], "6")
+	buffer_set(tab.env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Plus)-1][:], "7")
 
 	data, save_err := build_tab_json(tab)
 	defer delete(data)
@@ -168,6 +174,15 @@ test_current_postprocessor_origins_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, buffer_string(loaded.env.post.z_origin[:]), "Z[n] - 0.6")
 	testing.expect_value(t, loaded.env.continuous_optimizer, Continuous_Optimizer.Pancake)
 	testing.expect_value(t, loaded.env.inertia_suspicious_factor, 3.5)
+	testing.expect_value(t, buffer_string(loaded.env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Hit)-1][:]), "1, 4")
+	testing.expect_value(t, buffer_string(loaded.env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Minus)-1][:]), "2")
+	testing.expect_value(t, buffer_string(loaded.env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Plus)-1][:]), "3")
+	testing.expect_value(t, buffer_string(loaded.env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Hit)-1][:]), "5")
+	testing.expect_value(t, buffer_string(loaded.env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Minus)-1][:]), "6")
+	testing.expect_value(t, buffer_string(loaded.env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Plus)-1][:]), "7")
+	for axis in 0..<2 {
+		for mode in 0..<3 do testing.expect(t, loaded.env.inertia_tick_list_visible[axis][mode])
+	}
 }
 
 @(test)

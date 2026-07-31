@@ -23,6 +23,7 @@ Optimizer_Material :: struct {
 	cons_script:    string,
 	x_origin_script:      string,
 	z_origin_script:      string,
+	inertia_tick_lists:   [2][3]string,
 }
 
 Optimizer_Result :: struct {
@@ -46,7 +47,7 @@ Optimizer_Result :: struct {
 }
 
 make_optimizer_material :: proc(state: ^Environment) -> Optimizer_Material {
-	return {
+	material := Optimizer_Material {
 		maximize             = state.maximize,
 		discrete_search      = state.discrete_search,
 		cook                 = state.cook,
@@ -63,6 +64,12 @@ make_optimizer_material :: proc(state: ^Environment) -> Optimizer_Material {
 		x_origin_script      = strings.clone(buffer_string(state.post.x_origin[:])),
 		z_origin_script      = strings.clone(buffer_string(state.post.z_origin[:])),
 	}
+	for axis in 0..<2 {
+		for mode in 0..<3 {
+			material.inertia_tick_lists[axis][mode] = strings.clone(buffer_string(state.inertia_tick_lists[axis][mode][:]))
+		}
+	}
+	return material
 }
 
 destroy_optimizer_material :: proc(material: ^Optimizer_Material) {
@@ -71,6 +78,9 @@ destroy_optimizer_material :: proc(material: ^Optimizer_Material) {
 	delete(material.cons_script)
 	delete(material.x_origin_script)
 	delete(material.z_origin_script)
+	for axis in 0..<2 {
+		for mode in 0..<3 do delete(material.inertia_tick_lists[axis][mode])
+	}
 	material^ = {}
 }
 
@@ -211,6 +221,15 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	}
 
 	n := m.n
+	assignments, inertia_err := parse_inertia_assignments(&material.inertia_tick_lists, n)
+	defer destroy_inertia_assignments(&assignments)
+	if inertia_err != "" {
+		set_optimizer_error(&result, fmt.tprintf("Error:\nInertia Manager:\n%s", inertia_err))
+		delete(inertia_err)
+		return result
+	}
+	initial_drag_x, initial_drag_z := apply_inertia_hits(&assignments, m.drag_x[:n], m.drag_z[:n], m.exact_movement[:], m.init_drag)
+
 	model := opt.Model {
 		n      = n,
 		drag_x = m.drag_x,
@@ -399,7 +418,8 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 			init_v = m.init_v,
 			has_init_theta = m.has_init_angle,
 			init_theta = m.init_angle*math.PI/180,
-			init_drag = m.init_drag,
+			init_drag_x = initial_drag_x,
+			init_drag_z = initial_drag_z,
 			angle_offset = make([dynamic]f64, n),
 			exact_movement = m.exact_movement,
 		}
