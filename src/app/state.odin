@@ -25,7 +25,7 @@ Continuous_Optimizer :: enum {
 	Pancake,
 }
 
-Pancake_Secondary :: enum {
+Pancake_Recovery :: enum {
 	Spine,
 	BFGS,
 }
@@ -61,10 +61,10 @@ Environment :: struct {
 	multistart_on: bool,
 	seed_samples: int,
 	continuous_optimizer: Continuous_Optimizer,
-	pancake_secondary:    Pancake_Secondary,
+	pancake_recovery:     Pancake_Recovery,
 
-	curr_obj:  Objective_Type,
-	obj_script:[SCRIPT_CAPACITY]byte,
+	obj_type:         Objective_Type,
+	objective_script: [SCRIPT_CAPACITY]byte,
 
 	movement_script: [MOVEMENT_SCRIPT_CAPACITY]byte,
 
@@ -150,7 +150,7 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	tab.id = tab_id
 	buffer_set(tab.name[:], fmt.tprintf("Untitled %d", tab_id))
 	buffer_set(tab.name_draft[:], buffer_string(tab.name[:]))
-	tab.env.curr_obj = .X
+	tab.env.obj_type = .X
 	tab.env.continuous_optimizer = .Pancake
 	tab.env.chefs = 5
 	tab.env.seed = 45
@@ -158,7 +158,7 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	tab.env.color_jump_ticks = true
 	tab.env.post.position_precision = 6
 	buffer_set(
-		tab.env.obj_script[:],
+		tab.env.objective_script[:],
 		"X[n] - X[0]",
 	)
 	buffer_set(

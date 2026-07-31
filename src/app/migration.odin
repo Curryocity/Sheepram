@@ -264,11 +264,11 @@ legacy_to_saved_tab :: proc(legacy: ^Legacy_Saved_Tab, movement_script: string) 
 		maximize          = legacy.maximize,
 		seed              = 45,
 		initial_angle_samples = 8,
-		curr_obj          = legacy.curr_obj,
+		obj_type          = legacy.curr_obj,
 		movement_script   = strings.clone(movement_script),
 		global_names      = make([]string, len(legacy.global_names)),
 		global_values     = make([]string, len(legacy.global_values)),
-		obj_script        = strings.clone(legacy.obj_script),
+		objective_script  = strings.clone(legacy.obj_script),
 		constraint_script = strings.clone(legacy.constraint_script),
 		post = {
 			x_origin           = legacy_origin_expr(

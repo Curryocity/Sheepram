@@ -173,7 +173,7 @@ test_pancake_bfgs_optimizer_round_trip :: proc(t: ^testing.T) {
 	tab := make_default_tab(103)
 	defer destroy_tab(tab)
 	tab.env.continuous_optimizer = .Pancake
-	tab.env.pancake_secondary = .BFGS
+	tab.env.pancake_recovery = .BFGS
 
 	data, save_err := build_tab_json(tab)
 	defer delete(data)
@@ -195,8 +195,8 @@ test_pancake_bfgs_optimizer_round_trip :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(
 		t,
-		loaded.env.pancake_secondary,
-		Pancake_Secondary.BFGS,
+		loaded.env.pancake_recovery,
+		Pancake_Recovery.BFGS,
 	)
 }
 

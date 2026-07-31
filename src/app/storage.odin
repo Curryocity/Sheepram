@@ -34,12 +34,12 @@ Saved_Tab :: struct {
 	try_preset_initial_angles: bool `json:"tryPresetInitialAngles,omitempty"`,
 	initial_angle_samples: int    `json:"initialAngleSamples"`,
 	continuous_optimizer: int     `json:"continuousOptimizer,omitempty"`,
-	pancake_secondary:    int     `json:"pancakeSecondary,omitempty"`,
-	curr_obj:          int        `json:"currObj"`,
+	pancake_recovery:     int     `json:"pancakeSecondary,omitempty"`,
+	obj_type:             int     `json:"currObj"`,
 	movement_script:   string     `json:"movementScript"`,
 	global_names:      []string   `json:"globalNames,omitempty"`,
 	global_values:     []string   `json:"globalValues,omitempty"`,
-	obj_script:        string     `json:"objScript"`,
+	objective_script:  string     `json:"objScript"`,
 	constraint_script: string     `json:"constraintScript"`,
 	post:              Saved_Post `json:"post"`,
 }
@@ -56,7 +56,7 @@ free_saved_tab :: proc(saved: ^Saved_Tab) {
 	delete(saved.movement_script)
 	delete(saved.global_names)
 	delete(saved.global_values)
-	delete(saved.obj_script)
+	delete(saved.objective_script)
 	delete(saved.constraint_script)
 	delete(saved.post.x_origin)
 	delete(saved.post.z_origin)
@@ -79,10 +79,10 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 		multistart        = env.multistart_on,
 		initial_angle_samples = env.seed_samples,
 		continuous_optimizer = int(env.continuous_optimizer),
-		pancake_secondary    = int(env.pancake_secondary),
-		curr_obj          = int(env.curr_obj),
+		pancake_recovery     = int(env.pancake_recovery),
+		obj_type             = int(env.obj_type),
 		movement_script   = buffer_string(env.movement_script[:]),
-		obj_script        = buffer_string(env.obj_script[:]),
+		objective_script  = buffer_string(env.objective_script[:]),
 		constraint_script = buffer_string(env.constraint_script[:]),
 		post = {
 			x_origin           = buffer_string(env.post.x_origin[:]),
@@ -204,20 +204,20 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 		return globals_err
 	}
 
-	if saved.curr_obj < int(Objective_Type.X) || saved.curr_obj > int(Objective_Type.Custom) {
+	if saved.obj_type < int(Objective_Type.X) || saved.obj_type > int(Objective_Type.Custom) {
 		return strings.clone("Invalid field: currObj")
 	}
 	// Brief development builds stored Pancake + BFGS as engine value 3.
 	if saved.continuous_optimizer == 3 {
 		saved.continuous_optimizer = int(Continuous_Optimizer.Pancake)
-		saved.pancake_secondary = int(Pancake_Secondary.BFGS)
+		saved.pancake_recovery = int(Pancake_Recovery.BFGS)
 	}
 	if saved.continuous_optimizer < int(Continuous_Optimizer.BFGS) ||
 	   saved.continuous_optimizer > int(Continuous_Optimizer.Pancake) {
 		return strings.clone("Invalid field: continuousOptimizer")
 	}
-	if saved.pancake_secondary < int(Pancake_Secondary.Spine) ||
-	   saved.pancake_secondary > int(Pancake_Secondary.BFGS) {
+	if saved.pancake_recovery < int(Pancake_Recovery.Spine) ||
+	   saved.pancake_recovery > int(Pancake_Recovery.BFGS) {
 		return strings.clone("Invalid field: pancakeSecondary")
 	}
 	if strings.trim_space(saved.movement_script) == "" {
@@ -246,11 +246,11 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	env.multistart_on = saved.multistart || saved.try_preset_initial_angles
 	env.seed_samples = clamp(saved.initial_angle_samples, 8, 256)
 	env.continuous_optimizer = Continuous_Optimizer(saved.continuous_optimizer)
-	env.pancake_secondary = Pancake_Secondary(saved.pancake_secondary)
-	env.curr_obj = Objective_Type(saved.curr_obj)
+	env.pancake_recovery = Pancake_Recovery(saved.pancake_recovery)
+	env.obj_type = Objective_Type(saved.obj_type)
 	env.color_jump_ticks = true
 	buffer_set(env.movement_script[:], saved.movement_script)
-	buffer_set(env.obj_script[:], saved.obj_script)
+	buffer_set(env.objective_script[:], saved.objective_script)
 	buffer_set(env.constraint_script[:], saved.constraint_script)
 
 	buffer_set(env.post.x_origin[:], saved.post.x_origin)

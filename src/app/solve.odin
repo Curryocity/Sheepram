@@ -7,9 +7,115 @@ import "core:time"
 import dsl "../dsl"
 import opt "../optimizer"
 
-set_error :: proc(state: ^Environment, message: string) {
+Optimizer_Material :: struct {
+	maximize:             bool,
+	discrete_search:      bool,
+	cook:                 bool,
+	chefs:                int,
+	seed:                  f64,
+	multistart_on:         bool,
+	seed_samples:          int,
+	continuous_optimizer: Continuous_Optimizer,
+	pancake_recovery:     Pancake_Recovery,
+	obj_type:             Objective_Type,
+	movement_script:      string,
+	obj_script:     string,
+	cons_script:    string,
+	x_origin_script:      string,
+	z_origin_script:      string,
+}
+
+Optimizer_Result :: struct {
+	solution:                 ^opt.Solution,
+	discrete:                 bool,
+	cooking:                  bool,
+	chefs_completed:          int,
+	chefs_total:              int,
+	compile_time_seconds:     f64,
+	continuous_time_seconds:  f64,
+	discrete_time_seconds:    f64,
+	winner_seed:              f64,
+	multistart_consumed:      bool,
+	x_origin:                 f64,
+	z_origin:                 f64,
+	angle_offset:             [dynamic]f64,
+	jump_ticks:               [dynamic]bool,
+	error:                    string,
+}
+
+make_optimizer_material :: proc(state: ^Environment) -> Optimizer_Material {
+	return {
+		maximize             = state.maximize,
+		discrete_search      = state.discrete_search,
+		cook                 = state.cook,
+		chefs                = state.chefs,
+		seed                  = state.seed,
+		multistart_on         = state.multistart_on,
+		seed_samples          = state.seed_samples,
+		continuous_optimizer = state.continuous_optimizer,
+		pancake_recovery     = state.pancake_recovery,
+		obj_type             = state.obj_type,
+		movement_script      = strings.clone(buffer_string(state.movement_script[:])),
+		obj_script     = strings.clone(buffer_string(state.objective_script[:])),
+		cons_script    = strings.clone(buffer_string(state.constraint_script[:])),
+		x_origin_script      = strings.clone(buffer_string(state.post.x_origin[:])),
+		z_origin_script      = strings.clone(buffer_string(state.post.z_origin[:])),
+	}
+}
+
+destroy_optimizer_material :: proc(material: ^Optimizer_Material) {
+	delete(material.movement_script)
+	delete(material.obj_script)
+	delete(material.cons_script)
+	delete(material.x_origin_script)
+	delete(material.z_origin_script)
+	material^ = {}
+}
+
+destroy_optimizer_result :: proc(result: ^Optimizer_Result) {
+	if result.solution != nil {
+		opt.destroy_solution(result.solution)
+		free(result.solution)
+	}
+	delete(result.angle_offset)
+	delete(result.jump_ticks)
+	delete(result.error)
+	result^ = {}
+}
+
+set_optimizer_error :: proc(result: ^Optimizer_Result, message: string) {
+	seed := result.winner_seed
+	multistart_consumed := result.multistart_consumed
+	destroy_optimizer_result(result)
+	result.winner_seed = seed
+	result.multistart_consumed = multistart_consumed
+	result.error = strings.clone(message)
+}
+
+apply_optimizer_result :: proc(state: ^Environment, result: ^Optimizer_Result) {
 	clear_solution(state)
-	buffer_set(state.last_error[:], message)
+	buffer_clear(state.last_error[:])
+
+	state.last_solution = result.solution
+	result.solution = nil
+	state.last_solution_discrete = result.discrete
+	state.last_solution_cooking = result.cooking
+	state.last_solution_chefs_completed = result.chefs_completed
+	state.last_solution_chefs_total = result.chefs_total
+	state.compile_time_seconds = result.compile_time_seconds
+	state.continuous_time_seconds = result.continuous_time_seconds
+	state.discrete_time_seconds = result.discrete_time_seconds
+	if result.multistart_consumed {
+		state.seed = result.winner_seed
+		state.multistart_on = false
+	}
+	state.x_origin = result.x_origin
+	state.z_origin = result.z_origin
+	state.angle_offset = result.angle_offset
+	result.angle_offset = nil
+	state.last_jump_ticks = result.jump_ticks
+	result.jump_ticks = nil
+	buffer_set(state.last_error[:], result.error)
 }
 
 eval_raw_solution :: proc(expr: opt.Raw_Expr, solution: ^opt.Solution, facings_are_degrees: bool) -> f64 {
@@ -52,10 +158,13 @@ solution_is_finite :: proc(solution: ^opt.Solution) -> bool {
 	return true
 }
 
-run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
-	// 0. Reset optimizer
-	clear_solution(state)
-	buffer_clear(state.last_error[:])
+optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = nil) -> Optimizer_Result {
+	result := Optimizer_Result {
+		winner_seed         = material.seed,
+		multistart_consumed = material.multistart_on,
+	}
+
+	// 0. Initialize result
 	compile_start := time.tick_now()
 
 	// 1. Initialize the sequential Mothball compiler
@@ -63,36 +172,36 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	defer dsl.destroy_moth_compiler(&m)
 
 	// 2. Parse Mothball into a command tree
-	code, movement_err := dsl.parse_mothball(buffer_string(state.movement_script[:]))
+	code, movement_err := dsl.parse_mothball(material.movement_script)
 	defer dsl.destroy_moth_code(&code)
 	if movement_err != "" {
-		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", movement_err))
-		return
+		set_optimizer_error(&result, fmt.tprintf("Error:\nMovement script:\n%s", movement_err))
+		return result
 	}
 
 	// 3. Convert movement script into optimizer model arrays
 	dsl.compile_mothball(&m, code[:])
 	if !m.ok {
-		set_error(state, fmt.tprintf("Error:\nMovement script:\n%s", m.err))
-		return
+		set_optimizer_error(&result, fmt.tprintf("Error:\nMovement script:\n%s", m.err))
+		return result
 	}
 	if m.n < N_MIN {
-		set_error(
-			state,
+		set_optimizer_error(
+			&result,
 			fmt.tprintf(
 				"Error:\nMovement script generated %d states; expected at least %d",
 				m.n,
 				N_MIN,
 			),
 		)
-		return
+		return result
 	}
-	if state.discrete_search && !m.discrete_supported {
-		set_error(
-			state,
+	if material.discrete_search && !m.discrete_supported {
+		set_optimizer_error(
+			&result,
 			"Error:\nDiscrete Local Search is not supported by this movement model.",
 		)
-		return
+		return result
 	}
 
 	n := m.n
@@ -107,14 +216,12 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	m.accel = nil
 	defer opt.destroy_model(&model)
 
-	delete(state.angle_offset)
-	state.angle_offset = make([dynamic]f64, n)
-	copy(state.angle_offset[:], m.angle_offset[:n])
-	delete(state.last_jump_ticks)
-	state.last_jump_ticks = make([dynamic]bool, n)
+	result.angle_offset = make([dynamic]f64, n)
+	copy(result.angle_offset[:], m.angle_offset[:n])
+	result.jump_ticks = make([dynamic]bool, n)
 	for jump_tick, tick in m.jump_ticks {
 		if tick >= n do break
-		state.last_jump_ticks[tick] = jump_tick
+		result.jump_ticks[tick] = jump_tick
 	}
 
 	// 4. Compile the continuous movement recurrence
@@ -127,30 +234,30 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 
 	// 5. Resolve markers against the compiled movement expressions
 	if marker_err := dsl.resolve_markers(&parser, m.markers[:]); marker_err != "" {
-		set_error(state, fmt.tprintf("Error:\nMovement markers:\n%s", marker_err))
+		set_optimizer_error(&result, fmt.tprintf("Error:\nMovement markers:\n%s", marker_err))
 		delete(marker_err)
-		return
+		return result
 	}
 
 	// 6. Parse objective expression
 	objective: opt.Raw_Expr
-	switch state.curr_obj {
+	switch material.obj_type {
 	case .X:
 		objective, err = dsl.parse_expr(&parser, "X[n]")
 	case .Z:
 		objective, err = dsl.parse_expr(&parser, "Z[n]")
 	case .Custom:
-		objective, err = dsl.parse_expr(&parser, buffer_string(state.obj_script[:]))
+		objective, err = dsl.parse_expr(&parser, material.obj_script)
 	}
 	if err != "" {
-		set_error(state, fmt.tprintf("Error:\n%s", err))
+		set_optimizer_error(&result, fmt.tprintf("Error:\n%s", err))
 		delete(err)
-		return
+		return result
 	}
 	defer opt.destroy_raw_expr(&objective)
 
 	// The optimizer minimizes, so maximizing "obj" is represented by minimizing "-obj".
-	if state.maximize {
+	if material.maximize {
 		inverted := opt.scale_raw_expr(objective, -1)
 		opt.destroy_raw_expr(&objective)
 		objective = inverted
@@ -159,12 +266,12 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	// 7. Parse constraints
 	constraints, constraint_err := dsl.parse_multi_constraints(
 		&parser,
-		buffer_string(state.constraint_script[:]),
+		material.cons_script,
 	)
 	if constraint_err != "" {
-		set_error(state, fmt.tprintf("Error:\n%s", constraint_err))
+		set_optimizer_error(&result, fmt.tprintf("Error:\n%s", constraint_err))
 		delete(constraint_err)
-		return
+		return result
 	}
 	defer dsl.destroy_constraints(&constraints)
 
@@ -173,24 +280,24 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	// model expressions, and n just like the objective and constraints.
 	x_origin_expr, post_err := dsl.parse_expr(
 		&parser,
-		buffer_string(state.post.x_origin[:]),
+		material.x_origin_script,
 	)
 	if post_err != "" {
-		set_error(state, fmt.tprintf("Error:\nPostprocessor X Origin:\n%s", post_err))
+		set_optimizer_error(&result, fmt.tprintf("Error:\nPostprocessor X Origin:\n%s", post_err))
 		delete(post_err)
-		return
+		return result
 	}
 	defer opt.destroy_raw_expr(&x_origin_expr)
 
 	z_origin_expr: opt.Raw_Expr
 	z_origin_expr, post_err = dsl.parse_expr(
 		&parser,
-		buffer_string(state.post.z_origin[:]),
+		material.z_origin_script,
 	)
 	if post_err != "" {
-		set_error(state, fmt.tprintf("Error:\nPostprocessor Z Origin:\n%s", post_err))
+		set_optimizer_error(&result, fmt.tprintf("Error:\nPostprocessor Z Origin:\n%s", post_err))
 		delete(post_err)
-		return
+		return result
 	}
 	defer opt.destroy_raw_expr(&z_origin_expr)
 
@@ -207,32 +314,33 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	problem := opt.reduce_problem(&raw_problem, model, m.angle_offset[:])
 	defer opt.destroy_problem(&problem)
 	if !opt.pure_position_expr(problem.objective) {
-		set_error(state, "Error:\nFacing and turn expressions (F and T) are not allowed in the objective.")
-		return
+		set_optimizer_error(&result, "Error:\nFacing and turn expressions (F and T) are not allowed in the objective.")
+		return result
 	}
-	state.compile_time_seconds = time.duration_seconds(time.tick_since(compile_start))
+	result.compile_time_seconds = time.duration_seconds(time.tick_since(compile_start))
 
 	// 10. Phase I: solve the continuous problem
 	solution := new(opt.Solution)
 	optimize_start := time.tick_now()
-	initial_theta := state.seed * math.PI / 180
+	initial_theta := material.seed * math.PI / 180
 	pancake_fallback := opt.Pancake_Fallback.Spine
-	if state.pancake_secondary == .BFGS {
+	if material.pancake_recovery == .BFGS {
 		pancake_fallback = .BFGS
 	}
-	if state.continuous_optimizer == .Pancake {
-		state.multistart_on = false
+	multistart_on := material.multistart_on
+	if material.continuous_optimizer == .Pancake {
+		multistart_on = false
 	}
-	if state.multistart_on {
-		sample_count := clamp(state.seed_samples, 8, 256)
-			seeds := make([dynamic]f64, sample_count)
-			defer delete(seeds)
-			for i in 0..<sample_count {
-				seed_degrees := 360 * f64(i) / f64(sample_count)
-				seeds[i] = seed_degrees * math.PI / 180
-			}
+	if multistart_on {
+		sample_count := clamp(material.seed_samples, 8, 256)
+		seeds := make([dynamic]f64, sample_count)
+		defer delete(seeds)
+		for i in 0..<sample_count {
+			seed_degrees := 360 * f64(i) / f64(sample_count)
+			seeds[i] = seed_degrees * math.PI / 180
+		}
 		best_seed_index: int
-		switch state.continuous_optimizer {
+		switch material.continuous_optimizer {
 		case .Pancake:
 			solution^ = opt.pancake_optimize(
 				&model,
@@ -246,11 +354,10 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 			solution^, best_seed_index = opt.optimize_multistart(&model, &problem, seeds[:])
 		}
 		if best_seed_index >= 0 && best_seed_index < sample_count {
-			state.seed = 360 * f64(best_seed_index) / f64(sample_count)
+			result.winner_seed = 360 * f64(best_seed_index) / f64(sample_count)
 		}
-		state.multistart_on = false
 	} else {
-		switch state.continuous_optimizer {
+		switch material.continuous_optimizer {
 		case .Pancake:
 			solution^ = opt.pancake_optimize(
 				&model,
@@ -266,11 +373,11 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	if !solution_is_finite(solution) {
 		opt.destroy_solution(solution)
 		free(solution)
-		set_error(state, "Error:\nThe continuous optimizer returned a non-finite solution.")
-		return
+		set_optimizer_error(&result, "Error:\nThe continuous optimizer returned a non-finite solution.")
+		return result
 	}
 	for &theta in solution.thetas do theta = wrap_radians_pi(theta)
-	state.continuous_time_seconds = time.duration_seconds(time.tick_since(optimize_start))
+	result.continuous_time_seconds = time.duration_seconds(time.tick_since(optimize_start))
 	continuous_globally_certified := solution.continuous_globally_optimal
 	continuous_pancake_used := solution.pancake_used
 	continuous_pancake_used_recovery := solution.pancake_used_recovery
@@ -279,7 +386,7 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	continuous_pancake_dual_bound := solution.pancake_dual_bound
 
 	// 11. Phase II: optimize the discrete/exact model when requested
-	if state.discrete_search {
+	if material.discrete_search {
 		discrete_start := time.tick_now()
 		discrete_model := opt.Discrete_Model {
 			n = n,
@@ -299,9 +406,9 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 
 		search_mode := opt.Local_Search_Mode.Regular
 		starts := 1
-		if state.cook {
+		if material.cook {
 			search_mode = .Cooking
-			starts = clamp(state.chefs, 1, 1000)
+			starts = clamp(material.chefs, 1, 1000)
 		}
 
 		exact_work := opt.make_exact_workspace(n)
@@ -369,7 +476,7 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 				progress_solution := opt.create_exact_solution(&discrete_model, best_discrete_state)
 				progress_solution.optimum = eval_raw_solution(raw_problem.objective, &progress_solution, true)
 				progress_objective := progress_solution.optimum
-				if state.maximize do progress_objective *= -1
+				if material.maximize do progress_objective *= -1
 				publish_optimizer_progress(
 					control,
 					progress_objective,
@@ -387,8 +494,10 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 		}
 
 		if cancelled && !has_best {
-			buffer_set(state.last_error[:], "Optimization cancelled before a discrete result was found.")
-			return
+			opt.destroy_solution(solution)
+			free(solution)
+			set_optimizer_error(&result, "Optimization cancelled before a discrete result was found.")
+			return result
 		}
 
 		exact_solution := opt.create_exact_solution(&discrete_model, best_discrete_state)
@@ -404,27 +513,27 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 
 		opt.destroy_solution(solution)
 		solution^ = exact_solution
-		state.last_solution_discrete = true
-		state.last_solution_cooking = state.cook
-		state.last_solution_chefs_completed = completed_starts if state.cook else 0
-		state.last_solution_chefs_total = starts if state.cook else 0
-		state.discrete_time_seconds = time.duration_seconds(time.tick_since(discrete_start))
+		result.discrete = true
+		result.cooking = material.cook
+		result.chefs_completed = completed_starts if material.cook else 0
+		result.chefs_total = starts if material.cook else 0
+		result.discrete_time_seconds = time.duration_seconds(time.tick_since(discrete_start))
 	}
 
 	// 12. Convert optimizer-space results back into UI/reporting-space results
-	if state.maximize {
+	if material.maximize {
 		solution.optimum *= -1 // Invert solution again when maximizing
 		if solution.pancake_used do solution.pancake_dual_bound *= -1
 	}
 
-	if !state.last_solution_discrete {
+	if !result.discrete {
 		for &theta, i in solution.thetas {
 			theta -= m.angle_offset[i]*math.PI/180
 		}
 	}
 
 	for constraint in constraints {
-		residual := eval_raw_solution(constraint.lhs, solution, state.last_solution_discrete)
+		residual := eval_raw_solution(constraint.lhs, solution, result.discrete)
 		margin := math.abs(residual) if constraint.cmp == .Equal else -residual
 		append(
 			&solution.constraints,
@@ -436,8 +545,9 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 		)
 	}
 
-	state.x_origin = eval_raw_solution(x_origin_expr, solution, state.last_solution_discrete)
-	state.z_origin = eval_raw_solution(z_origin_expr, solution, state.last_solution_discrete)
+	result.x_origin = eval_raw_solution(x_origin_expr, solution, result.discrete)
+	result.z_origin = eval_raw_solution(z_origin_expr, solution, result.discrete)
 
-	state.last_solution = solution
+	result.solution = solution
+	return result
 }

@@ -19,11 +19,11 @@ Optimizer_Control :: struct {
 }
 
 Optimizer_Job :: struct {
-	worker:      ^thread.Thread,
-	environment: Environment,
-	control:     ^Optimizer_Control,
-	started_at:  time.Tick,
-	continuous_multistart_requested: bool,
+	worker:     ^thread.Thread,
+	material:   Optimizer_Material,
+	result:     Optimizer_Result,
+	control:    ^Optimizer_Control,
+	started_at: time.Tick,
 }
 
 destroy_optimizer_control :: proc(control: ^Optimizer_Control) {
@@ -34,7 +34,7 @@ destroy_optimizer_control :: proc(control: ^Optimizer_Control) {
 
 optimizer_job_worker :: proc(data: rawptr) {
 	job := cast(^Optimizer_Job)data
-	run_optimizer(&job.environment, job.control)
+	job.result = optimize(&job.material, job.control)
 }
 
 request_optimizer_cancel :: proc(tab: ^Tab_State) {
@@ -74,15 +74,13 @@ publish_optimizer_progress :: proc(
 start_optimizer_job :: proc(tab: ^Tab_State) -> bool {
 	if tab.optimizer_job != nil do return false
 
-	// The worker owns a value-copy of every optimizer input. Never let it
-	// access the live Environment while ImGui may be editing that state.
+	// The worker owns an immutable snapshot of every optimizer input. Never
+	// let it access the live Environment while ImGui may be editing that state.
 	clear_solution(&tab.env)
 	buffer_clear(tab.env.last_error[:])
 	buffer_clear(tab.inline_save_message[:])
 	job := new(Optimizer_Job)
-	job.environment = tab.env
-	job.environment.last_solution = nil
-	job.continuous_multistart_requested = tab.env.multistart_on
+	job.material = make_optimizer_material(&tab.env)
 	job.control = new(Optimizer_Control)
 	job.started_at = time.tick_now()
 	job.worker = thread.create_and_start_with_data(
@@ -90,6 +88,7 @@ start_optimizer_job :: proc(tab: ^Tab_State) -> bool {
 		optimizer_job_worker,
 	)
 	if job.worker == nil {
+		destroy_optimizer_material(&job.material)
 		destroy_optimizer_control(job.control)
 		free(job)
 		buffer_set(tab.env.last_error[:], "Error:\nFailed to start optimizer thread.")
@@ -104,30 +103,9 @@ poll_optimizer_job :: proc(tab: ^Tab_State) -> bool {
 	if job == nil || !thread.is_done(job.worker) do return false
 
 	thread.destroy(job.worker)
-	result := &job.environment
-	state := &tab.env
-	clear_solution(state)
-	state.last_solution = result.last_solution
-	result.last_solution = nil
-	state.last_solution_discrete = result.last_solution_discrete
-	state.last_solution_cooking = result.last_solution_cooking
-	state.last_solution_chefs_completed = result.last_solution_chefs_completed
-	state.last_solution_chefs_total = result.last_solution_chefs_total
-	state.compile_time_seconds = result.compile_time_seconds
-	state.continuous_time_seconds = result.continuous_time_seconds
-	state.discrete_time_seconds = result.discrete_time_seconds
-	if job.continuous_multistart_requested {
-		state.seed = result.seed
-		state.multistart_on = false
-	}
-	state.x_origin = result.x_origin
-	state.z_origin = result.z_origin
-	state.angle_offset = result.angle_offset
-	result.angle_offset = nil
-	state.last_jump_ticks = result.last_jump_ticks
-	result.last_jump_ticks = nil
-	state.last_error = result.last_error
-
+	apply_optimizer_result(&tab.env, &job.result)
+	destroy_optimizer_result(&job.result)
+	destroy_optimizer_material(&job.material)
 	destroy_optimizer_control(job.control)
 	free(job)
 	tab.optimizer_job = nil
@@ -139,7 +117,8 @@ destroy_optimizer_job :: proc(tab: ^Tab_State) {
 	if job == nil do return
 	request_optimizer_cancel(tab)
 	thread.destroy(job.worker)
-	clear_solution(&job.environment)
+	destroy_optimizer_result(&job.result)
+	destroy_optimizer_material(&job.material)
 	destroy_optimizer_control(job.control)
 	free(job)
 	tab.optimizer_job = nil

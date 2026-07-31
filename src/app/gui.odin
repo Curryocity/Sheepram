@@ -396,15 +396,15 @@ draw_continuous_optimizer_options :: proc(state: ^Environment) {
 		im.AlignTextToFramePadding()
 		im.Text("Recovery Engine:")
 		im.SameLine(0, ui_px(8))
-		secondary := c.int(state.pancake_secondary)
+		secondary := c.int(state.pancake_recovery)
 		secondary_items := [?]cstring{"Spine", "Classic"}
 		im.SetNextItemWidth(ui_px(180))
 		if combo_select(
-			"##pancake_secondary",
+			"##pancake_recovery",
 			&secondary,
 			secondary_items[:],
 		) {
-			state.pancake_secondary = Pancake_Secondary(secondary)
+			state.pancake_recovery = Pancake_Recovery(secondary)
 		}
 	}
 }
@@ -502,16 +502,16 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 
 	// === Objective ===
 	im.SeparatorText("Objective")
-	objective := c.int(state.curr_obj)
+	objective := c.int(state.obj_type)
 	im.SetNextItemWidth(ui_px(120))
 	objective_items := [?]cstring{"X[n]", "Z[n]", "Custom"}
-	if combo_select("##obj", &objective, objective_items[:]) do state.curr_obj = Objective_Type(objective)
+	if combo_select("##obj", &objective, objective_items[:]) do state.obj_type = Objective_Type(objective)
 	im.SameLine(0, ui_px(15))
 	if im.Button("Maximize" if state.maximize else "Minimize") do state.maximize = !state.maximize
-	if state.curr_obj == .Custom {
+	if state.obj_type == .Custom {
 		im.SetNextItemWidth(-1)
 			objective_font_pushed := push_font(code_font)
-			_ = input_text("##custom_objective_script", state.obj_script[:])
+			_ = input_text("##custom_objective_script", state.objective_script[:])
 			pop_font(objective_font_pushed)
 	}
 	// === Constraints ===
