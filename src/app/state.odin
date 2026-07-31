@@ -6,7 +6,6 @@ import opt "../optimizer"
 N_MIN :: 1
 MAX_TABS :: 16
 
-CELL_CAPACITY :: 64
 NAME_CAPACITY :: 128
 SCRIPT_CAPACITY :: 8192
 MOVEMENT_SCRIPT_CAPACITY :: 32768
@@ -58,15 +57,13 @@ Environment :: struct {
 	discrete_search: bool,
 	cook: bool,
 	chefs: int,
-	continuous_initial_angle_degrees: f64,
-	continuous_scan_initial_angles: bool,
-	continuous_initial_angle_samples: int,
+	seed: f64,
+	multistart_on: bool,
+	seed_samples: int,
 	continuous_optimizer: Continuous_Optimizer,
 	pancake_secondary:    Pancake_Secondary,
 
 	curr_obj:  Objective_Type,
-	dir_x:     [CELL_CAPACITY]byte,
-	dir_z:     [CELL_CAPACITY]byte,
 	obj_script:[SCRIPT_CAPACITY]byte,
 
 	movement_script: [MOVEMENT_SCRIPT_CAPACITY]byte,
@@ -156,12 +153,10 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	tab.env.curr_obj = .X
 	tab.env.continuous_optimizer = .Pancake
 	tab.env.chefs = 5
-	tab.env.continuous_initial_angle_degrees = 45
-	tab.env.continuous_initial_angle_samples = 8
+	tab.env.seed = 45
+	tab.env.seed_samples = 8
 	tab.env.color_jump_ticks = true
 	tab.env.post.position_precision = 6
-	buffer_set(tab.env.dir_x[:], "0")
-	buffer_set(tab.env.dir_z[:], "0")
 	buffer_set(
 		tab.env.obj_script[:],
 		"X[n] - X[0]",

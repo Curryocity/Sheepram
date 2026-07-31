@@ -1,7 +1,5 @@
 package app
 
-import "core:strings"
-
 buffer_string :: proc(buffer: []byte) -> string {
 	end := 0
 	for end < len(buffer) && buffer[end] != 0 do end += 1
@@ -18,8 +16,3 @@ buffer_set :: proc(buffer: []byte, text: string) {
 	count := min(len(buffer)-1, len(text))
 	copy(buffer[:count], transmute([]byte)text[:count])
 }
-
-buffer_trimmed :: proc(buffer: []byte) -> string {
-	return strings.trim_space(buffer_string(buffer))
-}
-

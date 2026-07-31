@@ -262,7 +262,7 @@ legacy_to_saved_tab :: proc(legacy: ^Legacy_Saved_Tab, movement_script: string) 
 	saved := Saved_Tab {
 		title             = strings.clone(legacy.title),
 		maximize          = legacy.maximize,
-		initial_angle_deg = 45,
+		seed              = 45,
 		initial_angle_samples = 8,
 		curr_obj          = legacy.curr_obj,
 		movement_script   = strings.clone(movement_script),

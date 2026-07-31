@@ -29,7 +29,7 @@ Saved_Tab :: struct {
 	discrete_search:   bool       `json:"discreteSearch"`,
 	cook:              bool       `json:"cook"`,
 	chefs:             int        `json:"chefs"`,
-	initial_angle_deg: f64       `json:"initialAngleDeg"`,
+	seed:              f64       `json:"initialAngleDeg"`,
 	multistart:        bool       `json:"multistart"`,
 	try_preset_initial_angles: bool `json:"tryPresetInitialAngles,omitempty"`,
 	initial_angle_samples: int    `json:"initialAngleSamples"`,
@@ -75,9 +75,9 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 		discrete_search   = env.discrete_search,
 		cook              = env.cook,
 		chefs             = env.chefs,
-		initial_angle_deg = env.continuous_initial_angle_degrees,
-		multistart        = env.continuous_scan_initial_angles,
-		initial_angle_samples = env.continuous_initial_angle_samples,
+		seed              = env.seed,
+		multistart        = env.multistart_on,
+		initial_angle_samples = env.seed_samples,
 		continuous_optimizer = int(env.continuous_optimizer),
 		pancake_secondary    = int(env.pancake_secondary),
 		curr_obj          = int(env.curr_obj),
@@ -180,7 +180,7 @@ commit_tab_title :: proc(tab: ^Tab_State) {
 }
 
 load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
-	saved := Saved_Tab{initial_angle_deg = 45, initial_angle_samples = 8}
+	saved := Saved_Tab{seed = 45, initial_angle_samples = 8}
 	if err := json.unmarshal(data, &saved, allocator = context.allocator); err != nil {
 		return strings.clone("Invalid JSON file.")
 	}
@@ -242,9 +242,9 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	env.discrete_search = saved.discrete_search
 	env.cook = saved.cook
 	env.chefs = clamp(saved.chefs, 1, 1000)
-	env.continuous_initial_angle_degrees = saved.initial_angle_deg
-	env.continuous_scan_initial_angles = saved.multistart || saved.try_preset_initial_angles
-	env.continuous_initial_angle_samples = clamp(saved.initial_angle_samples, 8, 256)
+	env.seed = saved.seed
+	env.multistart_on = saved.multistart || saved.try_preset_initial_angles
+	env.seed_samples = clamp(saved.initial_angle_samples, 8, 256)
 	env.continuous_optimizer = Continuous_Optimizer(saved.continuous_optimizer)
 	env.pancake_secondary = Pancake_Secondary(saved.pancake_secondary)
 	env.curr_obj = Objective_Type(saved.curr_obj)

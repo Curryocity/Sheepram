@@ -82,7 +82,7 @@ start_optimizer_job :: proc(tab: ^Tab_State) -> bool {
 	job := new(Optimizer_Job)
 	job.environment = tab.env
 	job.environment.last_solution = nil
-	job.continuous_multistart_requested = tab.env.continuous_scan_initial_angles
+	job.continuous_multistart_requested = tab.env.multistart_on
 	job.control = new(Optimizer_Control)
 	job.started_at = time.tick_now()
 	job.worker = thread.create_and_start_with_data(
@@ -117,8 +117,8 @@ poll_optimizer_job :: proc(tab: ^Tab_State) -> bool {
 	state.continuous_time_seconds = result.continuous_time_seconds
 	state.discrete_time_seconds = result.discrete_time_seconds
 	if job.continuous_multistart_requested {
-		state.continuous_initial_angle_degrees = result.continuous_initial_angle_degrees
-		state.continuous_scan_initial_angles = false
+		state.seed = result.seed
+		state.multistart_on = false
 	}
 	state.x_origin = result.x_origin
 	state.z_origin = result.z_origin

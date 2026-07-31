@@ -342,30 +342,30 @@ draw_continuous_optimizer_options :: proc(state: ^Environment) {
 	}
 	im.SetNextItemWidth(ui_px(230))
 	if combo_select("##continuous_optimizer", &engine, engine_items[:]) {
-		state.continuous_optimizer = Continuous_Optimizer(engine)
-		if state.continuous_optimizer == .Pancake {
-			state.continuous_scan_initial_angles = false
+			state.continuous_optimizer = Continuous_Optimizer(engine)
+			if state.continuous_optimizer == .Pancake {
+				state.multistart_on = false
+			}
 		}
-	}
-	if state.continuous_optimizer == .Pancake {
-		state.continuous_scan_initial_angles = false
+		if state.continuous_optimizer == .Pancake {
+			state.multistart_on = false
 	} else {
 		im.AlignTextToFramePadding()
 		im.Text("Initial Guess:")
 		im.SameLine()
-		initial_angle := state.continuous_initial_angle_degrees
+		initial_angle := state.seed
 		im.SetNextItemWidth(ui_px(90))
 		if im.InputDouble(
-			"deg##continuous_initial_angle",
+			"deg##seed",
 			&initial_angle,
 			0,
 			0,
 			"%.9g",
 		) {
-			state.continuous_initial_angle_degrees = initial_angle
+			state.seed = initial_angle
 		}
 
-		_ = im.Checkbox("##continuous_multistart", &state.continuous_scan_initial_angles)
+			_ = im.Checkbox("##multistart_on", &state.multistart_on)
 		im.SameLine(0, ui_px(8))
 		im.AlignTextToFramePadding()
 		im.Text("Multistart")
@@ -376,19 +376,19 @@ draw_continuous_optimizer_options :: proc(state: ^Environment) {
 		im.AlignTextToFramePadding()
 		im.Text("Uniform Samples:")
 		im.SameLine(0, ui_px(8))
-		sample_index := c.int(0)
-		sample_values := [?]int{8, 16, 32, 64, 128, 256}
-		for value, i in sample_values {
-			if state.continuous_initial_angle_samples == value {
-				sample_index = c.int(i)
-				break
-			}
+			sample_index := c.int(0)
+			sample_values := [?]int{8, 16, 32, 64, 128, 256}
+			for value, i in sample_values {
+				if state.seed_samples == value {
+					sample_index = c.int(i)
+					break
+				}
 		}
 		sample_items := [?]cstring{"8", "16", "32 (Recommended)", "64", "128", "256"}
-		im.SetNextItemWidth(ui_px(155))
-		if combo_select("##continuous_initial_angle_samples", &sample_index, sample_items[:]) {
-			state.continuous_initial_angle_samples = sample_values[sample_index]
-		}
+			im.SetNextItemWidth(ui_px(155))
+			if combo_select("##seed_samples", &sample_index, sample_items[:]) {
+				state.seed_samples = sample_values[sample_index]
+			}
 		im.TextDisabled("(Slower) Use when it seems stuck at a local optimum.")
 	}
 
@@ -559,10 +559,6 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 		start_optimizer_job(tab)
 	}
 	im.EndChild()
-}
-
-format_number :: proc(value: f64, precision: int) -> string {
-	return fmt.aprintf("%.*f", precision, value)
 }
 
 wrap_degrees_180 :: proc(degrees: f64) -> f64 {

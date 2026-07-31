@@ -215,16 +215,16 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 	// 10. Phase I: solve the continuous problem
 	solution := new(opt.Solution)
 	optimize_start := time.tick_now()
-	initial_theta := f64(state.continuous_initial_angle_degrees) * math.PI / 180
+	initial_theta := state.seed * math.PI / 180
 	pancake_fallback := opt.Pancake_Fallback.Spine
 	if state.pancake_secondary == .BFGS {
 		pancake_fallback = .BFGS
 	}
 	if state.continuous_optimizer == .Pancake {
-		state.continuous_scan_initial_angles = false
+		state.multistart_on = false
 	}
-	if state.continuous_scan_initial_angles {
-		sample_count := clamp(state.continuous_initial_angle_samples, 8, 256)
+	if state.multistart_on {
+		sample_count := clamp(state.seed_samples, 8, 256)
 			seeds := make([dynamic]f64, sample_count)
 			defer delete(seeds)
 			for i in 0..<sample_count {
@@ -246,9 +246,9 @@ run_optimizer :: proc(state: ^Environment, control: ^Optimizer_Control = nil) {
 			solution^, best_seed_index = opt.optimize_multistart(&model, &problem, seeds[:])
 		}
 		if best_seed_index >= 0 && best_seed_index < sample_count {
-			state.continuous_initial_angle_degrees = 360 * f64(best_seed_index) / f64(sample_count)
+			state.seed = 360 * f64(best_seed_index) / f64(sample_count)
 		}
-		state.continuous_scan_initial_angles = false
+		state.multistart_on = false
 	} else {
 		switch state.continuous_optimizer {
 		case .Pancake:
