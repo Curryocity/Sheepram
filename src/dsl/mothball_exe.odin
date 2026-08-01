@@ -14,8 +14,6 @@ Moth_Compiler :: struct {
 	speed: u8,
 	slow: u8,
 	slip: f64,
-	ix_queued: int,
-	iz_queued: int,
 	inertia_threshold: f64,
 	inertia_set: bool,
 
@@ -242,30 +240,13 @@ exe_code :: proc(state: ^Moth_Compiler, code: []Arg) {
 			)
 
 			for i in 0..<duration {
-				force_ix := state.ix_queued > 0
-				force_iz := state.iz_queued > 0
-				if force_ix {
-					append(&state.drag_x, 0)
-					state.ix_queued -= 1
-				} else {
-					append(&state.drag_x, drag)
-				}
-
-				if force_iz {
-					append(&state.drag_z, 0)
-					state.iz_queued -= 1
-				} else {
-					append(&state.drag_z, drag)
-				}
-
+				append(&state.drag_x, drag)
+				append(&state.drag_z, drag)
 				append(&state.accel, final_accel)
 				append(&state.angle_offset, angle_offset)
 				append(&state.jump_ticks, mf.jump)
 				append(&state.inertia_drag, exact_base.drag_x)
-				exact_cur := exact_base
-				if force_ix do exact_cur.drag_x = 0
-				if force_iz do exact_cur.drag_z = 0
-				append(&state.exact_movement, exact_cur)
+				append(&state.exact_movement, exact_base)
 			}
 
 			state.n += duration
@@ -552,66 +533,6 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 		state.slow = level
 		return
 
-	case .ForceInertiaX:
-		if message, ok := expect_moth_args(cmd, 0, 1, false); !ok {
-			set_model_error(state, message)
-			return
-		}
-		if state.ix_queued != 0 {
-			set_model_error(state, "Error: cannot append while ix queue is not empty")
-			return
-		}
-
-		if len(cmd.args) == 0 {
-			state.ix_queued = 1
-			return
-		}
-
-		ticks, err := eval_moth_number(state, cmd.args[0], "ix(...) argument")
-		if err != "" {
-			set_model_error(state, err)
-			return
-		}
-		rounded := math.round(ticks)
-		if ticks != rounded || rounded <= 0 {
-			set_model_error(state, "Error: ix ticks must be a positive integer")
-			return
-		}
-
-		state.ix_queued = int(ticks)
-
-		return
-
-	case .ForceInertiaZ:
-		if message, ok := expect_moth_args(cmd, 0, 1, false); !ok {
-			set_model_error(state, message)
-			return
-		}
-		if state.iz_queued != 0 {
-			set_model_error(state, "Error: cannot append while iz queue is not empty")
-			return
-		}
-
-		if len(cmd.args) == 0 {
-			state.iz_queued = 1
-			return
-		}
-
-		ticks, err := eval_moth_number(state, cmd.args[0], "iz(...) argument")
-		if err != "" {
-			set_model_error(state, err)
-			return
-		}
-		rounded := math.round(ticks)
-		if ticks != rounded || rounded <= 0 {
-			set_model_error(state, "Error: iz ticks must be a positive integer")
-			return
-		}
-
-		state.iz_queued = int(ticks)
-
-		return
-
 	case .Move:
 		if message, ok := expect_moth_args(cmd, 2, 3, false); !ok {
 			set_model_error(state, message)
@@ -653,21 +574,8 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 		}
 
 		for i in 0..<duration {
-			force_ix := state.ix_queued > 0
-			force_iz := state.iz_queued > 0
-			drag_x := drag
-			drag_z := drag
-			if force_ix {
-				drag_x = 0
-				state.ix_queued -= 1
-			}
-			if force_iz {
-				drag_z = 0
-				state.iz_queued -= 1
-			}
-
-			append(&state.drag_x, drag_x)
-			append(&state.drag_z, drag_z)
+			append(&state.drag_x, drag)
+			append(&state.drag_z, drag)
 			append(&state.accel, accel)
 			append(&state.angle_offset, 0)
 			append(&state.jump_ticks, false)

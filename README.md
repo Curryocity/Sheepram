@@ -77,8 +77,6 @@ r(3) { s.w sa.w }
 | `speed(level)`/`slow(level)` | Sets the Speed/Slowness effect level. The level must be a whole number from `0` to `255`. |
 | `set(name, value)` | Evaluates `value` immediately and assigns it to `name`. Later commands and movements can use the variable. |
 | `t(name)` | Records the current tick into the named variable. |
-| `ix` / `ix(ticks)` | Forces X inertia by setting X drag to zero for the next movement tick, or for the next positive-integer number of movement ticks. Calling `ix(...)` while an X inertia queue is still active is an error. |
-| `iz` / `iz(ticks)` | Forces Z inertia by setting Z drag to zero for the next movement tick, or for the next positive-integer number of movement ticks. Calling `iz(...)` while a Z inertia queue is still active is an error. |
 | `mv(drag, accel, duration = 1)` | Adds a custom movement segment with the given drag, acceleration and optional duration. |
 | `r(count) { ... }` | Repeats a non-empty block of movement functions and commands. `repeat(...)` is an alias. |
 
@@ -175,7 +173,7 @@ Z[n] - Z[m-1] < 1.5625 + 0.6
 
 Vx[it] < 0.005/0.91
 // Means you hit inertia on X while tick = it in the air
-// Use ix before that movement tick in the movement script
+// Inertia behavior is assigned through the Inertia Hut
 ```
 
 Nonlinear expressions such as `X[1] * X[2]` are not supported and will not compile.

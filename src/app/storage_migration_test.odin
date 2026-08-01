@@ -73,7 +73,7 @@ test_legacy_preset_migration :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(script, "initGnd"))
 	testing.expect(t, !strings.contains(script, "slip("))
 	testing.expect(t, strings.contains(script, "mv(air, a, 2)"))
-	testing.expect(t, strings.contains(script, "ix mv(air, a)"))
+	testing.expect(t, strings.contains(script, "mv(air, a)"))
 	testing.expect(t, strings.has_suffix(script, " st"))
 	testing.expect_value(t, buffer_string(tab.env.post.x_origin[:]), "X[0] + (0)")
 	testing.expect_value(t, buffer_string(tab.env.post.z_origin[:]), "Z[0] + (0)")
@@ -88,7 +88,7 @@ test_legacy_preset_migration :: proc(t: ^testing.T) {
 	dsl.compile_mothball(&state, code[:])
 	testing.expect(t, state.ok)
 	testing.expect_value(t, state.n, 5)
-	testing.expect_value(t, state.drag_x[3], 0.0)
+	testing.expect_value(t, state.drag_x[3], 0.91)
 	testing.expect_value(t, state.drag_z[3], 0.91)
 	testing.expect_value(t, state.accel[4], 0.0)
 }

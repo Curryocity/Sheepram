@@ -146,7 +146,7 @@ draw_inertia_hut_line :: proc(
 }
 
 draw_inertia_tick_lists :: proc(state: ^Environment) {
-	im.SeparatorText("Inertia Tick Lists")
+	im.SeparatorText("Inertia List")
 	table_flags := im.TableFlags_SizingStretchSame | im.TableFlags_NoBordersInBody
 	labels := [?]cstring{"Hit", "Avoid-", "Avoid+"}
 	axes := [?]Inertia_Axis{.X, .Z}
