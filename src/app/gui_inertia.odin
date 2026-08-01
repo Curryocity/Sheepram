@@ -9,11 +9,11 @@ import "core:strings"
 import opt "../optimizer"
 import im "../../third_party/odin-imgui"
 
-Inertia_Hut_Row :: struct {
+Inertia_Detector_Row :: struct {
 	velocity: f64,
 	in_band: bool,
 	near_border: bool,
-	suspicious: bool,
+	in_detection_range: bool,
 	has_velocity: bool,
 	nonzero: bool,
 }
@@ -77,10 +77,7 @@ inertia_choice_for_tick :: proc(lists: ^[2][3][dynamic]int, tick: int, axis: Ine
 	return .Lazy
 }
 
-show_inertia_observer_row :: proc(row: Inertia_Hut_Row, choice: Inertia_Choice, mismatches_only: bool) -> bool {
-	visible := choice != .Lazy || row.has_velocity && row.nonzero && (row.in_band || row.near_border || row.suspicious)
-	if !visible do return false
-	if !mismatches_only do return true
+inertia_detector_row_incorrect :: proc(row: Inertia_Detector_Row, choice: Inertia_Choice) -> bool {
 	if !row.has_velocity do return false
 	switch choice {
 	case .Lazy:
@@ -95,12 +92,26 @@ show_inertia_observer_row :: proc(row: Inertia_Hut_Row, choice: Inertia_Choice, 
 	return false
 }
 
-get_inertia_hut_row :: proc(
+show_inertia_detector_row :: proc(row: Inertia_Detector_Row, choice: Inertia_Choice, filter: Inertia_Detector_Filter) -> bool {
+	visible := choice != .Lazy || row.has_velocity && row.nonzero && (row.in_band || row.near_border || row.in_detection_range)
+	if !visible do return false
+	switch filter {
+	case .Lazy_And_Incorrect:
+		return choice == .Lazy || inertia_detector_row_incorrect(row, choice)
+	case .Incorrect:
+		return inertia_detector_row_incorrect(row, choice)
+	case .None:
+		return true
+	}
+	return false
+}
+
+get_inertia_detector_row :: proc(
 	state: ^Environment,
 	tick: int,
 	axis: Inertia_Axis,
-	threshold, border_tolerance, suspicious_limit: f64,
-) -> Inertia_Hut_Row {
+	threshold, border_tolerance, detection_limit: f64,
+) -> Inertia_Detector_Row {
 	solution := state.last_solution
 	if tick < 0 || tick+1 >= len(solution.xs) || tick+1 >= len(solution.zs) ||
 	   tick >= len(state.inertia_drag) {
@@ -115,16 +126,16 @@ get_inertia_hut_row :: proc(
 		velocity = velocity,
 		in_band = magnitude < threshold,
 		near_border = border_tolerance > 0 && math.abs(magnitude-threshold) <= border_tolerance,
-		suspicious = magnitude <= suspicious_limit,
+		in_detection_range = magnitude <= detection_limit,
 		has_velocity = true,
 		nonzero = velocity_x != 0 || velocity_z != 0,
 	}
 }
 
-draw_inertia_hut_line :: proc(
+draw_inertia_detector_line :: proc(
 	tick: int,
 	axis: Inertia_Axis,
-	row: Inertia_Hut_Row,
+	row: Inertia_Detector_Row,
 	choice: Inertia_Choice,
 ) {
 	color := im.Vec4{0.45, 0.85, 0.55, 1}
@@ -145,12 +156,12 @@ draw_inertia_hut_line :: proc(
 	}
 }
 
-draw_inertia_tick_lists :: proc(state: ^Environment) {
+draw_inertia_list :: proc(state: ^Environment) {
 	im.SeparatorText("Inertia List")
 	table_flags := im.TableFlags_SizingStretchSame | im.TableFlags_NoBordersInBody
 	labels := [?]cstring{"Hit", "Avoid-", "Avoid+"}
 	axes := [?]Inertia_Axis{.X, .Z}
-	table_ids := [?]cstring{"InertiaXTickLists", "InertiaZTickLists"}
+	table_ids := [?]cstring{"InertiaXList", "InertiaZList"}
 	toggle_labels := [2][3]cstring {
 		{"X=", "X-", "X+"},
 		{"Z=", "Z-", "Z+"},
@@ -163,6 +174,13 @@ draw_inertia_tick_lists :: proc(state: ^Environment) {
 			first_toggle = false
 		}
 	}
+	im.SameLine(0, ui_px(8))
+	if im.Button("Sort") {
+		for axis in 0..<2 {
+			for list_index in 0..<3 do normalize_inertia_tick_list(state.inertia_tick_lists[axis][list_index][:])
+		}
+	}
+	if im.IsItemHovered() do im.SetTooltip("Sort valid ticks, remove duplicates, and normalize spacing.")
 
 	for axis in axes {
 		axis_visible := false
@@ -193,26 +211,34 @@ draw_inertia_tick_lists :: proc(state: ^Environment) {
 			im.EndTable()
 		}
 	}
-	if im.Button("Sort") {
-		for axis in 0..<2 {
-			for list_index in 0..<3 do normalize_inertia_tick_list(state.inertia_tick_lists[axis][list_index][:])
-		}
-	}
-	if im.IsItemHovered() do im.SetTooltip("Sort valid ticks, remove duplicates, and normalize spacing.")
 }
 
-draw_inertia_observer :: proc(state: ^Environment) {
-	if !im.CollapsingHeader("Observer", {.DefaultOpen}) do return
+draw_inertia_detector :: proc(state: ^Environment) {
+	if !im.CollapsingHeader("Detector", {.DefaultOpen}) do return
 	im.AlignTextToFramePadding()
-	im.Text("Suspicious Factor:")
+	im.Text("Detection Range:")
 	im.SameLine(0, ui_px(8))
 	im.SetNextItemWidth(ui_px(90))
-	factor := state.inertia_suspicious_factor
-	if im.InputDouble("##inertia_suspicious_factor", &factor, 0, 0, "%.3g") {
-		if math.is_nan(factor) || math.is_inf(factor, 0) do factor = 2
-		state.inertia_suspicious_factor = max(1.0, factor)
+	range_values := [?]f64{1.5, 2, 3, 5}
+	range_labels := [?]cstring{"1.5x", "2x", "3x", "5x"}
+	range_index := c.int(1)
+	for value, index in range_values {
+		if state.inertia_detection_range == value {
+			range_index = c.int(index)
+			break
+		}
 	}
-	im.Checkbox("Mismatches only", &state.inertia_mismatches_only)
+	_ = combo_select("##inertia_detection_range", &range_index, range_labels[:])
+	state.inertia_detection_range = range_values[int(range_index)]
+	im.AlignTextToFramePadding()
+	im.Text("Filter:")
+	im.SameLine(0, ui_px(8))
+	im.SetNextItemWidth(ui_px(180))
+	filter_labels := [?]cstring{"Lazy & Incorrect", "Incorrect", "None"}
+	filter_index := c.int(state.inertia_detector_filter)
+	if combo_select("##inertia_detector_filter", &filter_index, filter_labels[:]) {
+		state.inertia_detector_filter = Inertia_Detector_Filter(filter_index)
+	}
 
 	solution := state.last_solution
 	if solution == nil || len(state.inertia_drag) == 0 {
@@ -225,7 +251,7 @@ draw_inertia_observer :: proc(state: ^Environment) {
 	threshold := state.inertia_threshold
 	border_tolerance := 0.0
 	if !state.last_solution_discrete do border_tolerance = opt.ACCEPT_TOL
-	suspicious_limit := state.inertia_suspicious_factor*threshold
+	detection_limit := state.inertia_detection_range*threshold
 
 	lists: [2][3][dynamic]int
 	defer {
@@ -233,63 +259,63 @@ draw_inertia_observer :: proc(state: ^Environment) {
 			for list_index in 0..<3 do delete(lists[axis][list_index])
 		}
 	}
-	observer_ticks: [dynamic]int
-	defer delete(observer_ticks)
-	for tick in 0..<movement_count do append(&observer_ticks, tick)
+	detector_ticks: [dynamic]int
+	defer delete(detector_ticks)
+	for tick in 0..<movement_count do append(&detector_ticks, tick)
 	for axis in 0..<2 {
 		for list_index in 0..<3 {
 			lists[axis][list_index] = parse_inertia_tick_list(state.inertia_tick_lists[axis][list_index][:])
 			for tick in lists[axis][list_index] {
-				if tick >= movement_count do append(&observer_ticks, tick)
+				if tick >= movement_count do append(&detector_ticks, tick)
 			}
 		}
 	}
-	for i in movement_count+1..<len(observer_ticks) {
-		tick := observer_ticks[i]
+	for i in movement_count+1..<len(detector_ticks) {
+		tick := detector_ticks[i]
 		j := i
-		for j > movement_count && observer_ticks[j-1] > tick {
-			observer_ticks[j] = observer_ticks[j-1]
+		for j > movement_count && detector_ticks[j-1] > tick {
+			detector_ticks[j] = detector_ticks[j-1]
 			j -= 1
 		}
-		observer_ticks[j] = tick
+		detector_ticks[j] = tick
 	}
 	write := movement_count
-	for read in movement_count..<len(observer_ticks) {
-		if write > movement_count && observer_ticks[read] == observer_ticks[write-1] do continue
-		observer_ticks[write] = observer_ticks[read]
+	for read in movement_count..<len(detector_ticks) {
+		if write > movement_count && detector_ticks[read] == detector_ticks[write-1] do continue
+		detector_ticks[write] = detector_ticks[read]
 		write += 1
 	}
-	resize(&observer_ticks, write)
+	resize(&detector_ticks, write)
 
 	axes := [?]Inertia_Axis{.X, .Z}
 	row_count := 0
-	for tick in observer_ticks {
+	for tick in detector_ticks {
 		for axis in axes {
-			row := get_inertia_hut_row(state, tick, axis, threshold, border_tolerance, suspicious_limit)
+			row := get_inertia_detector_row(state, tick, axis, threshold, border_tolerance, detection_limit)
 			choice := inertia_choice_for_tick(&lists, tick, axis)
-			if show_inertia_observer_row(row, choice, state.inertia_mismatches_only) {
+			if show_inertia_detector_row(row, choice, state.inertia_detector_filter) {
 				row_count += 1
 			}
 		}
 	}
 
 	if row_count == 0 {
-		im.TextDisabled("No assigned or suspicious ticks.")
+		im.TextDisabled("No assigned or detected ticks.")
 		return
 	}
 
 	console_height := f32(row_count)*im.GetTextLineHeightWithSpacing()+ui_px(12)
 	im.PushStyleColorImVec4(.ChildBg, {0, 0, 0, 1})
 	im.PushStyleVarImVec2(.WindowPadding, {ui_px(8), ui_px(6)})
-	console_visible := im.BeginChild("InertiaObserverConsole", {0, console_height}, {.Borders})
+	console_visible := im.BeginChild("InertiaDetectorConsole", {0, console_height}, {.Borders})
 	if console_visible {
 		pushed_code := push_font(code_font)
-		for tick in observer_ticks {
+		for tick in detector_ticks {
 			for axis in axes {
-				row := get_inertia_hut_row(state, tick, axis, threshold, border_tolerance, suspicious_limit)
+				row := get_inertia_detector_row(state, tick, axis, threshold, border_tolerance, detection_limit)
 				choice := inertia_choice_for_tick(&lists, tick, axis)
-				if show_inertia_observer_row(row, choice, state.inertia_mismatches_only) {
-					draw_inertia_hut_line(tick, axis, row, choice)
+				if show_inertia_detector_row(row, choice, state.inertia_detector_filter) {
+					draw_inertia_detector_line(tick, axis, row, choice)
 				}
 			}
 		}
@@ -303,6 +329,6 @@ draw_inertia_observer :: proc(state: ^Environment) {
 draw_inertia_hut :: proc(state: ^Environment) {
 	if !im.CollapsingHeader("Inertia Hut", {.DefaultOpen}) do return
 
-	draw_inertia_tick_lists(state)
-	draw_inertia_observer(state)
+	draw_inertia_list(state)
+	draw_inertia_detector(state)
 }

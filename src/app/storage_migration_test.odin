@@ -149,7 +149,6 @@ test_current_postprocessor_origins_round_trip :: proc(t: ^testing.T) {
 	buffer_set(tab.env.post.x_origin[:], "x1 + 0.3")
 	buffer_set(tab.env.post.z_origin[:], "Z[n] - 0.6")
 	tab.env.continuous_optimizer = .Pancake
-	tab.env.inertia_suspicious_factor = 3.5
 	buffer_set(tab.env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Hit)-1][:], "1, 4")
 	buffer_set(tab.env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Minus)-1][:], "2")
 	buffer_set(tab.env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Plus)-1][:], "3")
@@ -162,6 +161,8 @@ test_current_postprocessor_origins_round_trip :: proc(t: ^testing.T) {
 	defer delete(save_err)
 	testing.expect_value(t, save_err, "")
 	if save_err != "" do return
+	testing.expect(t, strings.contains(string(data), `"inertiaList"`))
+	testing.expect(t, !strings.contains(string(data), `"inertiaTicks"`))
 
 	loaded := make_default_tab(102)
 	defer destroy_tab(loaded)
@@ -173,7 +174,8 @@ test_current_postprocessor_origins_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, buffer_string(loaded.env.post.x_origin[:]), "x1 + 0.3")
 	testing.expect_value(t, buffer_string(loaded.env.post.z_origin[:]), "Z[n] - 0.6")
 	testing.expect_value(t, loaded.env.continuous_optimizer, Continuous_Optimizer.Pancake)
-	testing.expect_value(t, loaded.env.inertia_suspicious_factor, 3.5)
+	testing.expect_value(t, loaded.env.inertia_detection_range, 2.0)
+	testing.expect_value(t, loaded.env.inertia_detector_filter, Inertia_Detector_Filter.Lazy_And_Incorrect)
 	testing.expect_value(t, buffer_string(loaded.env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Hit)-1][:]), "1, 4")
 	testing.expect_value(t, buffer_string(loaded.env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Minus)-1][:]), "2")
 	testing.expect_value(t, buffer_string(loaded.env.inertia_tick_lists[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Plus)-1][:]), "3")

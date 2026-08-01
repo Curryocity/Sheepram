@@ -65,6 +65,12 @@ Inertia_Choice :: enum {
 	Avoid_Plus,
 }
 
+Inertia_Detector_Filter :: enum {
+	Lazy_And_Incorrect,
+	Incorrect,
+	None,
+}
+
 Environment :: struct {
 	maximize: bool,
 	discrete_search: bool,
@@ -96,12 +102,12 @@ Environment :: struct {
 	z_origin:      f64,
 	angle_offset:  [dynamic]f64,
 	last_jump_ticks: [dynamic]bool,
-	inertia_suspicious_factor: f64,
+	inertia_detection_range: f64,
 	inertia_threshold: f64,
 	inertia_drag: [dynamic]f64,
 	inertia_tick_lists: [2][3][INERTIA_TICK_LIST_CAPACITY]byte,
 	inertia_tick_list_visible: [2][3]bool,
-	inertia_mismatches_only: bool,
+	inertia_detector_filter: Inertia_Detector_Filter,
 	color_jump_ticks: bool,
 	last_error:    [ERROR_CAPACITY]byte,
 }
@@ -177,7 +183,8 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	tab.env.chefs = 5
 	tab.env.seed = 45
 	tab.env.seed_samples = 8
-	tab.env.inertia_suspicious_factor = 2
+	tab.env.inertia_detection_range = 2
+	tab.env.inertia_detector_filter = .Lazy_And_Incorrect
 	tab.env.color_jump_ticks = true
 	tab.env.post.position_precision = 6
 	buffer_set(
