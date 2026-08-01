@@ -100,10 +100,6 @@ make_call :: proc(cmd_type: CmdType, name: string) -> ^Command {
 	return cmd
 }
 
-is_call :: proc(arg: ^Arg) -> bool {
-	return arg.type == .Call && arg.expr != nil
-}
-
 // Parses a Mothball movement script into top-level commands and movements.
 // The caller owns code and must eventually call destroy_moth_code.
 parse_mothball :: proc(

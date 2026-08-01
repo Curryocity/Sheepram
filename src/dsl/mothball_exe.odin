@@ -239,7 +239,7 @@ exe_code :: proc(state: ^Moth_Compiler, code: []Arg) {
 				state.slow,
 			)
 
-			for i in 0..<duration {
+			for _ in 0..<duration {
 				append(&state.drag_x, drag)
 				append(&state.drag_z, drag)
 				append(&state.accel, final_accel)
@@ -573,7 +573,7 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 			duration = int(duration_rounded)
 		}
 
-		for i in 0..<duration {
+		for _ in 0..<duration {
 			append(&state.drag_x, drag)
 			append(&state.drag_z, drag)
 			append(&state.accel, accel)

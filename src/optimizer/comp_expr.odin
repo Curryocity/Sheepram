@@ -54,11 +54,6 @@ clone_compiled_expr_array :: proc(source: []Compiled_Expr) -> [dynamic]Compiled_
 	return out
 }
 
-zero_expr :: proc(expr: ^Compiled_Expr, n: int) {
-	destroy_compiled_expr(expr)
-	expr^ = make_compiled_expr(n)
-}
-
 update_trig_cache :: proc(work: ^Workspace, thetas: []f64) {
 	for i in 0..<len(thetas) {
 		work.sin_cache[i] = math.sin(thetas[i])
@@ -84,16 +79,6 @@ eval :: proc(expr: Compiled_Expr, thetas: []f64, work: ^Workspace) -> f64 {
 		       expr.cos_coeff[i]*work.cos_cache[i]
 	}
 	return val
-}
-
-eval_compiled_expr :: proc(expr: Compiled_Expr, thetas: []f64) -> f64 {
-	value := expr.constant
-	for theta, i in thetas {
-		value += expr.theta_coeff[i]*theta +
-		         expr.sin_coeff[i]*math.sin(theta) +
-		         expr.cos_coeff[i]*math.cos(theta)
-	}
-	return value
 }
 
 grad :: proc(expr: Compiled_Expr, thetas: []f64, out: []f64, work: ^Workspace) {
