@@ -21,6 +21,9 @@ test_optimizer_material_is_independent_and_result_applies :: proc(t: ^testing.T)
 	defer destroy_optimizer_result(&result)
 	testing.expect_value(t, result.error, "")
 	testing.expect(t, result.solution != nil)
+	if result.solution != nil {
+		testing.expect(t, result.solution.pancake_used)
+	}
 
 	apply_optimizer_result(&tab.env, &result)
 	testing.expect(t, tab.env.last_solution != nil)

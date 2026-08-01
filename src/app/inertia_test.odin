@@ -116,6 +116,63 @@ test_invalid_inertia_ticks_are_errors :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_inertia_constraints_use_velocity_drag_and_requested_sign :: proc(t: ^testing.T) {
+	texts: [2][3]string
+	texts[int(Inertia_Axis.X)][int(Inertia_Choice.Hit)-1] = "1"
+	texts[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Minus)-1] = "2"
+	texts[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Plus)-1] = "0"
+	assignments, parse_err := parse_inertia_assignments(&texts, 4)
+	defer destroy_inertia_assignments(&assignments)
+	defer delete(parse_err)
+	testing.expect_value(t, parse_err, "")
+	if parse_err != "" do return
+
+	problem := opt.Raw_Problem {n = 4, objective = opt.make_raw_expr(4)}
+	defer opt.destroy_raw_problem(&problem)
+	drags := [?]f64{0.5, 0.6, 0.7, 0}
+	err := add_inertia_constraints(&problem, &assignments, drags[:], 0.005)
+	defer delete(err)
+	testing.expect_value(t, err, "")
+	testing.expect_value(t, len(problem.ineq_cons), 4)
+	if len(problem.ineq_cons) != 4 do return
+
+	// X Hit at t=1: +/-0.6 * (X[2] - X[1]) - 0.005 <= 0.
+	testing.expect_value(t, problem.ineq_cons[0].constant, -0.005)
+	testing.expect_value(t, problem.ineq_cons[0].x_coeff[1], -0.6)
+	testing.expect_value(t, problem.ineq_cons[0].x_coeff[2], 0.6)
+	testing.expect_value(t, problem.ineq_cons[1].constant, -0.005)
+	testing.expect_value(t, problem.ineq_cons[1].x_coeff[1], 0.6)
+	testing.expect_value(t, problem.ineq_cons[1].x_coeff[2], -0.6)
+
+	// X Avoid- at t=2: 0.7 * (X[3] - X[2]) + 0.005 <= 0.
+	testing.expect_value(t, problem.ineq_cons[2].constant, 0.005)
+	testing.expect_value(t, problem.ineq_cons[2].x_coeff[2], -0.7)
+	testing.expect_value(t, problem.ineq_cons[2].x_coeff[3], 0.7)
+
+	// Z Avoid+ at t=0: -0.5 * (Z[1] - Z[0]) + 0.005 <= 0.
+	testing.expect_value(t, problem.ineq_cons[3].constant, 0.005)
+	testing.expect_value(t, problem.ineq_cons[3].z_coeff[0], 0.5)
+	testing.expect_value(t, problem.ineq_cons[3].z_coeff[1], -0.5)
+}
+
+@(test)
+test_terminal_inertia_assignment_is_rejected_when_constraints_are_added :: proc(t: ^testing.T) {
+	texts: [2][3]string
+	texts[int(Inertia_Axis.Z)][int(Inertia_Choice.Hit)-1] = "3"
+	assignments, parse_err := parse_inertia_assignments(&texts, 4)
+	defer destroy_inertia_assignments(&assignments)
+	defer delete(parse_err)
+	testing.expect_value(t, parse_err, "")
+
+	problem := opt.Raw_Problem {n = 4, objective = opt.make_raw_expr(4)}
+	defer opt.destroy_raw_problem(&problem)
+	drags := [?]f64{0.5, 0.5, 0.5, 0}
+	err := add_inertia_constraints(&problem, &assignments, drags[:], 0.005)
+	defer delete(err)
+	testing.expect(t, strings.contains(err, ">= n-1"))
+}
+
+@(test)
 test_low_zmm_legacy_inertia_matches_hit_lists :: proc(t: ^testing.T) {
 	legacy := "initAir(0.31749) sj sa.wa(3) iz sa.wa(8) sj sa.wa(11) s.wa sj sa.wa(2) ix sa.wa(9)"
 	replacement := "initAir(0.31749) sj sa.wa(3) sa.wa(8) sj sa.wa(11) s.wa sj sa.wa(2) sa.wa(9)"

@@ -93,3 +93,55 @@ apply_inertia_hits :: proc(
 	}
 	return
 }
+
+has_inertia_assignments :: proc(assignments: ^Inertia_Assignments) -> bool {
+	for axis in 0..<2 {
+		for mode in 0..<3 {
+			if len(assignments.ticks[axis][mode]) > 0 do return true
+		}
+	}
+	return false
+}
+
+make_inertia_constraint :: proc(n, tick: int, axis: Inertia_Axis, signed_drag, threshold: f64) -> opt.Raw_Expr {
+	expr := opt.make_raw_expr(n)
+	expr.constant = threshold
+	coefficients := expr.x_coeff[:] if axis == .X else expr.z_coeff[:]
+	coefficients[tick] = -signed_drag
+	coefficients[tick+1] = signed_drag
+	return expr
+}
+
+add_inertia_constraints :: proc(
+	problem: ^opt.Raw_Problem,
+	assignments: ^Inertia_Assignments,
+	inertia_drag: []f64,
+	threshold: f64,
+) -> string {
+	assert(len(inertia_drag) >= problem.n)
+	for axis in 0..<2 {
+		for mode in 0..<3 {
+			for tick in assignments.ticks[axis][mode] {
+				if tick+1 >= problem.n {
+					name := inertia_assignment_name(axis, mode)
+					return fmt.aprintf("%s tick %d >= n-1.", name, tick)
+				}
+
+				drag := inertia_drag[tick]
+				choice := Inertia_Choice(mode+1)
+				switch choice {
+				case .Hit:
+					append(&problem.ineq_cons, make_inertia_constraint(problem.n, tick, Inertia_Axis(axis), drag, -threshold))
+					append(&problem.ineq_cons, make_inertia_constraint(problem.n, tick, Inertia_Axis(axis), -drag, -threshold))
+				case .Avoid_Minus:
+					append(&problem.ineq_cons, make_inertia_constraint(problem.n, tick, Inertia_Axis(axis), drag, threshold))
+				case .Avoid_Plus:
+					append(&problem.ineq_cons, make_inertia_constraint(problem.n, tick, Inertia_Axis(axis), -drag, threshold))
+				case .Lazy:
+					unreachable()
+				}
+			}
+		}
+	}
+	return ""
+}

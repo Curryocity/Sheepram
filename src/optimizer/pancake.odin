@@ -15,15 +15,19 @@ Pancake_Fallback :: enum {
 }
 
 Pancake_Result :: struct {
-	nonreduced: bool,
+	nonreduced:         bool,
 	converged:           bool,
 	certified:           bool,
 	iterations:          int,
+	ineq_count:          int,
+	eq_count:            int,
 	objective:           f64,
 	dual_bound:          f64,
 	gap:                 f64,
 	max_violation:       f64,
 	max_radius_deficit:  f64,
+	primal:              [dynamic]f64,
+	dual:                [dynamic]f64,
 	thetas:              [dynamic]f64,
 }
 
@@ -37,6 +41,8 @@ Pancake_Recovery_Reason :: enum {
 Pancake_Recovery_Reasons :: bit_set[Pancake_Recovery_Reason]
 
 destroy_pancake_result :: proc(result: ^Pancake_Result) {
+	delete(result.primal)
+	delete(result.dual)
 	delete(result.thetas)
 	result^ = {}
 }
@@ -155,11 +161,11 @@ pancake_dual_bound :: proc(
 	return bound
 }
 
-pancake_solve :: proc(problem: ^Problem) -> Pancake_Result {
+pancake_solve :: proc(problem: ^Problem, seed: ^Pancake_Result = nil) -> Pancake_Result {
 	assert_valid_objective(problem)
 	result := Pancake_Result {
 		nonreduced = pure_position_problem(problem),
-		thetas = make([dynamic]f64, problem.n),
+		thetas     = make([dynamic]f64, problem.n),
 	}
 
 	n := problem.n
@@ -173,6 +179,8 @@ pancake_solve :: proc(problem: ^Problem) -> Pancake_Result {
 		if pure_position_expr(constraint) do eq_count += 1
 	}
 	row_count := ineq_count + eq_count
+	result.ineq_count = ineq_count
+	result.eq_count = eq_count
 	coeffs := make([dynamic]f64, row_count * width)
 	defer delete(coeffs)
 	constants := make([dynamic]f64, row_count)
@@ -200,15 +208,27 @@ pancake_solve :: proc(problem: ^Problem) -> Pancake_Result {
 		row += 1
 	}
 
-	// Initialize at the center of pancake (s, c) = (0, 0)
-	primal := make([dynamic]f64, width)
-	defer delete(primal)
+	// Start at the disk center or seed if provided
+	result.primal = make([dynamic]f64, width)
+	primal := result.primal[:]
+	if seed != nil && len(seed.primal) == width {
+		copy(primal, seed.primal[:])
+	}
 	extrapolated := make([dynamic]f64, width)
 	defer delete(extrapolated)
 	primal_gradient := make([dynamic]f64, width)
 	defer delete(primal_gradient)
-	dual := make([dynamic]f64, row_count)
-	defer delete(dual)
+	result.dual = make([dynamic]f64, row_count)
+	dual := result.dual[:]
+	if seed != nil {
+		old_ineq_count := seed.ineq_count
+		old_eq_count := seed.eq_count
+		if len(seed.dual) >= old_ineq_count+old_eq_count {
+			copy(dual[:min(ineq_count, old_ineq_count)], seed.dual[:min(ineq_count, old_ineq_count)])
+			eq_to_copy := min(eq_count, old_eq_count)
+			copy(dual[ineq_count:ineq_count+eq_to_copy], seed.dual[old_ineq_count:old_ineq_count+eq_to_copy])
+		}
+	}
 	residuals := make([dynamic]f64, row_count)
 	defer delete(residuals)
 	column_work := make([dynamic]f64, width)
@@ -218,7 +238,7 @@ pancake_solve :: proc(problem: ^Problem) -> Pancake_Result {
 	dual_steps := make([dynamic]f64, row_count)
 	defer delete(dual_steps)
 
-	copy(extrapolated[:], primal[:])
+	copy(extrapolated[:], primal)
 
 	for tick in 0..<n {
 		sine_sum := 0.0
@@ -258,7 +278,7 @@ pancake_solve :: proc(problem: ^Problem) -> Pancake_Result {
 		}
 
 		// Primal descent
-		eval_primal_gradient(primal_gradient[:], objective[:], coeffs[:], dual[:], row_count, width)
+		eval_primal_gradient(primal_gradient[:], objective[:], coeffs[:], dual, row_count, width)
 		max_primal_change := 0.0
 		for tick in 0..<n {
 
@@ -285,8 +305,8 @@ pancake_solve :: proc(problem: ^Problem) -> Pancake_Result {
 		
 		// Every PANCAKE_CHECK_INTERVAL(=25) iterations, check if the result converges.
 		if iter % PANCAKE_CHECK_INTERVAL != 0 do continue
-		result.objective, result.max_violation, result.max_radius_deficit = pancake_measurements(primal[:], objective[:], coeffs[:], constants[:], ineq_count, row_count, width)
-		result.dual_bound = pancake_dual_bound(objective[:], coeffs[:], constants[:], dual[:], column_work[:], row_count, width)
+		result.objective, result.max_violation, result.max_radius_deficit = pancake_measurements(primal, objective[:], coeffs[:], constants[:], ineq_count, row_count, width)
+		result.dual_bound = pancake_dual_bound(objective[:], coeffs[:], constants[:], dual, column_work[:], row_count, width)
 		result.gap = math.abs(result.objective - result.dual_bound)
 		gap_tolerance := PANCAKE_GAP_TOL * max(1.0, math.abs(result.objective))
 
@@ -300,8 +320,8 @@ pancake_solve :: proc(problem: ^Problem) -> Pancake_Result {
 	}
 
 	result.iterations = iter
-	result.objective, result.max_violation, result.max_radius_deficit = pancake_measurements(primal[:], objective[:], coeffs[:], constants[:], ineq_count, row_count, width)
-	result.dual_bound = pancake_dual_bound(objective[:], coeffs[:], constants[:], dual[:], column_work[:], row_count, width)
+	result.objective, result.max_violation, result.max_radius_deficit = pancake_measurements(primal, objective[:], coeffs[:], constants[:], ineq_count, row_count, width)
+	result.dual_bound = pancake_dual_bound(objective[:], coeffs[:], constants[:], dual, column_work[:], row_count, width)
 	result.gap = math.abs(result.objective - result.dual_bound)
 
 	// Neutralize the angle toward 45 deg as the primal radius approach 0
@@ -365,9 +385,10 @@ pancake_collect_recovery_reasons :: proc(
 	return reasons
 }
 
-pancake_optimize :: proc(
+pancake_solution_from_relaxation :: proc(
 	model: ^Model,
 	problem: ^Problem,
+	relaxation: ^Pancake_Result,
 	fallback: Pancake_Fallback = .Spine,
 	workspace: ^Workspace = nil,
 ) -> Solution {
@@ -381,11 +402,8 @@ pancake_optimize :: proc(
 		if workspace == nil do destroy_workspace(&owned_workspace)
 	}
 
-	relaxation := pancake_solve(problem)
-	defer destroy_pancake_result(&relaxation)
-
 	recovery_reasons :=
-		pancake_collect_recovery_reasons(&relaxation)
+		pancake_collect_recovery_reasons(relaxation)
 	used_recovery := recovery_reasons != {}
 	solution: Solution
 	if !used_recovery {
@@ -431,4 +449,27 @@ pancake_optimize :: proc(
 	solution.pancake_recovery_reasons = recovery_reasons
 	solution.pancake_dual_bound = relaxation.dual_bound
 	return solution
+}
+
+pancake_optimize :: proc(
+	model: ^Model,
+	problem: ^Problem,
+	fallback: Pancake_Fallback = .Spine,
+	workspace: ^Workspace = nil,
+) -> Solution {
+	relaxation := pancake_solve(problem)
+	defer destroy_pancake_result(&relaxation)
+	return pancake_solution_from_relaxation(model, problem, &relaxation, fallback, workspace)
+}
+
+pancake_optimize_seeded :: proc(
+	model: ^Model,
+	problem: ^Problem,
+	seed: ^Pancake_Result,
+	fallback: Pancake_Fallback = .Spine,
+	workspace: ^Workspace = nil,
+) -> Solution {
+	relaxation := pancake_solve(problem, seed)
+	defer destroy_pancake_result(&relaxation)
+	return pancake_solution_from_relaxation(model, problem, &relaxation, fallback, workspace)
 }
