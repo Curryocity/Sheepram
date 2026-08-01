@@ -14,8 +14,6 @@ Moth_Compiler :: struct {
 	speed: u8,
 	slow: u8,
 	slip: f64,
-	ix_queued: int,
-	iz_queued: int,
 	inertia_threshold: f64,
 	inertia_set: bool,
 
@@ -35,6 +33,7 @@ Moth_Compiler :: struct {
 	accel:  [dynamic]f64,
 	angle_offset: [dynamic]f64,
 	jump_ticks: [dynamic]bool,
+	inertia_drag: [dynamic]f64,
 	init_drag: f64,
 	exact_movement: [dynamic]opt.Exact_Movement,
 	discrete_supported: bool,
@@ -61,6 +60,7 @@ destroy_moth_compiler :: proc(state: ^Moth_Compiler) {
 	delete(state.accel)
 	delete(state.angle_offset)
 	delete(state.jump_ticks)
+	delete(state.inertia_drag)
 	delete(state.exact_movement)
 	for name in state.variables do delete(name)
 	delete(state.variables)
@@ -123,6 +123,7 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
     append(&state.accel, 0)
     append(&state.angle_offset, 0)
 	append(&state.jump_ticks, false)
+	append(&state.inertia_drag, 0)
 
 	exe_code(state, code)
 
@@ -141,6 +142,7 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 		state.drag_z[0] = state.init_slip * 0.91
 		state.init_drag = f64(f32(0.91)*f32(state.init_slip))
 	}
+	state.inertia_drag[0] = state.init_drag
 
 	// The optimizer stores the terminal position after the final movement tick.
 	// Its drag/accel/offset values are unused, but the arrays share model.n.
@@ -148,6 +150,7 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 	append(&state.drag_z, 0)
 	append(&state.accel, 0)
 	append(&state.angle_offset, 0)
+	append(&state.inertia_drag, 0)
 }
 
 exe_code :: proc(state: ^Moth_Compiler, code: []Arg) {
@@ -236,30 +239,14 @@ exe_code :: proc(state: ^Moth_Compiler, code: []Arg) {
 				state.slow,
 			)
 
-			for i in 0..<duration {
-				force_ix := state.ix_queued > 0
-				force_iz := state.iz_queued > 0
-				if force_ix {
-					append(&state.drag_x, 0)
-					state.ix_queued -= 1
-				} else {
-					append(&state.drag_x, drag)
-				}
-
-				if force_iz {
-					append(&state.drag_z, 0)
-					state.iz_queued -= 1
-				} else {
-					append(&state.drag_z, drag)
-				}
-
+			for _ in 0..<duration {
+				append(&state.drag_x, drag)
+				append(&state.drag_z, drag)
 				append(&state.accel, final_accel)
 				append(&state.angle_offset, angle_offset)
 				append(&state.jump_ticks, mf.jump)
-				exact_cur := exact_base
-				if force_ix do exact_cur.drag_x = 0
-				if force_iz do exact_cur.drag_z = 0
-				append(&state.exact_movement, exact_cur)
+				append(&state.inertia_drag, exact_base.drag_x)
+				append(&state.exact_movement, exact_base)
 			}
 
 			state.n += duration
@@ -546,66 +533,6 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 		state.slow = level
 		return
 
-	case .ForceInertiaX:
-		if message, ok := expect_moth_args(cmd, 0, 1, false); !ok {
-			set_model_error(state, message)
-			return
-		}
-		if state.ix_queued != 0 {
-			set_model_error(state, "Error: cannot append while ix queue is not empty")
-			return
-		}
-
-		if len(cmd.args) == 0 {
-			state.ix_queued = 1
-			return
-		}
-
-		ticks, err := eval_moth_number(state, cmd.args[0], "ix(...) argument")
-		if err != "" {
-			set_model_error(state, err)
-			return
-		}
-		rounded := math.round(ticks)
-		if ticks != rounded || rounded <= 0 {
-			set_model_error(state, "Error: ix ticks must be a positive integer")
-			return
-		}
-
-		state.ix_queued = int(ticks)
-
-		return
-
-	case .ForceInertiaZ:
-		if message, ok := expect_moth_args(cmd, 0, 1, false); !ok {
-			set_model_error(state, message)
-			return
-		}
-		if state.iz_queued != 0 {
-			set_model_error(state, "Error: cannot append while iz queue is not empty")
-			return
-		}
-
-		if len(cmd.args) == 0 {
-			state.iz_queued = 1
-			return
-		}
-
-		ticks, err := eval_moth_number(state, cmd.args[0], "iz(...) argument")
-		if err != "" {
-			set_model_error(state, err)
-			return
-		}
-		rounded := math.round(ticks)
-		if ticks != rounded || rounded <= 0 {
-			set_model_error(state, "Error: iz ticks must be a positive integer")
-			return
-		}
-
-		state.iz_queued = int(ticks)
-
-		return
-
 	case .Move:
 		if message, ok := expect_moth_args(cmd, 2, 3, false); !ok {
 			set_model_error(state, message)
@@ -646,23 +573,13 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 			duration = int(duration_rounded)
 		}
 
-		for i in 0..<duration {
-			drag_x := drag
-			drag_z := drag
-			if state.ix_queued > 0 {
-				drag_x = 0
-				state.ix_queued -= 1
-			}
-			if state.iz_queued > 0 {
-				drag_z = 0
-				state.iz_queued -= 1
-			}
-
-			append(&state.drag_x, drag_x)
-			append(&state.drag_z, drag_z)
+		for _ in 0..<duration {
+			append(&state.drag_x, drag)
+			append(&state.drag_z, drag)
 			append(&state.accel, accel)
 			append(&state.angle_offset, 0)
 			append(&state.jump_ticks, false)
+			append(&state.inertia_drag, drag)
 		}
 		state.n += duration
 		return

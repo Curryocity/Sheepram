@@ -61,19 +61,6 @@ destroy_raw_problem :: proc(problem: ^Raw_Problem) {
 	problem^ = {}
 }
 
-add_scaled_raw_expr :: proc(out: ^Raw_Expr, source: Raw_Expr, s: f64) {
-	assert(len(out.x_coeff) == len(source.x_coeff))
-	assert(len(out.z_coeff) == len(source.z_coeff))
-	assert(len(out.f_coeff) == len(source.f_coeff))
-
-	out.constant += s*source.constant
-	for i in 0..<len(out.x_coeff) {
-		out.x_coeff[i] += s*source.x_coeff[i]
-		out.z_coeff[i] += s*source.z_coeff[i]
-		out.f_coeff[i] += s*source.f_coeff[i]
-	}
-}
-
 scale_raw_expr :: proc(expr: Raw_Expr, scalar: f64) -> Raw_Expr {
 	out := clone_raw_expr(expr)
 	out.constant *= scalar

@@ -10,7 +10,8 @@ Discrete_Model :: struct {
 	init_v: f64,
 	has_init_theta: bool,
 	init_theta: f64, // radians
-	init_drag: f64,
+	init_drag_x: f64,
+	init_drag_z: f64,
 	angle_offset: [dynamic]f64, // radians, theta = facing + angle_offset
 	exact_movement: [dynamic]Exact_Movement,
 

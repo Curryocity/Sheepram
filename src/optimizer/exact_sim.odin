@@ -119,8 +119,8 @@ exact_simulation :: proc(
 		if t == model.n-1 do break
 
 		if t == 1 {
-			vx *= model.init_drag
-			vz *= model.init_drag
+			vx *= model.init_drag_x
+			vz *= model.init_drag_z
 		} else {
 			previous := model.exact_movement[t-2]
 			vx *= previous.drag_x

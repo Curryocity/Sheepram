@@ -28,7 +28,6 @@ CmdType :: enum {
 	MarkTick,
 
 	SetInitGroundVel, SetInitAirVel,
-	ForceInertiaX, ForceInertiaZ,
 
 	SetSlip, SetSpeed, SetSlow, SetInertia,
 	SetVar,
@@ -99,10 +98,6 @@ make_call :: proc(cmd_type: CmdType, name: string) -> ^Command {
 	cmd.type = cmd_type
 	cmd.name = name
 	return cmd
-}
-
-is_call :: proc(arg: ^Arg) -> bool {
-	return arg.type == .Call && arg.expr != nil
 }
 
 // Parses a Mothball movement script into top-level commands and movements.
@@ -347,10 +342,6 @@ get_command_type :: proc(name: string) -> CmdType {
 		return .SetVar
 	case "t":
 		return .MarkTick
-	case "ix":
-		return .ForceInertiaX
-	case "iz":
-		return .ForceInertiaZ
 	case "mv":
 		return .Move
 	case "r", "repeat":

@@ -153,16 +153,6 @@ add_variable :: proc(parser: ^Parser, raw_name, value: string) -> string {
 	return ""
 }
 
-add_variables :: proc(parser: ^Parser, names, values: []string) -> string {
-	if len(names) != len(values) {
-		return strings.clone("Variable name/value size mismatch")
-	}
-	for i in 0..<len(names) {
-		if err := add_variable(parser, names[i], values[i]); err != "" do return err
-	}
-	return ""
-}
-
 resolve_indexed :: proc(parser: ^Parser, name: string, index: int, lexer: ^Lexer,
 ) -> (opt.Raw_Expr, string) {
 	bound_error := proc(name: string, requested: int, lexer: ^Lexer) -> string {

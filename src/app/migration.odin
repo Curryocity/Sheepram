@@ -209,18 +209,12 @@ legacy_table_to_movement_script :: proc(saved: ^Legacy_Saved_Tab) -> (string, st
 
 		base_drag := drag_x[i]
 		base_drag_source := saved.drag_x[i]
-		force_x := false
-		force_z := false
-		if legacy_values_equal(drag_x[i], 0) &&
-		   !legacy_values_equal(drag_z[i], 0) {
+		if legacy_values_equal(drag_x[i], 0) && !legacy_values_equal(drag_z[i], 0) {
 			base_drag = drag_z[i]
 			base_drag_source = saved.drag_z[i]
-			force_x = true
-		} else if legacy_values_equal(drag_z[i], 0) &&
-		          !legacy_values_equal(drag_x[i], 0) {
+		} else if legacy_values_equal(drag_z[i], 0) && !legacy_values_equal(drag_x[i], 0) {
 			base_drag = drag_x[i]
 			base_drag_source = saved.drag_x[i]
-			force_z = true
 		}
 
 		duration := 1
@@ -238,8 +232,6 @@ legacy_table_to_movement_script :: proc(saved: ^Legacy_Saved_Tab) -> (string, st
 		}
 
 		strings.write_byte(&builder, ' ')
-		if force_x do strings.write_string(&builder, "ix ")
-		if force_z do strings.write_string(&builder, "iz ")
 		strings.write_string(&builder, "mv(")
 		write_legacy_expr(&builder, base_drag_source, base_drag)
 		strings.write_string(&builder, ", ")

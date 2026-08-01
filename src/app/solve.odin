@@ -23,6 +23,7 @@ Optimizer_Material :: struct {
 	cons_script:    string,
 	x_origin_script:      string,
 	z_origin_script:      string,
+	inertia_tick_lists:   [2][3]string,
 }
 
 Optimizer_Result :: struct {
@@ -40,11 +41,13 @@ Optimizer_Result :: struct {
 	z_origin:                 f64,
 	angle_offset:             [dynamic]f64,
 	jump_ticks:               [dynamic]bool,
+	inertia_threshold:        f64,
+	inertia_drag:             [dynamic]f64,
 	error:                    string,
 }
 
 make_optimizer_material :: proc(state: ^Environment) -> Optimizer_Material {
-	return {
+	material := Optimizer_Material {
 		maximize             = state.maximize,
 		discrete_search      = state.discrete_search,
 		cook                 = state.cook,
@@ -61,6 +64,12 @@ make_optimizer_material :: proc(state: ^Environment) -> Optimizer_Material {
 		x_origin_script      = strings.clone(buffer_string(state.post.x_origin[:])),
 		z_origin_script      = strings.clone(buffer_string(state.post.z_origin[:])),
 	}
+	for axis in 0..<2 {
+		for mode in 0..<3 {
+			material.inertia_tick_lists[axis][mode] = strings.clone(buffer_string(state.inertia_tick_lists[axis][mode][:]))
+		}
+	}
+	return material
 }
 
 destroy_optimizer_material :: proc(material: ^Optimizer_Material) {
@@ -69,6 +78,9 @@ destroy_optimizer_material :: proc(material: ^Optimizer_Material) {
 	delete(material.cons_script)
 	delete(material.x_origin_script)
 	delete(material.z_origin_script)
+	for axis in 0..<2 {
+		for mode in 0..<3 do delete(material.inertia_tick_lists[axis][mode])
+	}
 	material^ = {}
 }
 
@@ -79,6 +91,7 @@ destroy_optimizer_result :: proc(result: ^Optimizer_Result) {
 	}
 	delete(result.angle_offset)
 	delete(result.jump_ticks)
+	delete(result.inertia_drag)
 	delete(result.error)
 	result^ = {}
 }
@@ -115,6 +128,9 @@ apply_optimizer_result :: proc(state: ^Environment, result: ^Optimizer_Result) {
 	result.angle_offset = nil
 	state.last_jump_ticks = result.jump_ticks
 	result.jump_ticks = nil
+	state.inertia_threshold = result.inertia_threshold
+	state.inertia_drag = result.inertia_drag
+	result.inertia_drag = nil
 	buffer_set(state.last_error[:], result.error)
 }
 
@@ -156,6 +172,23 @@ solution_is_finite :: proc(solution: ^opt.Solution) -> bool {
 		if math.is_nan(z) || math.is_inf(z, 0) do return false
 	}
 	return true
+}
+
+inertia_recovery_optimize :: proc(
+	model: ^opt.Model,
+	problem: ^opt.Problem,
+	initial_thetas: []f64,
+	optimizer: Continuous_Optimizer,
+) -> opt.Solution {
+	switch optimizer {
+	case .Pancake:
+		unreachable()
+	case .Spine:
+		return opt.spine_optimize_thetas_slice(model, problem, initial_thetas)
+	case .BFGS:
+		return opt.optimize_thetas_slice(model, problem, initial_thetas)
+	}
+	unreachable()
 }
 
 optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = nil) -> Optimizer_Result {
@@ -205,6 +238,15 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	}
 
 	n := m.n
+	assignments, inertia_err := parse_inertia_assignments(&material.inertia_tick_lists, n)
+	defer destroy_inertia_assignments(&assignments)
+	if inertia_err != "" {
+		set_optimizer_error(&result, fmt.tprintf("Error:\nInertia Manager:\n%s", inertia_err))
+		delete(inertia_err)
+		return result
+	}
+	initial_drag_x, initial_drag_z := apply_inertia_hits(&assignments, m.drag_x[:n], m.drag_z[:n], m.exact_movement[:], m.init_drag)
+
 	model := opt.Model {
 		n      = n,
 		drag_x = m.drag_x,
@@ -327,11 +369,18 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	if material.pancake_recovery == .BFGS {
 		pancake_fallback = .BFGS
 	}
+	has_inertia := has_inertia_assignments(&assignments)
+	pancake_seed: opt.Pancake_Result
+	defer opt.destroy_pancake_result(&pancake_seed)
 	multistart_on := material.multistart_on
 	if material.continuous_optimizer == .Pancake {
 		multistart_on = false
 	}
-	if multistart_on {
+	if material.continuous_optimizer == .Pancake && has_inertia {
+		// Solve the easier relaxation first and preserve its disk vectors and
+		// multipliers as the seed for the full inertia problem.
+		pancake_seed = opt.pancake_solve(&problem)
+	} else if multistart_on {
 		sample_count := clamp(material.seed_samples, 8, 256)
 		seeds := make([dynamic]f64, sample_count)
 		defer delete(seeds)
@@ -370,19 +419,54 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 			solution^ = opt.optimize_1seed(&model, &problem, initial_theta)
 		}
 	}
-	if !solution_is_finite(solution) {
+	if !(material.continuous_optimizer == .Pancake && has_inertia) && !solution_is_finite(solution) {
 		opt.destroy_solution(solution)
 		free(solution)
 		set_optimizer_error(&result, "Error:\nThe continuous optimizer returned a non-finite solution.")
 		return result
 	}
-	for &theta in solution.thetas do theta = wrap_radians_pi(theta)
+	if !(material.continuous_optimizer == .Pancake && has_inertia) {
+		for &theta in solution.thetas do theta = wrap_radians_pi(theta)
+	}
+
+	// Solve again with inertia constraint added on
+	// Solving with narrow inertia band from scratch could be numerically unstable
+	if has_inertia {
+		inertia_constraint_err := add_inertia_constraints(&raw_problem, &assignments, m.inertia_drag[:], m.inertia_threshold)
+		if inertia_constraint_err != "" {
+			opt.destroy_solution(solution)
+			free(solution)
+			set_optimizer_error(&result, fmt.tprintf("Error:\nInertia Manager:\n%s", inertia_constraint_err))
+			delete(inertia_constraint_err)
+			return result
+		}
+
+		opt.destroy_problem(&problem)
+		problem = opt.reduce_problem(&raw_problem, model, m.angle_offset[:])
+
+		recovered: opt.Solution
+		if material.continuous_optimizer == .Pancake {
+			recovered = opt.pancake_optimize_seeded(&model, &problem, &pancake_seed, pancake_fallback)
+		} else {
+			recovered = inertia_recovery_optimize(&model, &problem, solution.thetas[:], material.continuous_optimizer)
+		}
+		if !solution_is_finite(&recovered) {
+			opt.destroy_solution(&recovered)
+			opt.destroy_solution(solution)
+			free(solution)
+			set_optimizer_error(&result, "Error:\nThe inertia recovery pass returned a non-finite solution.")
+			return result
+		}
+		for &theta in recovered.thetas do theta = wrap_radians_pi(theta)
+
+		opt.destroy_solution(solution)
+		solution^ = recovered
+	}
 	result.continuous_time_seconds = time.duration_seconds(time.tick_since(optimize_start))
 	continuous_globally_certified := solution.continuous_globally_optimal
 	continuous_pancake_used := solution.pancake_used
 	continuous_pancake_used_recovery := solution.pancake_used_recovery
-	continuous_pancake_recovery_reasons :=
-		solution.pancake_recovery_reasons
+	continuous_pancake_recovery_reasons := solution.pancake_recovery_reasons
 	continuous_pancake_dual_bound := solution.pancake_dual_bound
 
 	// 11. Phase II: optimize the discrete/exact model when requested
@@ -393,7 +477,8 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 			init_v = m.init_v,
 			has_init_theta = m.has_init_angle,
 			init_theta = m.init_angle*math.PI/180,
-			init_drag = m.init_drag,
+			init_drag_x = initial_drag_x,
+			init_drag_z = initial_drag_z,
 			angle_offset = make([dynamic]f64, n),
 			exact_movement = m.exact_movement,
 		}
@@ -547,6 +632,9 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 
 	result.x_origin = eval_raw_solution(x_origin_expr, solution, result.discrete)
 	result.z_origin = eval_raw_solution(z_origin_expr, solution, result.discrete)
+	result.inertia_threshold = m.inertia_threshold
+	result.inertia_drag = m.inertia_drag
+	m.inertia_drag = nil
 
 	result.solution = solution
 	return result
