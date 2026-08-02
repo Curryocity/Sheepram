@@ -32,7 +32,7 @@ test_parse_and_apply_inertia_hits :: proc(t: ^testing.T) {
 		{drag_x = 1, drag_z = 1},
 		{drag_x = 1, drag_z = 1},
 	}
-	initial_drag_x, initial_drag_z := apply_inertia_hits(&assignments, drag_x[:], drag_z[:], exact[:], 1)
+	initial_drag_x, initial_drag_z := apply_inertia_hits(&assignments, drag_x[:], drag_z[:], exact[:])
 	testing.expect_value(t, initial_drag_x, 0)
 	testing.expect_value(t, initial_drag_z, 1)
 	testing.expect_value(t, drag_x[0], 0)
@@ -44,7 +44,7 @@ test_parse_and_apply_inertia_hits :: proc(t: ^testing.T) {
 
 	custom_drag_x := [?]f64{1, 1, 1, 1}
 	custom_drag_z := [?]f64{1, 1, 1, 1}
-	_, _ = apply_inertia_hits(&assignments, custom_drag_x[:], custom_drag_z[:], nil, 1)
+	_, _ = apply_inertia_hits(&assignments, custom_drag_x[:], custom_drag_z[:], nil)
 	testing.expect_value(t, custom_drag_x[2], 0)
 	testing.expect_value(t, custom_drag_z[1], 0)
 }

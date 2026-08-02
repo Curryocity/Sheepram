@@ -28,6 +28,7 @@ CmdType :: enum {
 	MarkTick,
 
 	SetInitGroundVel, SetInitAirVel,
+	WallX, WallZ,
 
 	SetSlip, SetSpeed, SetSlow, SetInertia,
 	SetVar,
@@ -342,6 +343,10 @@ get_command_type :: proc(name: string) -> CmdType {
 		return .SetVar
 	case "t":
 		return .MarkTick
+	case "wx":
+		return .WallX
+	case "wz":
+		return .WallZ
 	case "mv":
 		return .Move
 	case "r", "repeat":

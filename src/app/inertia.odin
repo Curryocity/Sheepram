@@ -77,10 +77,10 @@ apply_inertia_hits :: proc(
 	assignments: ^Inertia_Assignments,
 	drag_x, drag_z: []f64,
 	exact_movement: []opt.Exact_Movement,
-	initial_drag: f64,
 ) -> (initial_drag_x, initial_drag_z: f64) {
-	initial_drag_x = initial_drag
-	initial_drag_z = initial_drag
+	assert(len(drag_x) > 0 && len(drag_z) > 0)
+	initial_drag_x = drag_x[0]
+	initial_drag_z = drag_z[0]
 	for tick in assignments.ticks[int(Inertia_Axis.X)][int(Inertia_Choice.Hit)-1] {
 		drag_x[tick] = 0
 		if tick == 0 do initial_drag_x = 0

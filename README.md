@@ -56,7 +56,7 @@ Movement functions support these modifiers:
 | `j` suffix | Performs the movement as a jump, for example `sj`.  |
 | `a` suffix | Performs the movement in air, for example `sa`. |
 | `.input` | Sets the movement keys using any valid combination of `w`, `a`, `s`, and `d`, for example `s.wa` or `sa.d`. Without it, movement defaults to forward (`w`). |
-| `(duration)` | Repeats the movement for a positive whole-number duration, for example `sa.wa(11)`. |
+| `(duration)` | Repeats the movement for a positive whole-number duration, for example `sa.wa(11)`. A jump movement performs one jump tick followed by airborne ticks. |
 
 Examples:
 
@@ -68,6 +68,9 @@ st            // no input for one tick
 r(3) { s.w sa.w }
 ```
 
+For example, `sj(12)` is equivalent to `sj sa(11)`, and `wj.wd(12)` is
+equivalent to `wj.wd wa.wd(11)`.
+
 #### Other commands supported in Sheepram
 
 | Command | Description |
@@ -77,6 +80,7 @@ r(3) { s.w sa.w }
 | `speed(level)`/`slow(level)` | Sets the Speed/Slowness effect level. The level must be a whole number from `0` to `255`. |
 | `set(name, value)` | Evaluates `value` immediately and assigns it to `name`. Later commands and movements can use the variable. |
 | `t(name)` | Records the current tick into the named variable. |
+| `wx/wz(ticks)` | Simulates an X/Z-axis wall hit velocity simulation for some amount of ticks(position will not be clamp to the wall) |
 | `mv(drag, accel, duration = 1)` | Adds a custom movement segment with the given drag, acceleration and optional duration. |
 | `r(count) { ... }` | Repeats a non-empty block of movement functions and commands. `repeat(...)` is an alias. |
 

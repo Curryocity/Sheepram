@@ -245,7 +245,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		delete(inertia_err)
 		return result
 	}
-	initial_drag_x, initial_drag_z := apply_inertia_hits(&assignments, m.drag_x[:n], m.drag_z[:n], m.exact_movement[:], m.init_drag)
+	initial_drag_x, initial_drag_z := apply_inertia_hits(&assignments, m.drag_x[:n], m.drag_z[:n], m.exact_movement[:])
 
 	model := opt.Model {
 		n      = n,

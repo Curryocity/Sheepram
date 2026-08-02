@@ -14,6 +14,10 @@ Moth_Compiler :: struct {
 	speed: u8,
 	slow: u8,
 	slip: f64,
+	wall_x_queued: int,
+	wall_z_queued: int,
+	initial_wall_x: bool,
+	initial_wall_z: bool,
 	inertia_threshold: f64,
 	inertia_set: bool,
 
@@ -110,8 +114,72 @@ set_model_error :: proc(state: ^Moth_Compiler, message: string) {
 	state.err = strings.clone(message)
 }
 
+consume_wall_hits :: proc(state: ^Moth_Compiler) -> (wall_x, wall_z: bool) {
+	wall_x = state.wall_x_queued > 0
+	wall_z = state.wall_z_queued > 0
+	if wall_x do state.wall_x_queued -= 1
+	if wall_z do state.wall_z_queued -= 1
+	return
+}
+
+apply_wall_hits_before_movement :: proc(state: ^Moth_Compiler, wall_x, wall_z: bool) {
+	previous_tick := len(state.drag_x)-1
+	assert(previous_tick >= 0)
+
+	if wall_x do state.drag_x[previous_tick] = 0
+	if wall_z do state.drag_z[previous_tick] = 0
+
+	if previous_tick == 0 {
+		if wall_x do state.initial_wall_x = true
+		if wall_z do state.initial_wall_z = true
+		return
+	}
+
+	previous_movement_index := previous_tick-1
+	if previous_movement_index < len(state.exact_movement) {
+		previous_movement := &state.exact_movement[previous_movement_index]
+		if wall_x do previous_movement.drag_x = 0
+		if wall_z do previous_movement.drag_z = 0
+	}
+}
+
+append_movement_tick :: proc(state: ^Moth_Compiler, movement: MoveFunc) {
+	exact_base := opt.get_exact_movement(
+		movement.w,
+		movement.a,
+		f32(state.slip),
+		movement.airborne,
+		movement.sprint,
+		movement.sneak,
+		movement.jump,
+		movement.stop,
+		state.speed,
+		state.slow,
+	)
+	drag := exact_base.drag_x
+	forward := f64(exact_base.forward)
+	strafe := f64(exact_base.strafe)
+	if exact_base.sprint_jump do forward += f64(f32(0.2))
+	final_accel := math.sqrt(forward*forward+strafe*strafe)
+	angle_offset := math.atan2(-strafe, forward)*180/math.PI
+
+	wall_x, wall_z := consume_wall_hits(state)
+	apply_wall_hits_before_movement(state, wall_x, wall_z)
+	append(&state.drag_x, drag)
+	append(&state.drag_z, drag)
+	append(&state.accel, final_accel)
+	append(&state.angle_offset, angle_offset)
+	append(&state.jump_ticks, movement.jump)
+	append(&state.inertia_drag, exact_base.drag_x)
+	append(&state.exact_movement, exact_base)
+}
+
 compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 	state.slip = 0.6
+	state.wall_x_queued = 0
+	state.wall_z_queued = 0
+	state.initial_wall_x = false
+	state.initial_wall_z = false
 	state.inertia_threshold = MOTH_DEFAULT_INERTIA_THRESHOLD
 	state.inertia_set = false
 	state.ok = true
@@ -134,14 +202,12 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 
 	state.accel[0] = state.init_v
 	if state.init_airborne {
-		state.drag_x[0] = 0.91
-		state.drag_z[0] = 0.91
 		state.init_drag = f64(f32(0.91))
 	} else {
-		state.drag_x[0] = state.init_slip * 0.91
-		state.drag_z[0] = state.init_slip * 0.91
 		state.init_drag = f64(f32(0.91)*f32(state.init_slip))
 	}
+	state.drag_x[0] = 0 if state.initial_wall_x else state.init_drag
+	state.drag_z[0] = 0 if state.initial_wall_z else state.init_drag
 	state.inertia_drag[0] = state.init_drag
 
 	// The optimizer stores the terminal position after the final movement tick.
@@ -185,68 +251,13 @@ exe_code :: proc(state: ^Moth_Compiler, code: []Arg) {
 				duration = int(rounded)
 			}
 
-			drag := f64(0.91)
-			base_accel: f64
-
-			if mf.airborne {
-				base_accel = 0.02
-			} else {
-				drag *= state.slip
-				base_accel = 0.1
-				base_accel *= 0.16277136 / (drag * drag * drag)
-
-				if state.speed > 0 do base_accel *= 1+0.2*f64(state.speed)
-				if state.slow > 0 do base_accel *= 1-0.15*f64(state.slow)
-				if base_accel < 0 do base_accel = 0
-			}
-
-			
-
-			if mf.sprint do base_accel *= 1.3
-
-
-			mul := f64(0.98)
-
-			if mf.sneak do mul *= 0.3
-			if mf.stop do mul = 0
-
-			forward := f64(mf.w) * mul
-			strafe := f64(mf.a) * mul
-
-			dist2 := forward*forward+strafe*strafe
-			if dist2 > 1 {
-				forward /= math.sqrt(dist2)
-				strafe /= math.sqrt(dist2)
-			}
-
-			forward *= base_accel
-			strafe *= base_accel
-
-			if mf.sprint && mf.jump do forward += 0.2
-
-			final_accel := math.sqrt(forward*forward+strafe*strafe)
-			angle_offset := math.atan2(-strafe, forward)*180/math.PI
-			exact_base := opt.get_exact_movement(
-				mf.w,
-				mf.a,
-				f32(state.slip),
-				mf.airborne,
-				mf.sprint,
-				mf.sneak,
-				mf.jump,
-				mf.stop,
-				state.speed,
-				state.slow,
-			)
-
-			for _ in 0..<duration {
-				append(&state.drag_x, drag)
-				append(&state.drag_z, drag)
-				append(&state.accel, final_accel)
-				append(&state.angle_offset, angle_offset)
-				append(&state.jump_ticks, mf.jump)
-				append(&state.inertia_drag, exact_base.drag_x)
-				append(&state.exact_movement, exact_base)
+			for tick in 0..<duration {
+				movement := mf
+				if tick > 0 && mf.jump {
+					movement.jump = false
+					movement.airborne = true
+				}
+				append_movement_tick(state, movement)
 			}
 
 			state.n += duration
@@ -533,6 +544,36 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 		state.slow = level
 		return
 
+	case .WallX, .WallZ:
+		if message, ok := expect_moth_args(cmd, 0, 1, false); !ok {
+			set_model_error(state, message)
+			return
+		}
+
+		queue := &state.wall_x_queued if cmd.type == .WallX else &state.wall_z_queued
+		if queue^ != 0 {
+			set_model_error(state, fmt.tprintf("Error: %s queue is not empty", cmd.name))
+			return
+		}
+
+		if len(cmd.args) == 0 {
+			queue^ = 1
+			return
+		}
+
+		ticks, err := eval_moth_number(state, cmd.args[0], fmt.tprintf("%s(...) argument", cmd.name))
+		if err != "" {
+			set_model_error(state, err)
+			return
+		}
+		rounded := math.round(ticks)
+		if ticks != rounded || rounded <= 0 {
+			set_model_error(state, fmt.tprintf("Error: %s ticks must be a positive integer", cmd.name))
+			return
+		}
+		queue^ = int(rounded)
+		return
+
 	case .Move:
 		if message, ok := expect_moth_args(cmd, 2, 3, false); !ok {
 			set_model_error(state, message)
@@ -574,6 +615,8 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 		}
 
 		for _ in 0..<duration {
+			wall_x, wall_z := consume_wall_hits(state)
+			apply_wall_hits_before_movement(state, wall_x, wall_z)
 			append(&state.drag_x, drag)
 			append(&state.drag_z, drag)
 			append(&state.accel, accel)

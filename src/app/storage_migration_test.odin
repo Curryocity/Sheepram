@@ -74,6 +74,8 @@ test_legacy_preset_migration :: proc(t: ^testing.T) {
 	testing.expect(t, !strings.contains(script, "slip("))
 	testing.expect(t, strings.contains(script, "mv(air, a, 2)"))
 	testing.expect(t, strings.contains(script, "mv(air, a)"))
+	testing.expect(t, !strings.contains(script, "wx"))
+	testing.expect(t, !strings.contains(script, "wz"))
 	testing.expect(t, strings.has_suffix(script, " st"))
 	testing.expect_value(t, buffer_string(tab.env.post.x_origin[:]), "X[0] + (0)")
 	testing.expect_value(t, buffer_string(tab.env.post.z_origin[:]), "Z[0] + (0)")
