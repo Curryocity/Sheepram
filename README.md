@@ -344,3 +344,17 @@ make debug
 > Sheepram was rewritten in [Odin](https://odin-lang.org/).
 > The previous C++ implementation is preserved on the
 > [`legacy-cpp`](../../tree/legacy-cpp) branch.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io/), certificate
+by [SignPath Foundation](https://signpath.org/).
+
+- Committers and reviewers: [Curryocity](https://github.com/Curryocity)
+- Approvers: [Curryocity](https://github.com/Curryocity)
+
+Sheepram does not transfer information to networked systems unless specifically
+requested by the user.
+
+Sheepram is distributed as a portable application. To uninstall it, delete the
+extracted application directory.
