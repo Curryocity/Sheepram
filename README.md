@@ -92,45 +92,6 @@ These built-in constants are always available and cannot be redefined:
 | `px` | One pixel, `1/16` block |
 | `pi` | π |
 
-#### Markers
-
-Markers give a name to a value at the current point in the Mothball timeline.
-Each marker command accepts exactly one name:
-
-| Command | Marked value |
-| --- | --- |
-| `X(name)` | X position |
-| `Z(name)` | Z position |
-| `Vx(name)` | X velocity |
-| `Vz(name)` | Z velocity |
-| `F(name)` | Facing angle |
-| `T(name)` | Turn to the next tick |
-
-For example:
-
-```Sheepram
-initGnd(0.31695) sj.w Z(z1) sa.wa(7) Z(z2)
-```
-
-This records the Z position after `sj.w` as `z1`, and the Z position after the
-following seven air ticks as `z2`. Marker names can then be used as expressions
-in the objective, constraints, and postprocessor:
-
-```text
-z2 - z1 > 1.6
-```
-
-In this case, equivalent to: 
-
-```text
-Z[8] - Z[1] > 1.6
-```
-
-A marker name cannot conflict with a script variable, reserved name, or
-another marker. `Vx()`, `Vz()`, and `T()` cannot mark the terminal tick because
-they require a following tick.
-
-
 ### 2. Objective Function
 
 This is the value you want to optimize.
@@ -190,11 +151,10 @@ The postprocessor lets you:
 * change table precision
 
 X Origin and Z Origin are full expression fields. They accept the same
-variables, markers, and model expressions as the objective and constraints.
-For example, a marker declared with `X(x1)` in Mothball can be used as:
+variables and model expressions as the objective and constraints. For example:
 
 ```text
-X Origin: x1 + 0.3
+X Origin: X[m] + 0.3
 Z Origin: Z[m-1]
 ```
 
