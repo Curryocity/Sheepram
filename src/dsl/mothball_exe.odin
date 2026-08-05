@@ -42,18 +42,6 @@ Moth_Compiler :: struct {
 	exact_movement: [dynamic]opt.Exact_Movement,
 	discrete_supported: bool,
 	variables: map[string]f64,
-
-	markers: [dynamic]Marker,
-}
-
-Marker :: struct {
-	name: string,
-	type: Marker_Type,
-	tick: int,
-}
-
-Marker_Type :: enum {
-	X, Z, Vx, Vz, F, T,
 }
 
 
@@ -68,20 +56,7 @@ destroy_moth_compiler :: proc(state: ^Moth_Compiler) {
 	delete(state.exact_movement)
 	for name in state.variables do delete(name)
 	delete(state.variables)
-	for marker in state.markers do delete(marker.name)
-	delete(state.markers)
 	state^ = {}
-}
-
-marker_name_conflicts :: proc(state: ^Moth_Compiler, name: string) -> bool {
-	if reserved_moth_name(name) do return true
-	for marker in state.markers {
-		if marker.name == name do return true
-	}
-	if _, found := state.variables[name]; found {
-		return true
-	}
-	return false
 }
 
 reserved_moth_name :: proc(name: string) -> bool {
@@ -92,13 +67,6 @@ reserved_moth_name :: proc(name: string) -> bool {
 
 builtin_moth_name :: proc(name: string) -> bool {
 	return name == "bx" || name == "px" || name == "pi"
-}
-
-marker_name_exists :: proc(state: ^Moth_Compiler, name: string) -> bool {
-	for marker in state.markers {
-		if marker.name == name do return true
-	}
-	return false
 }
 
 ensure_moth_variables :: proc(state: ^Moth_Compiler) {
@@ -396,10 +364,10 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 			)
 			return
 		}
-		if reserved_moth_name(target.text) || marker_name_exists(state, target.text) {
+		if reserved_moth_name(target.text) {
 			set_model_error(
 				state,
-				fmt.tprintf("Error: marker/variable '%s' is already defined", target.text),
+				fmt.tprintf("Error: cannot assign to reserved name '%s'", target.text),
 			)
 			return
 		}
@@ -416,7 +384,7 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 		}
 		return
 
-	case .MarkTick:
+	case .Timestamp:
 		if message, ok := expect_moth_args(cmd, 1, 1, false); !ok {
 			set_model_error(state, message)
 			return
@@ -427,10 +395,10 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 			set_model_error(state, "Error: t(...) accepts only a timestamp name")
 			return
 		}
-		if marker_name_conflicts(state, target.text) {
+		if reserved_moth_name(target.text) || target.text in state.variables {
 			set_model_error(
 				state,
-				fmt.tprintf("Error: marker/variable '%s' is already defined", target.text),
+				fmt.tprintf("Error: name '%s' is reserved or already defined", target.text),
 			)
 			return
 		}
@@ -652,56 +620,6 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 			exe_code(state, cmd.code[:])
 			if !state.ok do return
 		}
-		return
-
-	case .MarkX, .MarkZ, .MarkVx, .MarkVz, .MarkF, .MarkTurn:
-		if message, ok := expect_moth_args(cmd, 1, 1, false); !ok {
-			set_model_error(state, message)
-			return
-		}
-
-		marker_type: Marker_Type
-		#partial switch cmd.type {
-		case .MarkX:    marker_type = .X
-		case .MarkZ:    marker_type = .Z
-		case .MarkVx:   marker_type = .Vx
-		case .MarkVz:   marker_type = .Vz
-		case .MarkF:    marker_type = .F
-		case .MarkTurn: marker_type = .T
-		}
-
-		tick := state.n-1
-		arg := cmd.args[0]
-		if arg.type != .Variable || arg.text == "" {
-				set_model_error(
-					state,
-					fmt.tprintf(
-						"Error: %s(...) accepts only marker name",
-						cmd.name,
-					),
-				)
-				return
-			}
-			if marker_name_conflicts(state, arg.text) {
-				set_model_error(
-					state,
-					fmt.tprintf(
-						"Error: marker/variable '%s' is already defined",
-						arg.text,
-					),
-				)
-				return
-			}
-
-			append(
-				&state.markers,
-				Marker {
-					type = marker_type,
-					tick = tick,
-					name = strings.clone(arg.text),
-				},
-			)
-
 		return
 
 	case .Plus, .Minus, .Mul, .Div:

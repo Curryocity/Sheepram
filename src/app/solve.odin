@@ -274,14 +274,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 
 	opt.compile_model(&model)
 
-	// 5. Resolve markers against the compiled movement expressions
-	if marker_err := dsl.resolve_markers(&parser, m.markers[:]); marker_err != "" {
-		set_optimizer_error(&result, fmt.tprintf("Error:\nMovement markers:\n%s", marker_err))
-		delete(marker_err)
-		return result
-	}
-
-	// 6. Parse objective expression
+	// 5. Parse objective expression
 	objective: opt.Raw_Expr
 	switch material.obj_type {
 	case .X:
@@ -305,7 +298,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		objective = inverted
 	}
 
-	// 7. Parse constraints
+	// 6. Parse constraints
 	constraints, constraint_err := dsl.parse_multi_constraints(
 		&parser,
 		material.cons_script,
@@ -317,8 +310,8 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	}
 	defer dsl.destroy_constraints(&constraints)
 
-	// 8. Parse postprocessor origin expressions
-	// Compile postprocessor origins. These may reference globals, markers,
+	// 7. Parse postprocessor origin expressions
+	// Compile postprocessor origins. These may reference script variables,
 	// model expressions, and n just like the objective and constraints.
 	x_origin_expr, post_err := dsl.parse_expr(
 		&parser,
@@ -343,7 +336,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	}
 	defer opt.destroy_raw_expr(&z_origin_expr)
 
-	// 9. Build the raw problem and reduce it to the continuous optimizer problem
+	// 8. Build the raw problem and reduce it to the continuous optimizer problem
 	raw_problem := opt.make_raw_problem(objective, constraints[:], n)
 	defer opt.destroy_raw_problem(&raw_problem)
 	if m.has_init_angle {
@@ -361,7 +354,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	}
 	result.compile_time_seconds = time.duration_seconds(time.tick_since(compile_start))
 
-	// 10. Phase I: solve the continuous problem
+	// 9. Phase I: solve the continuous problem
 	solution := new(opt.Solution)
 	optimize_start := time.tick_now()
 	initial_theta := material.seed * math.PI / 180
@@ -469,7 +462,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	continuous_pancake_recovery_reasons := solution.pancake_recovery_reasons
 	continuous_pancake_dual_bound := solution.pancake_dual_bound
 
-	// 11. Phase II: optimize the discrete/exact model when requested
+	// 10. Phase II: optimize the discrete/exact model when requested
 	if material.discrete_search {
 		discrete_start := time.tick_now()
 		discrete_model := opt.Discrete_Model {
@@ -605,7 +598,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		result.discrete_time_seconds = time.duration_seconds(time.tick_since(discrete_start))
 	}
 
-	// 12. Convert optimizer-space results back into UI/reporting-space results
+	// 11. Convert optimizer-space results back into UI/reporting-space results
 	if material.maximize {
 		solution.optimum *= -1 // Invert solution again when maximizing
 		if solution.pancake_used do solution.pancake_dual_bound *= -1

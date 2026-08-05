@@ -26,56 +26,6 @@ init_parser_without_n :: proc(model: ^opt.Model) -> Parser {
 	return parser
 }
 
-resolve_markers :: proc(parser: ^Parser, markers: []Marker) -> string {
-	for marker in markers {
-		if marker.tick < 0 || marker.tick >= parser.model.n {
-			return fmt.aprintf(
-				"Marker '%s' references out-of-range tick %d",
-				marker.name,
-				marker.tick,
-			)
-		}
-		if (marker.type == .Vx || marker.type == .Vz || marker.type == .T) &&
-		   marker.tick >= parser.model.n-1 {
-			return fmt.aprintf(
-				"Marker '%s' requires a tick before the terminal tick",
-				marker.name,
-			)
-		}
-		if _, found := parser.var_map[marker.name]; found {
-			return fmt.aprintf(
-				"Marker '%s' conflicts with an existing variable",
-				marker.name,
-			)
-		}
-		if _, found := parser.expr_map[marker.name]; found {
-			return fmt.aprintf("Marker '%s' is already defined", marker.name)
-		}
-
-		expr := opt.make_raw_expr(parser.model.n)
-		switch marker.type {
-			case .X:
-				expr.x_coeff[marker.tick] = 1
-			case .Z:
-				expr.z_coeff[marker.tick] = 1
-			case .F:
-				expr.f_coeff[marker.tick] = 1
-			case .Vx:
-				expr.x_coeff[marker.tick + 1] = 1
-				expr.x_coeff[marker.tick] = - 1
-			case .Vz:
-				expr.z_coeff[marker.tick + 1] = 1
-				expr.z_coeff[marker.tick] = - 1
-			case .T:
-				expr.f_coeff[marker.tick + 1] = 1
-				expr.f_coeff[marker.tick] = - 1
-		}
-
-		parser.expr_map[strings.clone(marker.name)] = expr
-	}
-	return ""
-}
-
 destroy :: proc(parser: ^Parser) {
 	for key in parser.var_map do delete(key)
 	delete(parser.var_map)
