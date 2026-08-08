@@ -264,6 +264,7 @@ draw_inertia_detector :: proc(state: ^Environment) {
 	for tick in 0..<movement_count do append(&detector_ticks, tick)
 	for axis in 0..<2 {
 		for list_index in 0..<3 {
+			if !state.inertia_tick_list_visible[axis][list_index] do continue
 			lists[axis][list_index] = parse_inertia_tick_list(state.inertia_tick_lists[axis][list_index][:])
 			for tick in lists[axis][list_index] {
 				if tick >= movement_count do append(&detector_ticks, tick)

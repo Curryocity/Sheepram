@@ -66,6 +66,7 @@ make_optimizer_material :: proc(state: ^Environment) -> Optimizer_Material {
 	}
 	for axis in 0..<2 {
 		for mode in 0..<3 {
+			if !state.inertia_tick_list_visible[axis][mode] do continue
 			material.inertia_tick_lists[axis][mode] = strings.clone(buffer_string(state.inertia_tick_lists[axis][mode][:]))
 		}
 	}

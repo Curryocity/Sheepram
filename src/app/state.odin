@@ -206,7 +206,7 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 		"Z[m2] - Z[m-1] > 1 + bx\n",
 	)
 	buffer_set(tab.env.post.x_origin[:], "X[0]")
-	buffer_set(tab.env.post.z_origin[:], "Z[m-1]")
+	buffer_set(tab.env.post.z_origin[:], "Z[0]")
 	tab.movement_editor_height = 86
 	tab.cons_editor_height = 120
 	fingerprint := build_tab_fingerprint(tab)
