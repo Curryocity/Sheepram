@@ -1,5 +1,6 @@
 package app
 
+import "core:c"
 import "core:fmt"
 import "core:strings"
 
@@ -225,6 +226,7 @@ draw_split_app :: proc(app_state: ^App_State) {
 		draw_exit_popup(app_state)
 
 		tab := app_state.tabs[app_state.active_tab]
+		im.PushIDInt(c.int(tab.id))
 		available := im.GetContentRegionAvail()
 		divider := ui_px(8)
 		min_panel_width := ui_px(250)
@@ -265,6 +267,7 @@ draw_split_app :: proc(app_state: ^App_State) {
 		im.SetCursorPos({cursor.x+output_margin, cursor.y+output_margin})
 		draw_output_panel(tab, output_size)
 		im.EndChild()
+		im.PopID()
 	}
 	im.End()
 }

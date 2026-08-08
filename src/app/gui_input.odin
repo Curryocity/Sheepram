@@ -7,7 +7,7 @@ import "core:strings"
 import im "../../third_party/odin-imgui"
 
 draw_postprocessor :: proc(state: ^Environment) {
-	if !im.CollapsingHeader("Postprocessor", {.DefaultOpen}) do return
+	if !im.CollapsingHeader("Postprocessor", {}) do return
 	im.PushStyleVarImVec2(.FramePadding, {ui_px(4), ui_px(2)})
 	im.PushStyleVar(.FrameBorderSize, 0)
 	im.PushStyleVar(.FrameRounding, ui_px(2))
@@ -292,7 +292,7 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	draw_postprocessor(state)
 
 	// === Engine Settings ===
-	if im.CollapsingHeader("Engine Settings", {.DefaultOpen}) {
+	if im.CollapsingHeader("Engine Settings", {}) {
 		draw_continuous_optimizer_options(state)
 		draw_discrete_search_options(state)
 	}

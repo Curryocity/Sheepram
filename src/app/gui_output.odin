@@ -257,7 +257,7 @@ read_only_block :: proc(label: cstring, text: string, copy_text: string) {
 
 draw_constraint_results :: proc(solution: ^opt.Solution, discrete_solution: bool) {
 	pushed_ui := push_font(ui_font)
-	open := im.CollapsingHeader("Constraint Results", {.DefaultOpen})
+	open := im.CollapsingHeader("Constraint Results", {})
 	pop_font(pushed_ui)
 	if !open do return
 
@@ -580,7 +580,7 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	im.Spacing(); im.Spacing()
 
 	pushed_ui = push_font(ui_font)
-	movement_log_open := im.CollapsingHeader("Movement Log", {.DefaultOpen})
+	movement_log_open := im.CollapsingHeader("Movement Log", {})
 	pop_font(pushed_ui)
 
 	if movement_log_open {

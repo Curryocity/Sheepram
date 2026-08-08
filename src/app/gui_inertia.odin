@@ -328,7 +328,7 @@ draw_inertia_detector :: proc(state: ^Environment) {
 }
 
 draw_inertia_hut :: proc(state: ^Environment) {
-	if !im.CollapsingHeader("Inertia Hut", {.DefaultOpen}) do return
+	if !im.CollapsingHeader("Inertia Hut", {}) do return
 
 	draw_inertia_list(state)
 	draw_inertia_detector(state)
