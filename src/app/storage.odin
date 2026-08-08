@@ -30,6 +30,13 @@ Saved_Inertia_List :: struct {
 	z_hit:         string `json:"zHit,omitempty"`,
 	z_avoid_minus: string `json:"zAvoidMinus,omitempty"`,
 	z_avoid_plus:  string `json:"zAvoidPlus,omitempty"`,
+	enabled_saved: bool   `json:"enabledSaved,omitempty"`,
+	x_hit_enabled:         bool `json:"xHitEnabled,omitempty"`,
+	x_avoid_minus_enabled: bool `json:"xAvoidMinusEnabled,omitempty"`,
+	x_avoid_plus_enabled:  bool `json:"xAvoidPlusEnabled,omitempty"`,
+	z_hit_enabled:         bool `json:"zHitEnabled,omitempty"`,
+	z_avoid_minus_enabled: bool `json:"zAvoidMinusEnabled,omitempty"`,
+	z_avoid_plus_enabled:  bool `json:"zAvoidPlusEnabled,omitempty"`,
 }
 
 Saved_Tab :: struct {
@@ -107,6 +114,13 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 			z_hit         = buffer_string(env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Hit)-1][:]),
 			z_avoid_minus = buffer_string(env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Minus)-1][:]),
 			z_avoid_plus  = buffer_string(env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Plus)-1][:]),
+			enabled_saved = true,
+			x_hit_enabled         = env.inertia_tick_list_visible[int(Inertia_Axis.X)][int(Inertia_Choice.Hit)-1],
+			x_avoid_minus_enabled = env.inertia_tick_list_visible[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Minus)-1],
+			x_avoid_plus_enabled  = env.inertia_tick_list_visible[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Plus)-1],
+			z_hit_enabled         = env.inertia_tick_list_visible[int(Inertia_Axis.Z)][int(Inertia_Choice.Hit)-1],
+			z_avoid_minus_enabled = env.inertia_tick_list_visible[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Minus)-1],
+			z_avoid_plus_enabled  = env.inertia_tick_list_visible[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Plus)-1],
 		},
 		post = {
 			x_origin           = buffer_string(env.post.x_origin[:]),
@@ -286,9 +300,26 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	buffer_set(env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Hit)-1][:], saved.inertia_list.z_hit)
 	buffer_set(env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Minus)-1][:], saved.inertia_list.z_avoid_minus)
 	buffer_set(env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Plus)-1][:], saved.inertia_list.z_avoid_plus)
-	for axis in 0..<2 {
-		for mode in 0..<3 {
-			env.inertia_tick_list_visible[axis][mode] = buffer_string(env.inertia_tick_lists[axis][mode][:]) != ""
+	if saved.inertia_list.enabled_saved {
+		env.inertia_tick_list_visible = {
+			{
+				saved.inertia_list.x_hit_enabled,
+				saved.inertia_list.x_avoid_minus_enabled,
+				saved.inertia_list.x_avoid_plus_enabled,
+			},
+			{
+				saved.inertia_list.z_hit_enabled,
+				saved.inertia_list.z_avoid_minus_enabled,
+				saved.inertia_list.z_avoid_plus_enabled,
+			},
+		}
+	} else {
+		// Presets saved before enabled states existed treated every non-empty
+		// inertia list as enabled.
+		for axis in 0..<2 {
+			for mode in 0..<3 {
+				env.inertia_tick_list_visible[axis][mode] = buffer_string(env.inertia_tick_lists[axis][mode][:]) != ""
+			}
 		}
 	}
 

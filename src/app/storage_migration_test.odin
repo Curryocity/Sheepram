@@ -157,6 +157,10 @@ test_current_postprocessor_origins_round_trip :: proc(t: ^testing.T) {
 	buffer_set(tab.env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Hit)-1][:], "5")
 	buffer_set(tab.env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Minus)-1][:], "6")
 	buffer_set(tab.env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Plus)-1][:], "7")
+	tab.env.inertia_tick_list_visible = {
+		{true, false, true},
+		{false, true, false},
+	}
 
 	data, save_err := build_tab_json(tab)
 	defer delete(data)
@@ -184,9 +188,7 @@ test_current_postprocessor_origins_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, buffer_string(loaded.env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Hit)-1][:]), "5")
 	testing.expect_value(t, buffer_string(loaded.env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Minus)-1][:]), "6")
 	testing.expect_value(t, buffer_string(loaded.env.inertia_tick_lists[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Plus)-1][:]), "7")
-	for axis in 0..<2 {
-		for mode in 0..<3 do testing.expect(t, loaded.env.inertia_tick_list_visible[axis][mode])
-	}
+	testing.expect_value(t, loaded.env.inertia_tick_list_visible, [2][3]bool{{true, false, true}, {false, true, false}})
 }
 
 @(test)
