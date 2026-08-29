@@ -105,24 +105,43 @@ add_variable :: proc(parser: ^Parser, raw_name, value: string) -> string {
 
 resolve_indexed :: proc(parser: ^Parser, name: string, index: int, lexer: ^Lexer,
 ) -> (opt.Raw_Expr, string) {
-	bound_error := proc(name: string, requested: int, lexer: ^Lexer) -> string {
-		return parser_error(fmt.tprintf("%s[%d] is out of range", name, requested), lexer)
+	bound_error := proc(name: string, requested, max_index: int, lexer: ^Lexer) -> string {
+		if max_index < 0 {
+			return parser_error(
+				fmt.tprintf("%s[%d] is out of range, %s has no valid indices", name, requested, name),
+				lexer,
+			)
+		}
+		return parser_error(
+			fmt.tprintf(
+				"%s[%d] is out of range, valid indices are 0..%d",
+				name,
+				requested,
+				max_index,
+			),
+			lexer,
+		)
 	}
 
+	// parser.model.n is actually n + 1
+
 	if name == "X" {
-		if index < 0 || index >= len(parser.model.x) do return {}, bound_error(name, index, lexer)
+		max_index := len(parser.model.x) - 1
+		if index < 0 || index > max_index do return {}, bound_error(name, index, max_index, lexer)
 		expr := opt.make_raw_expr(parser.model.n)
 		expr.x_coeff[index] = 1
 		return expr, ""
 	}
 	if name == "Z" {
-		if index < 0 || index >= len(parser.model.z) do return {}, bound_error(name, index, lexer)
+		max_index := len(parser.model.z) - 1
+		if index < 0 || index > max_index do return {}, bound_error(name, index, max_index, lexer)
 		expr := opt.make_raw_expr(parser.model.n)
 		expr.z_coeff[index] = 1
 		return expr, ""
 	}
 	if name == "Vx" {
-		if index < 0 || index >= len(parser.model.x)-1 do return {}, bound_error(name, index, lexer)
+		max_index := len(parser.model.x) - 2
+		if index < 0 || index > max_index do return {}, bound_error(name, index, max_index, lexer)
 		expr := opt.make_raw_expr(parser.model.n)
 		expr.x_coeff[index + 1] = 1
 		expr.x_coeff[index] = -1
@@ -130,21 +149,24 @@ resolve_indexed :: proc(parser: ^Parser, name: string, index: int, lexer: ^Lexer
 
 	}
 	if name == "Vz" {
-		if index < 0 || index >= len(parser.model.z)-1 do return {}, bound_error(name, index, lexer)
+		max_index := len(parser.model.z) - 2
+		if index < 0 || index > max_index do return {}, bound_error(name, index, max_index, lexer)
 		expr := opt.make_raw_expr(parser.model.n)
 		expr.z_coeff[index + 1] = 1
 		expr.z_coeff[index] = -1
 		return expr, ""
 	}
 	if name == "F" {
-		if index < 0 || index >= parser.model.n do return {}, bound_error(name, index, lexer)
+		max_index := parser.model.n - 2
+		if index < 0 || index > max_index do return {}, bound_error(name, index, max_index, lexer)
 		expr := opt.make_raw_expr(parser.model.n)
 		expr.f_coeff[index] = 1
 		return expr, ""
 	}
 	if name == "T" {
 		// Turn: T[i] = F[i+1] - F[i]
-		if index < 0 || index >= parser.model.n-1 do return {}, bound_error(name, index, lexer)
+		max_index := parser.model.n - 3
+		if index < 0 || index > max_index do return {}, bound_error(name, index, max_index, lexer)
 		expr := opt.make_raw_expr(parser.model.n)
 		expr.f_coeff[index + 1] = 1
 		expr.f_coeff[index] = -1
@@ -185,9 +207,6 @@ parse_identifier :: proc(
 		if !opt.is_constant(index_expr) do return {}, parser_error("Index must be constant", lexer)
 
 		index := int(math.round(index_expr.constant))
-		if index < 0 {
-			return {}, parser_error(fmt.tprintf("%s[%d] is out of range", name, index), lexer)
-		}
 		return resolve_indexed(parser, name, index, lexer)
 	}
 

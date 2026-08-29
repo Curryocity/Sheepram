@@ -1,11 +1,43 @@
 package dsl
 
 import "core:math"
+import "core:strings"
 import "core:testing"
+import opt "../optimizer"
 
 @(test)
 math_test :: proc(t: ^testing.T) {
 	testing.expect_value(t, 1 + 1, 2)
+}
+
+@(test)
+problem_dsl_rejects_terminal_facing_with_valid_range :: proc(t: ^testing.T) {
+	model := opt.Model{n = 13}
+	parser := init_parser(&model)
+	defer destroy(&parser)
+
+	expr, err := parse_expr(&parser, "F[n]")
+	defer opt.destroy_raw_expr(&expr)
+	defer delete(err)
+	testing.expect(
+		t,
+		strings.has_prefix(err, "F[12] is out of range, valid indices are 0..11"),
+	)
+}
+
+@(test)
+problem_dsl_rejects_turn_using_terminal_facing_with_valid_range :: proc(t: ^testing.T) {
+	model := opt.Model{n = 13}
+	parser := init_parser(&model)
+	defer destroy(&parser)
+
+	expr, err := parse_expr(&parser, "T[n-1]")
+	defer opt.destroy_raw_expr(&expr)
+	defer delete(err)
+	testing.expect(
+		t,
+		strings.has_prefix(err, "T[11] is out of range, valid indices are 0..10"),
+	)
 }
 
 @(test)
