@@ -184,7 +184,25 @@ make_raw_problem :: proc(objective: Raw_Expr, constraints: []Raw_Constraint, n: 
 	return problem
 }
 
-reduce_problem :: proc(rp: ^Raw_Problem, model: Model, angle_offset: []f64) -> Problem {
+clone_raw_problem :: proc(problem: Raw_Problem) -> Raw_Problem {
+	out := Raw_Problem {
+		n         = problem.n,
+		objective = clone_raw_expr(problem.objective),
+		ineq_cons = make([dynamic]Raw_Expr, 0, len(problem.ineq_cons)),
+		eq_cons   = make([dynamic]Raw_Expr, 0, len(problem.eq_cons)),
+	}
+
+	for expr in problem.ineq_cons {
+		append(&out.ineq_cons, clone_raw_expr(expr))
+	}
+	for expr in problem.eq_cons {
+		append(&out.eq_cons, clone_raw_expr(expr))
+	}
+
+	return out
+}
+
+reduce_problem :: proc(rp: ^Raw_Problem, model: ^Model, angle_offset: []f64) -> Problem {
 	assert(rp.n == model.n, "Raw problem/model dimension mismatch")
 	assert(len(angle_offset) >= model.n, "Angle offset dimension mismatch")
 
@@ -205,7 +223,7 @@ reduce_problem :: proc(rp: ^Raw_Problem, model: Model, angle_offset: []f64) -> P
 	return problem
 }
 
-reduce_expr :: proc(expr: Raw_Expr, model: Model, angle_offset: []f64) -> Compiled_Expr {
+reduce_expr :: proc(expr: Raw_Expr, model: ^Model, angle_offset: []f64) -> Compiled_Expr {
 	assert(len(expr.x_coeff) == model.n, "Raw expression X dimension mismatch")
 	assert(len(expr.z_coeff) == model.n, "Raw expression Z dimension mismatch")
 	assert(len(expr.f_coeff) == model.n, "Raw expression F dimension mismatch")

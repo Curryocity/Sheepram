@@ -465,51 +465,6 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 			"Discrete" if state.last_solution_discrete else "Continuous",
 		)
 	}
-	if solution.pancake_used {
-		im.Spacing()
-		pushed_ui := push_font(ui_font)
-		im.Text("Pancake Log")
-		pop_font(pushed_ui)
-		recovery_text: cstring =
-			"true" if solution.pancake_used_recovery else "false"
-		im.TextDisabled(
-			"Used Recovery Engine: %s",
-			recovery_text,
-		)
-		if solution.pancake_used_recovery {
-			reasons := solution.pancake_recovery_reasons
-			reason_codes := strings.builder_make()
-			defer strings.builder_destroy(&reason_codes)
-			first := true
-			if .Facing_Constraint in reasons {
-				strings.write_string(&reason_codes, "1")
-				first = false
-			}
-			if .Non_Unit_Vector_Strength in reasons {
-				if !first do strings.write_string(&reason_codes, ", ")
-				strings.write_string(&reason_codes, "2")
-				first = false
-			}
-			if .Large_Dual_Gap in reasons {
-				if !first do strings.write_string(&reason_codes, ", ")
-				strings.write_string(&reason_codes, "3")
-				first = false
-			}
-			if .Infeasible_Solution in reasons {
-				if !first do strings.write_string(&reason_codes, ", ")
-				strings.write_string(&reason_codes, "4")
-			}
-			reason_codes_text := strings.to_string(reason_codes)
-			reason_codes_c := strings.clone_to_cstring(reason_codes_text)
-			defer delete(reason_codes_c)
-			im.TextDisabled("Reason: %s", reason_codes_c)
-			im.TextDisabled("1. Facing constraint exists")
-			im.TextDisabled("2. Non-unit vector strength")
-			im.TextDisabled("3. Large dual gap")
-			im.TextDisabled("4. Infeasible solution")
-		}
-		im.TextDisabled("Dual Bound: %.12f", solution.pancake_dual_bound)
-	}
 	im.Spacing(); im.Spacing()
 
 	count := len(solution.xs)
@@ -640,6 +595,62 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 			im.EndTable()
 		}
 		im.PopStyleVar()
+	}
+	im.Spacing(); im.Spacing()
+
+	pushed_ui = push_font(ui_font)
+	solver_log_open := im.CollapsingHeader("Solver Log", {})
+	pop_font(pushed_ui)
+	if solver_log_open {
+		pushed_ui = push_font(ui_font)
+		im.Text("General")
+		pop_font(pushed_ui)
+		im.TextDisabled("Tightening attempts: %d", state.tightening_retries)
+		if solution.pancake_used {
+			im.Spacing()
+			pushed_ui := push_font(ui_font)
+			im.Text("Pancake Log")
+			pop_font(pushed_ui)
+			recovery_text: cstring =
+				"true" if solution.pancake_used_recovery else "false"
+			im.TextDisabled(
+				"Used Recovery Engine: %s",
+				recovery_text,
+			)
+			if solution.pancake_used_recovery {
+				reasons := solution.pancake_recovery_reasons
+				reason_codes := strings.builder_make()
+				defer strings.builder_destroy(&reason_codes)
+				first := true
+				if .Facing_Constraint in reasons {
+					strings.write_string(&reason_codes, "1")
+					first = false
+				}
+				if .Non_Unit_Vector_Strength in reasons {
+					if !first do strings.write_string(&reason_codes, ", ")
+					strings.write_string(&reason_codes, "2")
+					first = false
+				}
+				if .Large_Dual_Gap in reasons {
+					if !first do strings.write_string(&reason_codes, ", ")
+					strings.write_string(&reason_codes, "3")
+					first = false
+				}
+				if .Infeasible_Solution in reasons {
+					if !first do strings.write_string(&reason_codes, ", ")
+					strings.write_string(&reason_codes, "4")
+				}
+				reason_codes_text := strings.to_string(reason_codes)
+				reason_codes_c := strings.clone_to_cstring(reason_codes_text)
+				defer delete(reason_codes_c)
+				im.TextDisabled("Reason: %s", reason_codes_c)
+				im.TextDisabled("1. Facing constraint exists")
+				im.TextDisabled("2. Non-unit vector strength")
+				im.TextDisabled("3. Large dual gap")
+				im.TextDisabled("4. Infeasible solution")
+			}
+			im.TextDisabled("Dual Bound: %.12f", solution.pancake_dual_bound)
+		}
 	}
 	im.Spacing(); im.Spacing()
 

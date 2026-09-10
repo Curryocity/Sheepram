@@ -98,6 +98,8 @@ Environment :: struct {
 	compile_time_seconds:  f64,
 	continuous_time_seconds: f64,
 	discrete_time_seconds:   f64,
+	tightening_retries: int,
+	tightening_epsilons: [dynamic]f64,
 	x_origin:      f64,
 	z_origin:      f64,
 	angle_offset:  [dynamic]f64,
@@ -151,6 +153,9 @@ clear_solution :: proc(state: ^Environment) {
 	state.compile_time_seconds = 0
 	state.continuous_time_seconds = 0
 	state.discrete_time_seconds = 0
+	state.tightening_retries = 0
+	delete(state.tightening_epsilons)
+	state.tightening_epsilons = nil
 	delete(state.angle_offset)
 	state.angle_offset = nil
 	delete(state.last_jump_ticks)
