@@ -430,17 +430,17 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 			init_theta = m.init_angle*math.PI/180,
 			init_drag_x = initial_drag_x,
 			init_drag_z = initial_drag_z,
-			angle_offset = make([dynamic]f64, n),
 			exact_movement = m.exact_movement,
+			n_unique = problem.n,
+			facing_map = make([dynamic]int, len(model.facing_map)),
 		}
-		for i in 0..<n {
-			discrete_model.angle_offset[i] = m.angle_offset[i]*math.PI/180
-		}
+
 		m.exact_movement = nil
 		opt.copy_discrete_exprs(&discrete_model, &model)
+		copy(discrete_model.facing_map[:], model.facing_map[:])
 	}
 
-	original_pancake_dual_bound: f64
+	original_pancake_dual_bound: f64 // dual bound for untighten problem
 	previous_discrete: opt.Solution
 	defer opt.destroy_solution(&previous_discrete)
 	// The tightening loop
@@ -490,7 +490,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		best_discrete_state: opt.Discrete_State
 		defer opt.destroy_discrete_state(&best_discrete_state)
 		best_grade: opt.Grade
-		has_best := false
+		has_best := false // does the first candidate even exist?
 		completed_starts := 0
 
 		cancelled := false
@@ -522,18 +522,10 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 				&raw_problem,
 				candidate_state,
 				&exact_work,
+				discrete_model.facing_map,
 			)
 
-			accept_candidate := !has_best
-			if has_best {
-				if candidate_grade.feasible != best_grade.feasible {
-					accept_candidate = candidate_grade.feasible
-				} else if candidate_grade.feasible {
-					accept_candidate = candidate_grade.objective < best_grade.objective
-				} else {
-					accept_candidate = candidate_grade.violation_sqr < best_grade.violation_sqr
-				}
-			}
+			accept_candidate := !has_best || opt.improveQ(&candidate_grade, &best_grade, .Repair)
 
 			if accept_candidate {
 				if has_best do opt.destroy_discrete_state(&best_discrete_state)
@@ -606,7 +598,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	}
 
 	// 11. Convert optimizer-space results back into UI/reporting-space results
-	result.tightening_epsilons = tighten_mod.epsilons
+	result.tightening_epsilons = tighten_mod.epsilons // not displayed anywhere yet, but I'll keep it for future use
 	tighten_mod.epsilons = nil
 	if material.maximize {
 		solution.optimum *= -1 // Invert solution again when maximizing

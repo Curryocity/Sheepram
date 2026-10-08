@@ -135,13 +135,15 @@ eval_raw_expr :: proc(
 	expr: Raw_Expr,
 	state: Discrete_State,
 	xs, zs: []f64,
+	facing_map: [dynamic]int,
 ) -> f64 {
 	n := len(expr.x_coeff)
 	assert(len(expr.z_coeff) == n)
 	assert(len(expr.f_coeff) == n)
 	assert(len(xs) >= n)
 	assert(len(zs) >= n)
-	assert(len(state.indices)+2 == n)
+	assert(len(facing_map) == n)
+	assert(len(state.indices) == facing_map[n - 1])
 
 	if n > 0 {
 		terminal := n-1
@@ -157,7 +159,7 @@ eval_raw_expr :: proc(
 		         expr.z_coeff[t]*zs[t]
 
 		if t != n-1 {
-			value += expr.f_coeff[t]*discrete_state_deg(state, t)
+			value += expr.f_coeff[t]*discrete_state_deg(state, t, facing_map)
 		}
 	}
 	return value

@@ -95,9 +95,10 @@ exact_simulation :: proc(
 	model: ^Discrete_Model,
 	state: Discrete_State,
 	xs, zs: []f64,
+	facing_map: [dynamic]int,
 ) {
 	assert_discrete_state(model, state)
-	assert(len(model.exact_movement) >= discrete_angle_len(model))
+	assert(len(model.exact_movement) >= model.n-2)
 	assert(len(xs) >= model.n)
 	assert(len(zs) >= model.n)
 	if model.n == 0 do return
@@ -110,12 +111,12 @@ exact_simulation :: proc(
 	vz := model.init_v * math.cos(state.init_theta)
 
 	for t in 1..<model.n {
+		ut := facing_map[t] - 1
+
 		xs[t] = xs[t-1]+vx
 		zs[t] = zs[t-1]+vz
 
-		// Updating the outgoing terminal velocity cannot affect any recorded
-		// position, so the final movement angle is deliberately not a search
-		// variable.
+		// Terimal velocity doesn't affect the result
 		if t == model.n-1 do break
 
 		if t == 1 {
@@ -128,7 +129,7 @@ exact_simulation :: proc(
 		}
 
 		m := model.exact_movement[t-1]
-		angle_index := state.indices[t-1]
+		angle_index := state.indices[ut]
 		sin_value := sin_index(angle_index)
 		cos_value := cos_index(angle_index)
 
@@ -152,19 +153,20 @@ exact_grading :: proc(
 	p: ^Raw_Problem,
 	state: Discrete_State,
 	work: ^Exact_Workspace,
+	facing_map: [dynamic]int,
 ) {
 	assert(len(work.xs) >= model.n)
 	assert(len(work.zs) >= model.n)
 
-	exact_simulation(model, state, work.xs[:], work.zs[:])
+	exact_simulation(model, state, work.xs[:], work.zs[:], facing_map)
 
-	out.objective = eval_raw_expr(p.objective, state, work.xs[:], work.zs[:])
+	out.objective = eval_raw_expr(p.objective, state, work.xs[:], work.zs[:], facing_map)
 
 	out.violation_sqr = 0
 	out.feasible = true
 
 	for con in p.ineq_cons {
-		value := eval_raw_expr(con, state, work.xs[:], work.zs[:])
+		value := eval_raw_expr(con, state, work.xs[:], work.zs[:], facing_map)
 
 		violation := max(0, value)
 		out.violation_sqr += violation*violation
@@ -172,7 +174,7 @@ exact_grading :: proc(
 	}
 
 	for con in p.eq_cons {
-		value := eval_raw_expr(con, state, work.xs[:], work.zs[:])
+		value := eval_raw_expr(con, state, work.xs[:], work.zs[:], facing_map)
 
 		violation := math.abs(value)
 		out.violation_sqr += violation*violation
