@@ -281,19 +281,20 @@ optimize :: proc(
 ) -> Solution {
 	assert_valid_objective(problem)
 	n := model.n
-	assert(len(thetas) == n)
+	n_unique := problem.n
+	assert(len(thetas) == n_unique)
 	owned_workspace: Workspace
 	work := workspace
 	if work == nil {
-		owned_workspace = make_workspace(n)
+		owned_workspace = make_workspace(n_unique)
 		work = &owned_workspace
 	}
 	defer {
 		if workspace == nil do destroy_workspace(&owned_workspace)
 	}
-	assert(len(work.temp_g) == n)
-	assert(len(work.sin_cache) == n)
-	assert(len(work.cos_cache) == n)
+	assert(len(work.temp_g) == n_unique)
+	assert(len(work.sin_cache) == n_unique)
+	assert(len(work.cos_cache) == n_unique)
 	lamb := make([dynamic]f64, len(problem.ineq_cons)) // "lambda" in inequality
 	defer delete(lamb)
 	nu := make([dynamic]f64, len(problem.eq_cons)) // "nu" in equality
@@ -356,7 +357,7 @@ optimize_1seed :: proc(
 	seed: f64 = math.PI / 4,
 	workspace: ^Workspace = nil,
 ) -> Solution {
-	thetas := make([dynamic]f64, model.n)
+	thetas := make([dynamic]f64, problem.n)
 	for &theta in thetas do theta = seed
 	return optimize(model, problem, thetas, workspace)
 }
@@ -368,14 +369,14 @@ optimize_thetas_slice :: proc(
 	initial_thetas: []f64,
 	workspace: ^Workspace = nil,
 ) -> Solution {
-	assert(len(initial_thetas) == model.n)
-	thetas := make([dynamic]f64, model.n)
+	assert(len(initial_thetas) == problem.n)
+	thetas := make([dynamic]f64, problem.n)
 	copy(thetas[:], initial_thetas)
 	return optimize(model, problem, thetas, workspace)
 }
 
 optimize_multistart :: proc(model: ^Model, problem: ^Problem, seeds: []f64) -> (Solution, int) {
-	work := make_workspace(model.n)
+	work := make_workspace(problem.n)
 	defer destroy_workspace(&work)
 	if len(seeds) == 0 do return optimize_1seed(model, problem, 0, &work), -1
 

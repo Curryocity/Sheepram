@@ -1,5 +1,7 @@
 package optimizer
 
+import "core:math"
+
 Cmp :: enum {
 	Less,
 	Equal,
@@ -13,19 +15,27 @@ Constraint_Result :: struct {
 
 Model :: struct {
 	// Require initialization
-	n:      int,
+
+	// the number of ticks
+	n:      int, 
 	drag_x: [dynamic]f64,
 	drag_z: [dynamic]f64,
 	accel:  [dynamic]f64,
+	facing_map: [dynamic]int,
+	angle_offset: [dynamic]f64, // degrees
 
 	// Compile later
 	vx: [dynamic]Compiled_Expr,
 	vz: [dynamic]Compiled_Expr,
 	x:  [dynamic]Compiled_Expr,
 	z:  [dynamic]Compiled_Expr,
+
+	n_unique: int,
+	
 }
 
 Problem :: struct {
+	// the number of theta variables
 	n: int,
 	// Assuming minimize
 	objective: Compiled_Expr,
@@ -80,6 +90,8 @@ destroy_model :: proc(model: ^Model) {
 	delete(model.drag_x)
 	delete(model.drag_z)
 	delete(model.accel)
+	delete(model.facing_map)
+	delete(model.angle_offset)
 	destroy_compiled_expr_array(&model.vx)
 	destroy_compiled_expr_array(&model.vz)
 	destroy_compiled_expr_array(&model.x)
@@ -107,6 +119,7 @@ destroy_solution :: proc(solution: ^Solution) {
 
 compile_model :: proc(model: ^Model) {
 	n := model.n
+	n_unique := model.n_unique
 	destroy_compiled_expr_array(&model.vx)
 	destroy_compiled_expr_array(&model.vz)
 	destroy_compiled_expr_array(&model.x)
@@ -116,22 +129,33 @@ compile_model :: proc(model: ^Model) {
 	model.x  = make([dynamic]Compiled_Expr, n)
 	model.z  = make([dynamic]Compiled_Expr, n)
 	for i in 0..<n {
-		model.vx[i] = make_compiled_expr(n)
-		model.vz[i] = make_compiled_expr(n)
-		model.x[i]  = make_compiled_expr(n)
-		model.z[i]  = make_compiled_expr(n)
+		model.vx[i] = make_compiled_expr(n_unique)
+		model.vz[i] = make_compiled_expr(n_unique)
+		model.x[i]  = make_compiled_expr(n_unique)
+		model.z[i]  = make_compiled_expr(n_unique)
 	}
 
 	// Generate Vx, Vz
 	// Initial velocity is stored in accel[0].
+	// no angle offset in t = 0 I believe
 	model.vx[0].sin_coeff[0] = model.accel[0]
 	model.vz[0].cos_coeff[0] = model.accel[0]
 	for t in 1..<n {
-		// v[t] = drag[t-1] * v[t-1] + accel[t] * trig(F[t])
+		// v[t] = drag[t-1] * v[t-1] + accel[t] * trig(F[t] + delta)
 		add_scaled_expr(&model.vx[t], model.vx[t-1], model.drag_x[t-1])
 		add_scaled_expr(&model.vz[t], model.vz[t-1], model.drag_z[t-1])
-		model.vx[t].sin_coeff[t] = model.accel[t]
-		model.vz[t].cos_coeff[t] = model.accel[t]
+
+		f_index := model.facing_map[t]
+		delta := model.angle_offset[t] * math.PI / 180
+		sin_delta := math.sin(delta)
+		cos_delta := math.cos(delta)
+
+		
+		model.vx[t].sin_coeff[f_index] += model.accel[t] * cos_delta
+		model.vx[t].cos_coeff[f_index] += model.accel[t] * sin_delta
+
+		model.vz[t].sin_coeff[f_index] += model.accel[t] * (-sin_delta)
+		model.vz[t].cos_coeff[f_index] += model.accel[t] * cos_delta
 	}
 
 	// Generate X, Z

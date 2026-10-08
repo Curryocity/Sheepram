@@ -259,10 +259,15 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		drag_x = m.drag_x,
 		drag_z = m.drag_z,
 		accel  = m.accel,
+		facing_map = m.facing_map,
+		n_unique = m.unique_facing_counts,
+		angle_offset = make([dynamic]f64, n),
 	}
+	copy(model.angle_offset[:], m.angle_offset[:n])
 	m.drag_x = nil
 	m.drag_z = nil
 	m.accel = nil
+	m.facing_map = nil
 	defer opt.destroy_model(&model)
 
 	result.angle_offset = make([dynamic]f64, n)
@@ -359,7 +364,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	// the purpose of this is only for checking if the objective is purely positional
 	// as the raw_problem is re-reduced in run_continuous_phase()
 	{
-		p_test := opt.reduce_problem(&raw_problem, &model, m.angle_offset[:])
+		p_test := opt.reduce_problem(&raw_problem, &model)
 		defer opt.destroy_problem(&p_test)
 		if !opt.pure_position_expr(p_test.objective) {
 			set_optimizer_error(&result, "Error:\nFacing and turn expressions (F and T) are not allowed in the objective.")
@@ -380,7 +385,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	prev_pancake: opt.Pancake_Result
 	defer opt.destroy_pancake_result(&prev_pancake)
 	config.prev_pancake = &prev_pancake
-	prev_thetas := make([]f64, n)
+	prev_thetas := make([]f64, model.n_unique)
 	defer delete(prev_thetas)
 	config.prev_thetas = prev_thetas
 
@@ -407,7 +412,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 			return result
 		}
 	}
-	problem := opt.reduce_problem(&raw_problem, &model, m.angle_offset[:])	
+	problem := opt.reduce_problem(&raw_problem, &model)	
 	defer opt.destroy_problem(&problem)
 
 	tighten_mod := Constraint_Tightening{
@@ -609,9 +614,12 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	}
 
 	if !result.discrete {
-		for &theta, i in solution.thetas {
-			theta -= m.angle_offset[i]*math.PI/180
+		facings := make([dynamic]f64, n)
+		for tick in 0..<n {
+			facings[tick] = solution.thetas[model.facing_map[tick]]
 		}
+		delete(solution.thetas)
+		solution.thetas = facings
 	}
 
 	for constraint in constraints {
@@ -666,7 +674,7 @@ run_continuous_phase :: proc(
 	tighten_mod: ^Constraint_Tightening,
 ) -> bool{
 
-	problem := opt.reduce_problem(raw_problem, model, m.angle_offset[:])
+	problem := opt.reduce_problem(raw_problem, model)
 	defer opt.destroy_problem(&problem)
 
 	initial_theta := config.seed * math.PI / 180
@@ -753,7 +761,7 @@ run_continuous_phase :: proc(
 		}
 
 		opt.destroy_problem(&problem)
-		problem = opt.reduce_problem(raw_problem, model, m.angle_offset[:])
+		problem = opt.reduce_problem(raw_problem, model)
 
 		recovered: opt.Solution
 		switch config.optimizer {

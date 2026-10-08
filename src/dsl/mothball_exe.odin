@@ -42,6 +42,11 @@ Moth_Compiler :: struct {
 	exact_movement: [dynamic]opt.Exact_Movement,
 	discrete_supported: bool,
 	variables: map[string]f64,
+
+	in_chunk: bool,
+	chunk_first_entry: bool,
+	facing_map: [dynamic]int, // tick to facing index map
+	unique_facing_counts: int,
 }
 
 
@@ -56,6 +61,7 @@ destroy_moth_compiler :: proc(state: ^Moth_Compiler) {
 	delete(state.exact_movement)
 	for name in state.variables do delete(name)
 	delete(state.variables)
+	delete(state.facing_map)
 	state^ = {}
 }
 
@@ -80,35 +86,6 @@ set_model_error :: proc(state: ^Moth_Compiler, message: string) {
 	if !state.ok do return
 	state.ok = false
 	state.err = strings.clone(message)
-}
-
-consume_wall_hits :: proc(state: ^Moth_Compiler) -> (wall_x, wall_z: bool) {
-	wall_x = state.wall_x_queued > 0
-	wall_z = state.wall_z_queued > 0
-	if wall_x do state.wall_x_queued -= 1
-	if wall_z do state.wall_z_queued -= 1
-	return
-}
-
-apply_wall_hits_before_movement :: proc(state: ^Moth_Compiler, wall_x, wall_z: bool) {
-	previous_tick := len(state.drag_x)-1
-	assert(previous_tick >= 0)
-
-	if wall_x do state.drag_x[previous_tick] = 0
-	if wall_z do state.drag_z[previous_tick] = 0
-
-	if previous_tick == 0 {
-		if wall_x do state.initial_wall_x = true
-		if wall_z do state.initial_wall_z = true
-		return
-	}
-
-	previous_movement_index := previous_tick-1
-	if previous_movement_index < len(state.exact_movement) {
-		previous_movement := &state.exact_movement[previous_movement_index]
-		if wall_x do previous_movement.drag_x = 0
-		if wall_z do previous_movement.drag_z = 0
-	}
 }
 
 append_movement_tick :: proc(state: ^Moth_Compiler, movement: MoveFunc) {
@@ -140,6 +117,14 @@ append_movement_tick :: proc(state: ^Moth_Compiler, movement: MoveFunc) {
 	append(&state.jump_ticks, movement.jump)
 	append(&state.inertia_drag, exact_base.drag_x)
 	append(&state.exact_movement, exact_base)
+
+	if !state.in_chunk {
+		state.unique_facing_counts += 1
+	}else if state.chunk_first_entry {
+		state.unique_facing_counts += 1
+		state.chunk_first_entry = false
+	}
+	append(&state.facing_map, state.unique_facing_counts - 1)
 }
 
 compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
@@ -161,10 +146,20 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 	append(&state.jump_ticks, false)
 	append(&state.inertia_drag, 0)
 
+	state.in_chunk = false
+	state.chunk_first_entry = false
+	append(&state.facing_map, 0)
+	state.unique_facing_counts = 1
+
 	exe_code(state, code)
 
 	if !state.has_init_v {
 		set_model_error(state, "Error: initial velocity missing")
+		return
+	}
+
+	if state.in_chunk {
+		set_model_error(state, "Error: missing ']' to close the chunk")
 		return
 	}
 
@@ -591,6 +586,14 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 			append(&state.angle_offset, 0)
 			append(&state.jump_ticks, false)
 			append(&state.inertia_drag, drag)
+
+			if !state.in_chunk{
+				state.unique_facing_counts += 1
+			}else if state.chunk_first_entry {
+				state.unique_facing_counts += 1
+				state.chunk_first_entry = false
+			}
+			append(&state.facing_map, state.unique_facing_counts - 1)
 		}
 		state.n += duration
 		return
@@ -622,6 +625,26 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 		}
 		return
 
+	case .ChunkStart:
+		if state.in_chunk {
+			set_model_error(state, "Error: Cannot start a chunk with '[' while there's an unclosed chunk.")
+			return
+		}
+
+		state.in_chunk = true
+		state.chunk_first_entry = true
+		return
+	
+	case .ChunkEnd:
+		if !state.in_chunk {
+			set_model_error(state, "Error: Cannot end a chunk with ']' as there's no unclosed chunk.")
+			return
+		}
+
+		state.in_chunk = false
+		state.chunk_first_entry = false
+		return
+
 	case .Plus, .Minus, .Mul, .Div:
 		set_model_error(state, "Error: arithmetic expression cannot be a top-level command")
 		return
@@ -629,5 +652,34 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 	case .Invalid:
 		set_model_error(state, "Error: invalid command")
 		return
+	}
+}
+
+consume_wall_hits :: proc(state: ^Moth_Compiler) -> (wall_x, wall_z: bool) {
+	wall_x = state.wall_x_queued > 0
+	wall_z = state.wall_z_queued > 0
+	if wall_x do state.wall_x_queued -= 1
+	if wall_z do state.wall_z_queued -= 1
+	return
+}
+
+apply_wall_hits_before_movement :: proc(state: ^Moth_Compiler, wall_x, wall_z: bool) {
+	previous_tick := len(state.drag_x)-1
+	assert(previous_tick >= 0)
+
+	if wall_x do state.drag_x[previous_tick] = 0
+	if wall_z do state.drag_z[previous_tick] = 0
+
+	if previous_tick == 0 {
+		if wall_x do state.initial_wall_x = true
+		if wall_z do state.initial_wall_z = true
+		return
+	}
+
+	previous_movement_index := previous_tick-1
+	if previous_movement_index < len(state.exact_movement) {
+		previous_movement := &state.exact_movement[previous_movement_index]
+		if wall_x do previous_movement.drag_x = 0
+		if wall_z do previous_movement.drag_z = 0
 	}
 }
