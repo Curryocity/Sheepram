@@ -429,7 +429,7 @@ spine_optimize :: proc(
 ) -> Solution {
 	assert_valid_objective(problem)
 	if kkt_converged_out != nil do kkt_converged_out^ = false
-	n := model.n
+	n := problem.n
 	assert(len(thetas) == n)
 	owned_workspace: Workspace
 	work := workspace
@@ -440,6 +440,9 @@ spine_optimize :: proc(
 	defer {
 		if workspace == nil do destroy_workspace(&owned_workspace)
 	}
+	assert(len(work.temp_g) == n)
+	assert(len(work.sin_cache) == n)
+	assert(len(work.cos_cache) == n)
 
 	lamb := make([dynamic]f64, len(problem.ineq_cons))
 	defer delete(lamb)
@@ -535,12 +538,12 @@ spine_optimize :: proc(
 
 	solution := Solution {
 		thetas = thetas,
-		xs     = make([dynamic]f64, n),
-		zs     = make([dynamic]f64, n),
+		xs     = make([dynamic]f64, model.n),
+		zs     = make([dynamic]f64, model.n),
 	}
 	update_trig_cache(work, thetas[:])
 	solution.optimum = eval(problem.objective, thetas[:], work)
-	for i in 0..<n {
+	for i in 0..<model.n {
 		solution.xs[i] = eval(model.x[i], thetas[:], work)
 		solution.zs[i] = eval(model.z[i], thetas[:], work)
 	}
@@ -556,8 +559,8 @@ spine_optimize_thetas_slice :: proc(
 	stop_at_first_feasible: bool = false,
 	kkt_converged_out: ^bool = nil,
 ) -> Solution {
-	assert(len(initial_thetas) == model.n)
-	thetas := make([dynamic]f64, model.n)
+	assert(len(initial_thetas) == problem.n)
+	thetas := make([dynamic]f64, problem.n)
 	copy(thetas[:], initial_thetas)
 	return spine_optimize(
 		model,
@@ -576,7 +579,7 @@ spine_optimize_1seed :: proc(
 	seed: f64 = math.PI / 4,
 	workspace: ^Workspace = nil,
 ) -> Solution {
-	thetas := make([dynamic]f64, model.n)
+	thetas := make([dynamic]f64, problem.n)
 	for &theta in thetas do theta = seed
 	return spine_optimize(
 		model,
@@ -591,13 +594,13 @@ spine_optimize_multistart :: proc(
 	problem: ^Problem,
 	seeds: []f64,
 ) -> (Solution, int) {
-	work := make_workspace(model.n)
+	work := make_workspace(problem.n)
 	defer destroy_workspace(&work)
 	if len(seeds) == 0 {
 		return spine_optimize_1seed(model, problem, 0, &work), -1
 	}
 
-	seed_thetas := make([dynamic]f64, model.n)
+	seed_thetas := make([dynamic]f64, problem.n)
 	for &theta in seed_thetas do theta = seeds[0]
 	best_kkt_converged := false
 	best := spine_optimize(
@@ -612,7 +615,7 @@ spine_optimize_multistart :: proc(
 	best_index := 0
 
 	for seed, index in seeds[1:] {
-		candidate_thetas := make([dynamic]f64, model.n)
+		candidate_thetas := make([dynamic]f64, problem.n)
 		for &theta in candidate_thetas do theta = seed
 		candidate_kkt_converged := false
 		candidate := spine_optimize(

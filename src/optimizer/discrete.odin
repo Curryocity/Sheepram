@@ -4,16 +4,21 @@ import "core:math"
 import "core:math/rand"
 import "core:time"
 
+// In the code, 'ut' or 'utick' indexes a searchable movement facing.
+
 Discrete_Model :: struct {
 	// Part II optimization
 	n: int,
-	init_v: f64,
-	has_init_theta: bool,
-	init_theta: f64, // radians
+	init_vx: f64,
+	init_vz: f64,
+	init_v_range: bool,
+	init_facing: f64, // radians
 	init_drag_x: f64,
 	init_drag_z: f64,
-	angle_offset: [dynamic]f64, // radians, theta = facing + angle_offset
 	exact_movement: [dynamic]Exact_Movement,
+
+	n_unique: int,
+	facing_map: [dynamic]int,
 
 	vx: [dynamic]Compiled_Expr,
 	vz: [dynamic]Compiled_Expr,
@@ -22,7 +27,6 @@ Discrete_Model :: struct {
 }
 
 Discrete_State :: struct {
-	init_theta: f64,
 	indices: [dynamic]u16,
 }
 
@@ -39,7 +43,6 @@ Discrete_Cand :: struct {
 
 clone_discrete_state :: proc(state: Discrete_State) -> Discrete_State {
 	out := Discrete_State {
-		init_theta = state.init_theta,
 		indices    = make([dynamic]u16, len(state.indices)),
 	}
 	copy(out.indices[:], state.indices[:])
@@ -48,7 +51,6 @@ clone_discrete_state :: proc(state: Discrete_State) -> Discrete_State {
 
 copy_discrete_state :: proc(dst: ^Discrete_State, src: Discrete_State) {
 	assert(len(dst.indices) == len(src.indices))
-	dst.init_theta = src.init_theta
 	copy(dst.indices[:], src.indices[:])
 }
 
@@ -76,7 +78,7 @@ destroy_discrete_cand :: proc(cand: ^Discrete_Cand) {
 
 destroy_discrete_model :: proc(model: ^Discrete_Model) {
 	delete(model.exact_movement)
-	delete(model.angle_offset)
+	delete(model.facing_map)
 	destroy_compiled_expr_array(&model.vx)
 	destroy_compiled_expr_array(&model.vz)
 	destroy_compiled_expr_array(&model.x)
@@ -84,21 +86,31 @@ destroy_discrete_model :: proc(model: ^Discrete_Model) {
 	model^ = {}
 }
 
-copy_discrete_exprs :: proc(discrete: ^Discrete_Model, model: ^Model) {
+copy_discrete_exprs :: proc(discrete: ^Discrete_Model, model: ^Model, initial_thetas: []f64) {
 	assert(discrete.n == model.n)
+	assert(len(initial_thetas) == (2 if model.init_v_range else 1))
 	destroy_compiled_expr_array(&discrete.vx)
 	destroy_compiled_expr_array(&discrete.vz)
 	destroy_compiled_expr_array(&discrete.x)
 	destroy_compiled_expr_array(&discrete.z)
-	discrete.vx = clone_compiled_expr_array(model.vx[:])
-	discrete.vz = clone_compiled_expr_array(model.vz[:])
-	discrete.x  = clone_compiled_expr_array(model.x[:])
-	discrete.z  = clone_compiled_expr_array(model.z[:])
+	discrete.vx = make([dynamic]Compiled_Expr, model.n)
+	discrete.vz = make([dynamic]Compiled_Expr, model.n)
+	discrete.x = make([dynamic]Compiled_Expr, model.n)
+	discrete.z = make([dynamic]Compiled_Expr, model.n)
+	for tick in 0..<model.n {
+		discrete.vx[tick] = freeze_initial_expr(model.vx[tick], initial_thetas)
+		discrete.vz[tick] = freeze_initial_expr(model.vz[tick], initial_thetas)
+		discrete.x[tick] = freeze_initial_expr(model.x[tick], initial_thetas)
+		discrete.z[tick] = freeze_initial_expr(model.z[tick], initial_thetas)
+	}
+	discrete.init_vx = discrete.vx[0].constant
+	discrete.init_vz = discrete.vz[0].constant
+	discrete.init_facing = initial_velocity_facing(discrete.init_vx, discrete.init_vz) if model.init_v_range else initial_thetas[0]
 }
 
 discrete_angle_len :: proc(model: ^Discrete_Model) -> int {
-	if model.n <= 2 do return 0
-	return model.n-2
+	n_init_angles := 2 if model.init_v_range else 1
+	return model.n_unique-n_init_angles
 }
 
 assert_discrete_state :: proc(model: ^Discrete_Model, state: Discrete_State) {
@@ -109,45 +121,31 @@ offset_index :: proc(index: u16, delta: int) -> u16 {
 	return u16((int(index)+delta) & SINE_TABLE_MASK)
 }
 
-assert_no_terminal_angle_dependency :: proc(expr: Compiled_Expr) {
-	assert(len(expr.theta_coeff) == len(expr.sin_coeff))
-	assert(len(expr.theta_coeff) == len(expr.cos_coeff))
-	if len(expr.theta_coeff) == 0 do return
+discrete_state_deg :: proc(state: Discrete_State, t: int, model: ^Discrete_Model) -> f64 {
+	if t == 0 do return model.init_facing*180/math.PI
 
-	last := len(expr.theta_coeff)-1
-	assert(math.abs(expr.theta_coeff[last]) <= EPS, "Discrete expression depends on terminal theta")
-	assert(math.abs(expr.sin_coeff[last]) <= EPS, "Discrete expression depends on terminal sin(theta)")
-	assert(math.abs(expr.cos_coeff[last]) <= EPS, "Discrete expression depends on terminal cos(theta)")
+	n_init_angles := 2 if model.init_v_range else 1
+	ut := model.facing_map[t]-n_init_angles
+	assert(ut >= 0 && ut < len(state.indices))
+	return index_to_facing(state.indices[ut])
 }
 
-discrete_state_deg :: proc(state: Discrete_State, t: int) -> f64 {
-	if t == 0 do return state.init_theta*180/math.PI
-	return index_to_facing(state.indices[t-1])
-}
+eval_discrete_expr :: proc(expr: Compiled_Expr, state: Discrete_State, work: ^Workspace) -> f64 {
+	n_unique := len(state.indices)
+	assert(len(expr.theta_coeff) == n_unique)
+	assert(len(expr.sin_coeff) == n_unique)
+	assert(len(expr.cos_coeff) == n_unique)
+	assert(len(work.sin_cache) == n_unique)
+	assert(len(work.cos_cache) == n_unique)
 
-eval_discrete_expr :: proc(
-	expr: Compiled_Expr,
-	state: Discrete_State,
-	angle_offset: []f64,
-	work: ^Workspace,
-) -> f64 {
-	n := len(state.indices)+2
-	assert(len(expr.theta_coeff) == n)
-	assert_no_terminal_angle_dependency(expr)
-	assert(len(work.sin_cache) == n)
-	assert(len(work.cos_cache) == n)
-	assert(len(angle_offset) >= n)
+	value := expr.constant
 
-	value := expr.constant +
-	         expr.theta_coeff[0]*state.init_theta +
-	         expr.sin_coeff[0]*work.sin_cache[0] +
-	         expr.cos_coeff[0]*work.cos_cache[0]
 	for index, i in state.indices {
-		t := i+1
-		theta := index_to_radians(index) + angle_offset[t]
-		value += expr.theta_coeff[t]*theta +
-		         expr.sin_coeff[t]*work.sin_cache[t] +
-		         expr.cos_coeff[t]*work.cos_cache[t]
+		ut := i
+		theta := index_to_radians(index) 
+		value += expr.theta_coeff[ut]*theta +
+		         expr.sin_coeff[ut]*work.sin_cache[ut] +
+		         expr.cos_coeff[ut]*work.cos_cache[ut]
 	}
 	return value
 }
@@ -238,34 +236,34 @@ one_opt_descent :: proc(
 		}
 
 		best_found := false
-		best_tick := 0
+		best_utick := 0
 		best_delta := 0
 		best_grade := current.grade
 
 		copy_discrete_state(trial, current.state)
 
-		for t in 0..<ilen {
-			old_index := trial.indices[t]
+		for ut in 0..<ilen {
+			old_index := trial.indices[ut]
 			for magnitude in 1..=max_delta {
 				for sign in 0..=1 {
 					delta := sign == 0 ? magnitude : -magnitude
-					trial.indices[t] = offset_index(old_index, delta)
+					trial.indices[ut] = offset_index(old_index, delta)
 
 					exact_grading(&exact_grade, model, exact_p, trial^, exact_work)
 					if improveQ(&exact_grade, &best_grade, mode^) {
 						best_found = true
-						best_tick = t
+						best_utick = ut
 						best_delta = delta
 						best_grade = exact_grade
 					}
 				}
 			}
-			trial.indices[t] = old_index
+			trial.indices[ut] = old_index
 		}
 
 		if !best_found do return improved, false
 
-		current.state.indices[best_tick] = offset_index(current.state.indices[best_tick], best_delta)
+		current.state.indices[best_utick] = offset_index(current.state.indices[best_utick], best_delta)
 		current.grade = best_grade
 		mode^ = .Polish if best_grade.feasible else .Repair
 		improved = true
@@ -277,19 +275,19 @@ exact_grade_two_opt :: #force_inline proc(
 	model: ^Discrete_Model,
 	p: ^Raw_Problem,
 	state: ^Discrete_State,
-	t0, t1: int,
+	ut0, ut1: int,
 	delta: [2]int,
 	work: ^Exact_Workspace,
 ) {
-	old0 := state.indices[t0]
-	old1 := state.indices[t1]
-	state.indices[t0] = offset_index(old0, delta[0])
-	state.indices[t1] = offset_index(old1, delta[1])
+	old0 := state.indices[ut0]
+	old1 := state.indices[ut1]
+	state.indices[ut0] = offset_index(old0, delta[0])
+	state.indices[ut1] = offset_index(old1, delta[1])
 
 	exact_grading(out, model, p, state^, work)
 
-	state.indices[t0] = old0
-	state.indices[t1] = old1
+	state.indices[ut0] = old0
+	state.indices[ut1] = old1
 }
 
 two_opt_descent :: #force_inline proc(
@@ -305,7 +303,7 @@ two_opt_descent :: #force_inline proc(
 ) -> (cancelled: bool) {
 	ilen := discrete_angle_len(model)
 
-	work := make_workspace(model.n)
+	work := make_workspace(p.n)
 	defer destroy_workspace(&work)
 
 	baseline := make_discrete_baseline(model, p)
@@ -343,18 +341,18 @@ two_opt_descent :: #force_inline proc(
 			if cancel_requested(control) do return true
 			attempts += 1
 
-			t0, t1: int
+			ut0, ut1: int
 			if search_mode == .Cooking {
-				t0 = rand.int_max(ilen, rng)
-				t1 = rand.int_max(ilen-1, rng)
-				if t1 >= t0 do t1 += 1
-				if t1 < t0 {
-					tmp := t0
-					t0 = t1
-					t1 = tmp
+				ut0 = rand.int_max(ilen, rng)
+				ut1 = rand.int_max(ilen-1, rng)
+				if ut1 >= ut0 do ut1 += 1
+				if ut1 < ut0 {
+					tmp := ut0
+					ut0 = ut1
+					ut1 = tmp
 				}
 			} else {
-				t0, t1 = get_pair(pairs[attempts-1], ilen)
+				ut0, ut1 = get_pair(pairs[attempts-1], ilen)
 			}
 
 			local_pair_improved := false
@@ -367,7 +365,7 @@ two_opt_descent :: #force_inline proc(
 			for delta in TWO_OPT_DELTAS {
 				move := Two_Opt_Move {
 					deltas = delta,
-					ticks = {t0, t1},
+					uticks = {ut0, ut1},
 				}
 				two_opt_grade: Two_Opt_Grade
 				grade_two_opt(&two_opt_grade, &baseline, model, p, &move, mode^)
@@ -380,7 +378,7 @@ two_opt_descent :: #force_inline proc(
 				}
 
 				if good_two_opt_candQ(&two_opt_grade, &baseline, &current.grade, p, mode^, search_mode) {
-					exact_grade_two_opt(&exact_grade, model, exact_p, &current.state, t0, t1, delta, exact_work)
+					exact_grade_two_opt(&exact_grade, model, exact_p, &current.state, ut0, ut1, delta, exact_work)
 
 					if !exact_grade.feasible do continue
 
@@ -395,8 +393,8 @@ two_opt_descent :: #force_inline proc(
 						accept_worse = true
 					}
 
-					current.state.indices[t0] = offset_index(current.state.indices[t0], delta[0])
-					current.state.indices[t1] = offset_index(current.state.indices[t1], delta[1])
+					current.state.indices[ut0] = offset_index(current.state.indices[ut0], delta[0])
+					current.state.indices[ut1] = offset_index(current.state.indices[ut1], delta[1])
 					current.grade = exact_grade
 					mode^ = .Polish
 					rebuild_discrete_baseline(&baseline, model, p, current.state, &work, mode^)
@@ -413,8 +411,8 @@ two_opt_descent :: #force_inline proc(
 			}
 
 			if !accept && mode^ == .Repair && local_pair_improved {
-				current.state.indices[t0] = offset_index(current.state.indices[t0], local_pair_delta[0])
-				current.state.indices[t1] = offset_index(current.state.indices[t1], local_pair_delta[1])
+				current.state.indices[ut0] = offset_index(current.state.indices[ut0], local_pair_delta[0])
+				current.state.indices[ut1] = offset_index(current.state.indices[ut1], local_pair_delta[1])
 				rebuild_discrete_baseline(&baseline, model, p, current.state, &work, mode^)
 				current.grade = baseline_grade(&baseline)
 				accept = true
@@ -425,6 +423,16 @@ two_opt_descent :: #force_inline proc(
 
 		if !accept do return false
 	}
+}
+
+make_discrete_state :: proc(model: ^Discrete_Model, sol: ^Solution) -> Discrete_State {
+	assert(len(sol.thetas) == model.n_unique)
+	n_init_angles := 2 if model.init_v_range else 1
+	state := Discrete_State {
+		indices = make([dynamic]u16, discrete_angle_len(model)),
+	}
+	for &angle_index, i in state.indices do angle_index = index(f32(sol.thetas[i+n_init_angles]))
+	return state
 }
 
 local_search :: proc(
@@ -438,26 +446,13 @@ local_search :: proc(
 
 	ilen := discrete_angle_len(model)
 
-	init_theta := sol.thetas[0]
-	if model.has_init_theta do init_theta = model.init_theta
-
-	trial := Discrete_State {
-		init_theta = init_theta,
-		indices    = make([dynamic]u16, ilen),
-	}
+	trial := make_discrete_state(model, sol)
 	defer destroy_discrete_state(&trial)
 
 	// Two modes:
 	// Repair: no exact-feasible solution yet.
 	// Polish: an exact-feasible solution exists. improve objective only.
 	mode := Discrete_Mode.Repair
-
-	// 1. Clamp the solution down to the lattices
-	for i in 0..<ilen {
-		t := i+1
-		facing := sol.thetas[t] - model.angle_offset[t]
-		trial.indices[i] = index(f32(facing))
-	}
 
 	exact_work := make_exact_workspace(model.n)
 	defer destroy_exact_workspace(&exact_work)
@@ -498,8 +493,7 @@ local_search :: proc(
 	if mode == .Polish &&
 	   (!best.grade.feasible || improveQ(&current.grade, &best.grade, .Polish)) {
 		copy_discrete_cand(&best, current)
-	} else if !best.grade.feasible &&
-	          improveQ(&current.grade, &best.grade, .Repair) {
+	} else if !best.grade.feasible && improveQ(&current.grade, &best.grade, .Repair) {
 		copy_discrete_cand(&best, current)
 	}
 
@@ -509,7 +503,7 @@ local_search :: proc(
 
 Two_Opt_Move :: struct {
 	deltas: [2]int,
-	ticks: [2]int, // Indices into Discrete_State.indices.
+	uticks: [2]int, // Indices into Discrete_State.indices.
 
 	dsin: [2]f64,
 	dcos: [2]f64,
@@ -531,10 +525,7 @@ Discrete_Baseline :: struct {
 	feasible: bool,
 }
 
-make_discrete_baseline :: proc(
-	model: ^Discrete_Model,
-	p: ^Problem,
-) -> Discrete_Baseline {
+make_discrete_baseline :: proc(model: ^Discrete_Model, p: ^Problem) -> Discrete_Baseline {
 	return {
 		state = {
 			indices = make([dynamic]u16, discrete_angle_len(model)),
@@ -564,14 +555,14 @@ rebuild_discrete_baseline :: proc(
 	assert(len(base.equality_values) == len(p.eq_cons))
 
 	copy_discrete_state(&base.state, state)
-	update_discrete_trig_cache(work, state, model.angle_offset[:])
+	update_discrete_trig_cache(work, state)
 
-	base.objective = eval_discrete_expr(p.objective, state, model.angle_offset[:], work)
+	base.objective = eval_discrete_expr(p.objective, state, work)
 	base.violation_sqr = 0
 	base.feasible = true
 
 	for constraint, i in p.ineq_cons {
-		value := eval_discrete_expr(constraint, state, model.angle_offset[:], work)
+		value := eval_discrete_expr(constraint, state, work)
 		base.inequality_values[i] = value
 		violation := max(0.0, value)
 		base.violation_sqr += violation*violation
@@ -579,7 +570,7 @@ rebuild_discrete_baseline :: proc(
 	}
 
 	for constraint, i in p.eq_cons {
-		value := eval_discrete_expr(constraint, state, model.angle_offset[:], work)
+		value := eval_discrete_expr(constraint, state, work)
 		base.equality_values[i] = value
 		violation := math.abs(value)
 		base.violation_sqr += violation*violation
@@ -609,22 +600,21 @@ grade_two_opt :: proc(
 ) {
 	assert(len(base.inequality_values) == len(p.ineq_cons))
 	assert(len(base.equality_values) == len(p.eq_cons))
-	assert(move.ticks[0] != move.ticks[1])
+	assert(move.uticks[0] != move.uticks[1])
 
 	out^ = {
 		feasible = true,
 	}
 
 	for i in 0..<2 {
-		state_index := move.ticks[i]
+		state_index := move.uticks[i]
 		assert(state_index >= 0 && state_index < len(base.state.indices))
 
 		old_idx := base.state.indices[state_index]
 		new_idx := offset_index(old_idx, move.deltas[i])
-		actual_t := state_index + 1
 
-		old_s, old_c := trig_index_offset(old_idx, model.angle_offset[actual_t])
-		new_s, new_c := trig_index_offset(new_idx, model.angle_offset[actual_t])
+		old_s, old_c := f64(sin_index(old_idx)),  f64(cos_index(old_idx))
+		new_s, new_c := f64(sin_index(new_idx)),  f64(cos_index(new_idx))
 
 		move.dsin[i] = new_s - old_s
 		move.dcos[i] = new_c - old_c
@@ -660,10 +650,10 @@ two_opt_expr_delta :: proc(expr: Compiled_Expr, move: ^Two_Opt_Move) -> f64 {
 	delta := f64(0)
 
 	for i in 0..<2 {
-		t := move.ticks[i] + 1
-		delta += expr.sin_coeff[t] * move.dsin[i]
-		delta += expr.cos_coeff[t] * move.dcos[i]
-		delta += expr.theta_coeff[t] * move.dtheta[i]
+		ut := move.uticks[i]
+		delta += expr.sin_coeff[ut] * move.dsin[i]
+		delta += expr.cos_coeff[ut] * move.dcos[i]
+		delta += expr.theta_coeff[ut] * move.dtheta[i]
 	}
 
 	return delta
@@ -728,27 +718,30 @@ improve_two_opt_repairQ :: proc(new: ^Two_Opt_Grade, src: ^Two_Opt_Grade) -> boo
 	return new.objective_delta < src.objective_delta
 }
 
-create_exact_solution :: proc(discrete: ^Discrete_Model, state: Discrete_State) -> Solution {
-	assert_discrete_state(discrete, state)
+create_exact_solution :: proc(model: ^Discrete_Model, state: Discrete_State) -> Solution {
+	assert_discrete_state(model, state)
+	n_init_angles := 2 if model.init_v_range else 1
 
 	solution := Solution {
-		thetas = make([dynamic]f64, discrete.n),
-		xs     = make([dynamic]f64, discrete.n),
-		zs     = make([dynamic]f64, discrete.n),
+		thetas = make([dynamic]f64, model.n),
+		xs     = make([dynamic]f64, model.n),
+		zs     = make([dynamic]f64, model.n),
 	}
 
-	if discrete.n > 0 {
-		solution.thetas[0] = state.init_theta*180/math.PI
-	}
-	for index, i in state.indices {
-		solution.thetas[i+1] = index_to_facing(index)
+	if model.n > 0 {
+		solution.thetas[0] = model.init_facing*180/math.PI
 	}
 
-	if discrete.n > 1 {
+	for t in 1..< model.n {
+		ut := model.facing_map[t]-n_init_angles
+		solution.thetas[t] = index_to_facing(state.indices[ut])
+	}
+
+	if model.n > 1 {
 		// Last facing has no effect on recorded positions
-		solution.thetas[discrete.n-1] = solution.thetas[discrete.n-2]
+		solution.thetas[model.n-1] = solution.thetas[model.n-2]
 	}
 
-	exact_simulation(discrete, state, solution.xs[:], solution.zs[:])
+	exact_simulation(model, state, solution.xs[:], solution.zs[:])
 	return solution
 }

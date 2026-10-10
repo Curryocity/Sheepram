@@ -348,9 +348,10 @@ pancake_solve :: proc(problem: ^Problem, seed: ^Pancake_Result = nil) -> Pancake
 }
 
 build_pancake_solution :: proc(model: ^Model, problem: ^Problem, thetas: []f64, work: ^Workspace) -> Solution {
+	assert(len(thetas) == problem.n)
 	solution := Solution {
 		continuous_globally_optimal = true,
-		thetas                        = make([dynamic]f64, model.n),
+		thetas                        = make([dynamic]f64, problem.n),
 		xs                            = make([dynamic]f64, model.n),
 		zs                            = make([dynamic]f64, model.n),
 	}
@@ -395,12 +396,15 @@ pancake_solution_from_relaxation :: proc(
 	owned_workspace: Workspace
 	work := workspace
 	if work == nil {
-		owned_workspace = make_workspace(model.n)
+		owned_workspace = make_workspace(problem.n)
 		work = &owned_workspace
 	}
 	defer {
 		if workspace == nil do destroy_workspace(&owned_workspace)
 	}
+	assert(len(work.temp_g) == problem.n)
+	assert(len(work.sin_cache) == problem.n)
+	assert(len(work.cos_cache) == problem.n)
 
 	recovery_reasons :=
 		pancake_collect_recovery_reasons(relaxation)

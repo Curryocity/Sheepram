@@ -97,25 +97,26 @@ exact_simulation :: proc(
 	xs, zs: []f64,
 ) {
 	assert_discrete_state(model, state)
-	assert(len(model.exact_movement) >= discrete_angle_len(model))
+	assert(len(model.exact_movement) >= model.n-2)
 	assert(len(xs) >= model.n)
 	assert(len(zs) >= model.n)
 	if model.n == 0 do return
+	n_init_angles := 2 if model.init_v_range else 1
 
 	xs[0] = 0
 	zs[0] = 0
 
 	// Initial velocity remains continuous and is not part of the bucket search.
-	vx := model.init_v * math.sin(state.init_theta)
-	vz := model.init_v * math.cos(state.init_theta)
+	vx := model.init_vx
+	vz := model.init_vz
 
 	for t in 1..<model.n {
+		ut := model.facing_map[t]-n_init_angles
+
 		xs[t] = xs[t-1]+vx
 		zs[t] = zs[t-1]+vz
 
-		// Updating the outgoing terminal velocity cannot affect any recorded
-		// position, so the final movement angle is deliberately not a search
-		// variable.
+		// Terimal velocity doesn't affect the result
 		if t == model.n-1 do break
 
 		if t == 1 {
@@ -128,7 +129,7 @@ exact_simulation :: proc(
 		}
 
 		m := model.exact_movement[t-1]
-		angle_index := state.indices[t-1]
+		angle_index := state.indices[ut]
 		sin_value := sin_index(angle_index)
 		cos_value := cos_index(angle_index)
 
@@ -158,13 +159,13 @@ exact_grading :: proc(
 
 	exact_simulation(model, state, work.xs[:], work.zs[:])
 
-	out.objective = eval_raw_expr(p.objective, state, work.xs[:], work.zs[:])
+	out.objective = eval_raw_expr(p.objective, state, work.xs[:], work.zs[:], model)
 
 	out.violation_sqr = 0
 	out.feasible = true
 
 	for con in p.ineq_cons {
-		value := eval_raw_expr(con, state, work.xs[:], work.zs[:])
+		value := eval_raw_expr(con, state, work.xs[:], work.zs[:], model)
 
 		violation := max(0, value)
 		out.violation_sqr += violation*violation
@@ -172,7 +173,7 @@ exact_grading :: proc(
 	}
 
 	for con in p.eq_cons {
-		value := eval_raw_expr(con, state, work.xs[:], work.zs[:])
+		value := eval_raw_expr(con, state, work.xs[:], work.zs[:], model)
 
 		violation := math.abs(value)
 		out.violation_sqr += violation*violation

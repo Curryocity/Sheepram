@@ -259,10 +259,17 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		drag_x = m.drag_x,
 		drag_z = m.drag_z,
 		accel  = m.accel,
+		facing_map = m.facing_map,
+		n_unique = m.unique_facing_counts,
+		init_v_range = m.init_v_range,
+		init_v_extra = m.init_v_extra,
+		angle_offset = make([dynamic]f64, n),
 	}
+	copy(model.angle_offset[:], m.angle_offset[:n])
 	m.drag_x = nil
 	m.drag_z = nil
 	m.accel = nil
+	m.facing_map = nil
 	defer opt.destroy_model(&model)
 
 	result.angle_offset = make([dynamic]f64, n)
@@ -359,7 +366,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	// the purpose of this is only for checking if the objective is purely positional
 	// as the raw_problem is re-reduced in run_continuous_phase()
 	{
-		p_test := opt.reduce_problem(&raw_problem, &model, m.angle_offset[:])
+		p_test := opt.reduce_problem(&raw_problem, &model)
 		defer opt.destroy_problem(&p_test)
 		if !opt.pure_position_expr(p_test.objective) {
 			set_optimizer_error(&result, "Error:\nFacing and turn expressions (F and T) are not allowed in the objective.")
@@ -380,7 +387,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	prev_pancake: opt.Pancake_Result
 	defer opt.destroy_pancake_result(&prev_pancake)
 	config.prev_pancake = &prev_pancake
-	prev_thetas := make([]f64, n)
+	prev_thetas := make([]f64, model.n_unique)
 	defer delete(prev_thetas)
 	config.prev_thetas = prev_thetas
 
@@ -407,7 +414,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 			return result
 		}
 	}
-	problem := opt.reduce_problem(&raw_problem, &model, m.angle_offset[:])	
+	problem := opt.reduce_problem(&raw_problem, &model)	
 	defer opt.destroy_problem(&problem)
 
 	tighten_mod := Constraint_Tightening{
@@ -420,22 +427,19 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	if material.discrete_search {
 		discrete_model = opt.Discrete_Model {
 			n = n,
-			init_v = m.init_v,
-			has_init_theta = m.has_init_angle,
-			init_theta = m.init_angle*math.PI/180,
+			init_v_range = m.init_v_range,
 			init_drag_x = initial_drag_x,
 			init_drag_z = initial_drag_z,
-			angle_offset = make([dynamic]f64, n),
 			exact_movement = m.exact_movement,
+			n_unique = problem.n,
+			facing_map = make([dynamic]int, len(model.facing_map)),
 		}
-		for i in 0..<n {
-			discrete_model.angle_offset[i] = m.angle_offset[i]*math.PI/180
-		}
+
 		m.exact_movement = nil
-		opt.copy_discrete_exprs(&discrete_model, &model)
+		copy(discrete_model.facing_map[:], model.facing_map[:])
 	}
 
-	original_pancake_dual_bound: f64
+	original_pancake_dual_bound: f64 // dual bound for untighten problem
 	previous_discrete: opt.Solution
 	defer opt.destroy_solution(&previous_discrete)
 	// The tightening loop
@@ -469,6 +473,13 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 
 		// 10. Phase II: optimize the discrete/exact model when requested
 		if !material.discrete_search do break
+		n_init_angles := 2 if m.init_v_range else 1
+		initial_thetas: [2]f64
+		copy(initial_thetas[:n_init_angles], solution.thetas[:n_init_angles])
+		if m.has_init_angle do initial_thetas[0] = m.init_angle*math.PI/180
+		opt.copy_discrete_exprs(&discrete_model, &model, initial_thetas[:n_init_angles])
+		discrete_problem := opt.freeze_initial_problem(&problem, initial_thetas[:n_init_angles])
+		defer opt.destroy_problem(&discrete_problem)
 
 		discrete_start := time.tick_now()
 
@@ -485,7 +496,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		best_discrete_state: opt.Discrete_State
 		defer opt.destroy_discrete_state(&best_discrete_state)
 		best_grade: opt.Grade
-		has_best := false
+		has_best := false // does the first candidate even exist?
 		completed_starts := 0
 
 		cancelled := false
@@ -503,7 +514,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 			}
 			candidate_state := opt.local_search(
 				&discrete_model,
-				&problem,
+				&discrete_problem,
 				&raw_problem,
 				solution,
 				search_mode,
@@ -519,16 +530,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 				&exact_work,
 			)
 
-			accept_candidate := !has_best
-			if has_best {
-				if candidate_grade.feasible != best_grade.feasible {
-					accept_candidate = candidate_grade.feasible
-				} else if candidate_grade.feasible {
-					accept_candidate = candidate_grade.objective < best_grade.objective
-				} else {
-					accept_candidate = candidate_grade.violation_sqr < best_grade.violation_sqr
-				}
-			}
+			accept_candidate := !has_best || opt.improveQ(&candidate_grade, &best_grade, .Repair)
 
 			if accept_candidate {
 				if has_best do opt.destroy_discrete_state(&best_discrete_state)
@@ -601,7 +603,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	}
 
 	// 11. Convert optimizer-space results back into UI/reporting-space results
-	result.tightening_epsilons = tighten_mod.epsilons
+	result.tightening_epsilons = tighten_mod.epsilons // not displayed anywhere yet, but I'll keep it for future use
 	tighten_mod.epsilons = nil
 	if material.maximize {
 		solution.optimum *= -1 // Invert solution again when maximizing
@@ -609,9 +611,20 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	}
 
 	if !result.discrete {
-		for &theta, i in solution.thetas {
-			theta -= m.angle_offset[i]*math.PI/180
+		facings := make([dynamic]f64, n)
+		for tick in 0..<n {
+			facings[tick] = solution.thetas[model.facing_map[tick]]
 		}
+		if m.init_v_range {
+			work := opt.make_workspace(model.n_unique)
+			opt.update_trig_cache(&work, solution.thetas[:])
+			vx := opt.eval(model.vx[0], solution.thetas[:], &work)
+			vz := opt.eval(model.vz[0], solution.thetas[:], &work)
+			facings[0] = opt.initial_velocity_facing(vx, vz)
+			opt.destroy_workspace(&work)
+		}
+		delete(solution.thetas)
+		solution.thetas = facings
 	}
 
 	for constraint in constraints {
@@ -666,7 +679,7 @@ run_continuous_phase :: proc(
 	tighten_mod: ^Constraint_Tightening,
 ) -> bool{
 
-	problem := opt.reduce_problem(raw_problem, model, m.angle_offset[:])
+	problem := opt.reduce_problem(raw_problem, model)
 	defer opt.destroy_problem(&problem)
 
 	initial_theta := config.seed * math.PI / 180
@@ -753,7 +766,7 @@ run_continuous_phase :: proc(
 		}
 
 		opt.destroy_problem(&problem)
-		problem = opt.reduce_problem(raw_problem, model, m.angle_offset[:])
+		problem = opt.reduce_problem(raw_problem, model)
 
 		recovered: opt.Solution
 		switch config.optimizer {

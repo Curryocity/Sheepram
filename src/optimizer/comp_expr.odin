@@ -9,6 +9,38 @@ Compiled_Expr :: struct {
 	cos_coeff:   [dynamic]f64,
 }
 
+// convert the fixed initial_terms into constant
+freeze_initial_expr :: proc(expr: Compiled_Expr, initial_thetas: []f64) -> Compiled_Expr {
+	n_init := len(initial_thetas)
+	assert(n_init <= len(expr.theta_coeff))
+	out := make_compiled_expr(len(expr.theta_coeff)-n_init)
+	out.constant = expr.constant
+	for theta, i in initial_thetas {
+		out.constant += expr.theta_coeff[i]*theta + expr.sin_coeff[i]*math.sin(theta) + expr.cos_coeff[i]*math.cos(theta)
+	}
+	copy(out.theta_coeff[:], expr.theta_coeff[n_init:])
+	copy(out.sin_coeff[:], expr.sin_coeff[n_init:])
+	copy(out.cos_coeff[:], expr.cos_coeff[n_init:])
+	return out
+}
+
+freeze_initial_problem :: proc(problem: ^Problem, initial_thetas: []f64) -> Problem {
+	out := Problem {
+		n = problem.n-len(initial_thetas),
+		objective = freeze_initial_expr(problem.objective, initial_thetas),
+		ineq_cons = make([dynamic]Compiled_Expr, len(problem.ineq_cons)),
+		eq_cons = make([dynamic]Compiled_Expr, len(problem.eq_cons)),
+	}
+	for expr, i in problem.ineq_cons do out.ineq_cons[i] = freeze_initial_expr(expr, initial_thetas)
+	for expr, i in problem.eq_cons do out.eq_cons[i] = freeze_initial_expr(expr, initial_thetas)
+	return out
+}
+
+initial_velocity_facing :: proc(vx, vz: f64) -> f64 {
+	if vx == 0 && vz == 0 do return 0
+	return math.atan2(vx, vz)
+}
+
 make_compiled_expr :: proc(n: int) -> Compiled_Expr {
 	return Compiled_Expr {
 		theta_coeff = make([dynamic]f64, n),

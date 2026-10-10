@@ -27,6 +27,7 @@ CmdType :: enum {
 	Timestamp,
 
 	SetInitGroundVel, SetInitAirVel,
+	SetInitGroundRange, SetInitAirRange,
 	WallX, WallZ,
 
 	SetSlip, SetSpeed, SetSlow, SetInertia,
@@ -35,6 +36,8 @@ CmdType :: enum {
 	Move,
 
 	Repeat,
+
+	ChunkStart, ChunkEnd,
 
 	Invalid,
 }
@@ -161,6 +164,16 @@ parse_moth_arg :: proc(prs: ^ParserState, min_bp: int) -> Arg {
 			destroy_arg(&lhs)
 			fail_parse(prs, "Error: missing ')' to close grouped expression")
 			return {}
+		}
+	case .L_Bracket:
+		lhs = Arg{
+			type = .Call,
+			expr = make_call(.ChunkStart, "[")
+		}
+	case .R_Bracket:
+		lhs = Arg{
+			type = .Call,
+			expr = make_call(.ChunkEnd, "]")
 		}
 	case .Invalid:
 		fail_parse(prs, fmt.tprintf("Error: %s", prefix.text))
@@ -354,6 +367,10 @@ get_command_type :: proc(name: string) -> CmdType {
 		return .SetInitGroundVel
 	case "initAir":
 		return .SetInitAirVel
+	case "initGndRange":
+		return .SetInitGroundRange
+	case "initAirRange":
+		return .SetInitAirRange
 	case:
 		return .Invalid
 	}

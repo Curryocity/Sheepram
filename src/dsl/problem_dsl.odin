@@ -159,6 +159,9 @@ resolve_indexed :: proc(parser: ^Parser, name: string, index: int, lexer: ^Lexer
 	if name == "F" {
 		max_index := parser.model.n - 2
 		if index < 0 || index > max_index do return {}, bound_error(name, index, max_index, lexer)
+		if parser.model.init_v_range && index == 0 {
+			return {}, parser_error("F[0] cannot be used with initial velocity ranges", lexer)
+		}
 		expr := opt.make_raw_expr(parser.model.n)
 		expr.f_coeff[index] = 1
 		return expr, ""
@@ -167,6 +170,9 @@ resolve_indexed :: proc(parser: ^Parser, name: string, index: int, lexer: ^Lexer
 		// Turn: T[i] = F[i+1] - F[i]
 		max_index := parser.model.n - 3
 		if index < 0 || index > max_index do return {}, bound_error(name, index, max_index, lexer)
+		if parser.model.init_v_range && index == 0 {
+			return {}, parser_error("T[0] cannot be used with initial velocity ranges", lexer)
+		}
 		expr := opt.make_raw_expr(parser.model.n)
 		expr.f_coeff[index + 1] = 1
 		expr.f_coeff[index] = -1

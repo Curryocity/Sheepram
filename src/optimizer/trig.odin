@@ -61,30 +61,13 @@ cos_index :: proc "contextless" (index: u16) -> f32 {
 	return cos_value_table[int(index)]
 }
 
-trig_index_offset :: proc "contextless" (index: u16, angle_offset: f64) -> (s, c: f64) {
-	facing_sin := f64(sin_index(index))
-	facing_cos := f64(cos_index(index))
-	offset_sin := math.sin(angle_offset)
-	offset_cos := math.cos(angle_offset)
-	s = facing_sin*offset_cos + facing_cos*offset_sin
-	c = facing_cos*offset_cos - facing_sin*offset_sin
-	return
-}
-
-update_discrete_trig_cache :: proc(
-	work: ^Workspace,
-	state: Discrete_State,
-	angle_offset: []f64,
-) {
-	assert(len(work.sin_cache) == len(state.indices)+2)
-	assert(len(work.cos_cache) == len(state.indices)+2)
-	assert(len(angle_offset) >= len(state.indices)+2)
-
-	work.sin_cache[0] = math.sin(state.init_theta)
-	work.cos_cache[0] = math.cos(state.init_theta)
+update_discrete_trig_cache :: proc(work: ^Workspace, state: Discrete_State) {
+	assert(len(work.sin_cache) == len(state.indices))
+	assert(len(work.cos_cache) == len(state.indices))
 	for index, i in state.indices {
-		t := i+1
-		work.sin_cache[t], work.cos_cache[t] = trig_index_offset(index, angle_offset[t])
+		ut := i
+		work.sin_cache[ut] = f64(sin_index(index))
+		work.cos_cache[ut] = f64(cos_index(index))
 	}
 }
 
