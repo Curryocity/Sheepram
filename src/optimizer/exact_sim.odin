@@ -95,23 +95,23 @@ exact_simulation :: proc(
 	model: ^Discrete_Model,
 	state: Discrete_State,
 	xs, zs: []f64,
-	facing_map: [dynamic]int,
 ) {
 	assert_discrete_state(model, state)
 	assert(len(model.exact_movement) >= model.n-2)
 	assert(len(xs) >= model.n)
 	assert(len(zs) >= model.n)
 	if model.n == 0 do return
+	n_init_angles := 2 if model.init_v_range else 1
 
 	xs[0] = 0
 	zs[0] = 0
 
 	// Initial velocity remains continuous and is not part of the bucket search.
-	vx := model.init_v * math.sin(state.init_theta)
-	vz := model.init_v * math.cos(state.init_theta)
+	vx := model.init_vx
+	vz := model.init_vz
 
 	for t in 1..<model.n {
-		ut := facing_map[t] - 1
+		ut := model.facing_map[t]-n_init_angles
 
 		xs[t] = xs[t-1]+vx
 		zs[t] = zs[t-1]+vz
@@ -153,20 +153,19 @@ exact_grading :: proc(
 	p: ^Raw_Problem,
 	state: Discrete_State,
 	work: ^Exact_Workspace,
-	facing_map: [dynamic]int,
 ) {
 	assert(len(work.xs) >= model.n)
 	assert(len(work.zs) >= model.n)
 
-	exact_simulation(model, state, work.xs[:], work.zs[:], facing_map)
+	exact_simulation(model, state, work.xs[:], work.zs[:])
 
-	out.objective = eval_raw_expr(p.objective, state, work.xs[:], work.zs[:], facing_map)
+	out.objective = eval_raw_expr(p.objective, state, work.xs[:], work.zs[:], model)
 
 	out.violation_sqr = 0
 	out.feasible = true
 
 	for con in p.ineq_cons {
-		value := eval_raw_expr(con, state, work.xs[:], work.zs[:], facing_map)
+		value := eval_raw_expr(con, state, work.xs[:], work.zs[:], model)
 
 		violation := max(0, value)
 		out.violation_sqr += violation*violation
@@ -174,7 +173,7 @@ exact_grading :: proc(
 	}
 
 	for con in p.eq_cons {
-		value := eval_raw_expr(con, state, work.xs[:], work.zs[:], facing_map)
+		value := eval_raw_expr(con, state, work.xs[:], work.zs[:], model)
 
 		violation := math.abs(value)
 		out.violation_sqr += violation*violation

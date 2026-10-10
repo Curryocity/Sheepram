@@ -261,6 +261,8 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		accel  = m.accel,
 		facing_map = m.facing_map,
 		n_unique = m.unique_facing_counts,
+		init_v_range = m.init_v_range,
+		init_v_extra = m.init_v_extra,
 		angle_offset = make([dynamic]f64, n),
 	}
 	copy(model.angle_offset[:], m.angle_offset[:n])
@@ -425,9 +427,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	if material.discrete_search {
 		discrete_model = opt.Discrete_Model {
 			n = n,
-			init_v = m.init_v,
-			has_init_theta = m.has_init_angle,
-			init_theta = m.init_angle*math.PI/180,
+			init_v_range = m.init_v_range,
 			init_drag_x = initial_drag_x,
 			init_drag_z = initial_drag_z,
 			exact_movement = m.exact_movement,
@@ -436,7 +436,6 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		}
 
 		m.exact_movement = nil
-		opt.copy_discrete_exprs(&discrete_model, &model)
 		copy(discrete_model.facing_map[:], model.facing_map[:])
 	}
 
@@ -474,6 +473,13 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 
 		// 10. Phase II: optimize the discrete/exact model when requested
 		if !material.discrete_search do break
+		n_init_angles := 2 if m.init_v_range else 1
+		initial_thetas: [2]f64
+		copy(initial_thetas[:n_init_angles], solution.thetas[:n_init_angles])
+		if m.has_init_angle do initial_thetas[0] = m.init_angle*math.PI/180
+		opt.copy_discrete_exprs(&discrete_model, &model, initial_thetas[:n_init_angles])
+		discrete_problem := opt.freeze_initial_problem(&problem, initial_thetas[:n_init_angles])
+		defer opt.destroy_problem(&discrete_problem)
 
 		discrete_start := time.tick_now()
 
@@ -508,7 +514,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 			}
 			candidate_state := opt.local_search(
 				&discrete_model,
-				&problem,
+				&discrete_problem,
 				&raw_problem,
 				solution,
 				search_mode,
@@ -522,7 +528,6 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 				&raw_problem,
 				candidate_state,
 				&exact_work,
-				discrete_model.facing_map,
 			)
 
 			accept_candidate := !has_best || opt.improveQ(&candidate_grade, &best_grade, .Repair)
@@ -609,6 +614,14 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		facings := make([dynamic]f64, n)
 		for tick in 0..<n {
 			facings[tick] = solution.thetas[model.facing_map[tick]]
+		}
+		if m.init_v_range {
+			work := opt.make_workspace(model.n_unique)
+			opt.update_trig_cache(&work, solution.thetas[:])
+			vx := opt.eval(model.vx[0], solution.thetas[:], &work)
+			vz := opt.eval(model.vz[0], solution.thetas[:], &work)
+			facings[0] = opt.initial_velocity_facing(vx, vz)
+			opt.destroy_workspace(&work)
 		}
 		delete(solution.thetas)
 		solution.thetas = facings

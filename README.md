@@ -76,6 +76,7 @@ equivalent to `wj.wd wa.wd(11)`.
 | Command | Description |
 | --- | --- |
 | `initGnd(vel)`/ `initAir(vel)` | Sets the initial velocity. Two variants differs by previous slip (initGnd takes the current slip when it is executed). One of them must appear exactly once and should normally be the first command. |
+| `initGndRange(min, max)`/`initAirRange(min, max)` | Optimizes the initial speed within a range. |
 | `slip(value)` | Sets the ground slipperiness used by subsequent ground movements. The default is `0.6`. |
 | `speed(level)`/`slow(level)` | Sets the Speed/Slowness effect level. The level must be a whole number from `0` to `255`. |
 | `set(name, value)` | Evaluates `value` immediately and assigns it to `name`. Later commands and movements can use the variable. |
@@ -167,7 +168,23 @@ The tick length of mothball script.
 Mothball variables cannot reference `n`. Since it is defined only after parsing the mothball script,
 `n`. It is reserved and cannot be redefined.
 
-### Double Rotator Trick: Optimizing Initial Velocity
+### Initial Velocity Optimizer (Sheepram V1.3+)
+
+Use `initGndRange(min, max)` or `initAirRange(min, max)` to optimize the initial
+speed and direction. Bounds must be finite and satisfy `0 <= min <= max`.
+
+`F[0]` and `T[0]` are unavailable in expressions with range initialization.
+Since internally they are non-linear terms.
+`Vx[0]` and `Vz[0]` remain available. The result table reports the combined initial
+speed and direction.
+
+### Double Rotator Trick: Optimizing Initial Velocity (Sheepram V1.3-)
+
+This is the underlying construction of `initGndRange(min, max)`, `initAirRange(min, max)`. 
+
+The following manual version uses `mv(...)`, which has downsides compared to internal support of initial velocity optimizer: 
+1. `mv(...)` is unsupported by Discrete Local Search.
+2. `mv(...)` take extra movement ticks, indexing and reading result requires extra effort to convert.
 
 The double rotator trick represents the initial velocity as the sum of two
 velocity vectors with independently optimized directions. To cover an exact

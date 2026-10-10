@@ -62,13 +62,10 @@ cos_index :: proc "contextless" (index: u16) -> f32 {
 }
 
 update_discrete_trig_cache :: proc(work: ^Workspace, state: Discrete_State) {
-	assert(len(work.sin_cache) == len(state.indices) + 1)
-	assert(len(work.cos_cache) == len(state.indices) + 1)
-
-	work.sin_cache[0] = math.sin(state.init_theta)
-	work.cos_cache[0] = math.cos(state.init_theta)
+	assert(len(work.sin_cache) == len(state.indices))
+	assert(len(work.cos_cache) == len(state.indices))
 	for index, i in state.indices {
-		ut := i+1
+		ut := i
 		work.sin_cache[ut] = f64(sin_index(index))
 		work.cos_cache[ut] = f64(cos_index(index))
 	}

@@ -23,6 +23,8 @@ Model :: struct {
 	accel:  [dynamic]f64,
 	facing_map: [dynamic]int,
 	angle_offset: [dynamic]f64, // degrees
+	init_v_range: bool,
+	init_v_extra: f64,
 
 	// Compile later
 	vx: [dynamic]Compiled_Expr,
@@ -137,9 +139,12 @@ compile_model :: proc(model: ^Model) {
 
 	// Generate Vx, Vz
 	// Initial velocity is stored in accel[0].
-	// no angle offset in t = 0 I believe
 	model.vx[0].sin_coeff[0] = model.accel[0]
 	model.vz[0].cos_coeff[0] = model.accel[0]
+	if model.init_v_range {
+		model.vx[0].sin_coeff[1] = model.init_v_extra
+		model.vz[0].cos_coeff[1] = model.init_v_extra
+	}
 	for t in 1..<n {
 		// v[t] = drag[t-1] * v[t-1] + accel[t] * trig(F[t] + delta)
 		add_scaled_expr(&model.vx[t], model.vx[t-1], model.drag_x[t-1])

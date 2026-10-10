@@ -27,6 +27,7 @@ CmdType :: enum {
 	Timestamp,
 
 	SetInitGroundVel, SetInitAirVel,
+	SetInitGroundRange, SetInitAirRange,
 	WallX, WallZ,
 
 	SetSlip, SetSpeed, SetSlow, SetInertia,
@@ -366,6 +367,10 @@ get_command_type :: proc(name: string) -> CmdType {
 		return .SetInitGroundVel
 	case "initAir":
 		return .SetInitAirVel
+	case "initGndRange":
+		return .SetInitGroundRange
+	case "initAirRange":
+		return .SetInitAirRange
 	case:
 		return .Invalid
 	}

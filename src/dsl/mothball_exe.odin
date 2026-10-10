@@ -25,7 +25,9 @@ Moth_Compiler :: struct {
 	err: string,
 
 	has_init_v: bool,
-	init_v: f64,
+	init_v: f64, // Fixed speed or first rotator magnitude
+	init_v_range: bool,
+	init_v_extra: f64, // Second rotator magnitude
 	has_init_angle: bool,
 	init_angle: f64, // degrees
 	init_airborne: bool,
@@ -152,6 +154,7 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 	state.unique_facing_counts = 1
 
 	exe_code(state, code)
+	if !state.ok do return
 
 	if !state.has_init_v {
 		set_model_error(state, "Error: initial velocity missing")
@@ -163,6 +166,10 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 		return
 	}
 
+	// Reserve space for auxilliary initial angles
+	init_angle_counts := 2 if state.init_v_range else 1
+	for tick in 1..<len(state.facing_map) do state.facing_map[tick] += init_angle_counts-1
+	state.unique_facing_counts += init_angle_counts-1
 	state.accel[0] = state.init_v
 	if state.init_airborne {
 		state.init_drag = f64(f32(0.91))
@@ -440,6 +447,37 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 
 		if cmd.type == .SetInitAirVel do state.init_airborne = true
 
+		return
+
+	case .SetInitGroundRange, .SetInitAirRange:
+		if state.has_init_v {
+			set_model_error(state, "init command can only be called once")
+			return
+		}
+		if message, ok := expect_moth_args(cmd, 2, 2, false); !ok {
+			set_model_error(state, message)
+			return
+		}
+		min_v, min_err := eval_moth_number(state, cmd.args[0], fmt.tprintf("%s(...) minimum", cmd.name))
+		if min_err != "" {
+			set_model_error(state, min_err)
+			return
+		}
+		max_v, max_err := eval_moth_number(state, cmd.args[1], fmt.tprintf("%s(...) maximum", cmd.name))
+		if max_err != "" {
+			set_model_error(state, max_err)
+			return
+		}
+		if min_v < 0 || max_v < min_v {
+			set_model_error(state, fmt.tprintf("Error: %s(...) requires 0 <= min <= max", cmd.name))
+			return
+		}
+		state.init_v_range = true
+		state.init_v_extra = (max_v-min_v)/2
+		state.init_v = min_v+state.init_v_extra
+		state.has_init_v = true
+		state.init_slip = state.slip
+		state.init_airborne = cmd.type == .SetInitAirRange
 		return
 
 	case .SetSlip:

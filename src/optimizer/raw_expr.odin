@@ -135,17 +135,18 @@ eval_raw_expr :: proc(
 	expr: Raw_Expr,
 	state: Discrete_State,
 	xs, zs: []f64,
-	facing_map: [dynamic]int,
+	model: ^Discrete_Model,
 ) -> f64 {
 	n := len(expr.x_coeff)
 	assert(len(expr.z_coeff) == n)
 	assert(len(expr.f_coeff) == n)
 	assert(len(xs) >= n)
 	assert(len(zs) >= n)
-	assert(len(facing_map) == n)
-	assert(len(state.indices) == facing_map[n - 1])
+	assert(len(model.facing_map) == n)
+	assert_discrete_state(model, state)
 
 	if n > 0 {
+		if model.init_v_range do assert(math.abs(expr.f_coeff[0]) <= EPS, "Exact expression depends on range initial F")
 		terminal := n-1
 		assert(
 			math.abs(expr.f_coeff[terminal]) <= EPS,
@@ -158,8 +159,8 @@ eval_raw_expr :: proc(
 		value += expr.x_coeff[t]*xs[t] +
 		         expr.z_coeff[t]*zs[t]
 
-		if t != n-1 {
-			value += expr.f_coeff[t]*discrete_state_deg(state, t, facing_map)
+		if t != n-1 && expr.f_coeff[t] != 0 {
+			value += expr.f_coeff[t]*discrete_state_deg(state, t, model)
 		}
 	}
 	return value
