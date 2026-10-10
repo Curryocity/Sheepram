@@ -1,13 +1,15 @@
-package app
+package app_test
+
+import app "../../src/app"
 
 import "core:math"
 import "core:testing"
 
 @(test)
 continuous_results_report_shared_facings_by_tick :: proc(t: ^testing.T) {
-	optimizers := [?]Continuous_Optimizer{.BFGS, .Spine, .Pancake}
+	optimizers := [?]app.Continuous_Optimizer{.BFGS, .Spine, .Pancake}
 	for optimizer in optimizers {
-		material := Optimizer_Material {
+		material := app.Optimizer_Material {
 			continuous_optimizer = optimizer,
 			pancake_recovery = .BFGS,
 			obj_type = .Z,
@@ -18,7 +20,7 @@ continuous_results_report_shared_facings_by_tick :: proc(t: ^testing.T) {
 			x_origin_script = "F[1]",
 			z_origin_script = "F[2]",
 		}
-		result := optimize(&material)
+		result := app.optimize(&material)
 		testing.expect_value(t, result.error, "")
 		if result.solution != nil {
 			solution := result.solution
@@ -32,6 +34,6 @@ continuous_results_report_shared_facings_by_tick :: proc(t: ^testing.T) {
 			testing.expect_value(t, len(solution.constraints), 2)
 			for constraint in solution.constraints do testing.expect(t, constraint.margin < 1e-5)
 		}
-		destroy_optimizer_result(&result)
+		app.destroy_optimizer_result(&result)
 	}
 }

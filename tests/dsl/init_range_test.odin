@@ -1,4 +1,6 @@
-package dsl
+package dsl_test
+
+import dsl "../../src/dsl"
 
 import "core:math"
 import "core:testing"
@@ -12,11 +14,11 @@ mothball_range_reserves_initial_angles_without_extra_ticks :: proc(t: ^testing.T
 		"set(lo, 0.1) set(hi, 0.3) initGndRange(lo, hi) w [wa.wd(2) sa.wa] w",
 	}
 	for script, i in scripts {
-		code, err := parse_mothball(script)
+		code, err := dsl.parse_mothball(script)
 		testing.expect_value(t, err, "")
 		if err != "" do continue
-		compiler: Moth_Compiler
-		compile_mothball(&compiler, code[:])
+		compiler: dsl.Moth_Compiler
+		dsl.compile_mothball(&compiler, code[:])
 		testing.expect(t, compiler.ok)
 		testing.expect(t, compiler.init_v_range)
 		testing.expect(t, math.abs(compiler.init_v-0.2) < 1e-15)
@@ -29,8 +31,8 @@ mothball_range_reserves_initial_angles_without_extra_ticks :: proc(t: ^testing.T
 		expected_drag := f64(f32(0.91)) if i == 1 else f64(f32(0.91)*f32(0.6))
 		testing.expect_value(t, compiler.init_drag, expected_drag)
 		testing.expect(t, !compiler.has_init_angle)
-		destroy_moth_compiler(&compiler)
-		destroy_moth_code(&code)
+		dsl.destroy_moth_compiler(&compiler)
+		dsl.destroy_moth_code(&code)
 	}
 }
 
@@ -50,14 +52,14 @@ mothball_range_rejects_invalid_arguments_and_duplicate_initialization :: proc(t:
 		"initGndRange(0.1, 0.3){w}",
 	}
 	for script in scripts {
-		code, err := parse_mothball(script)
+		code, err := dsl.parse_mothball(script)
 		testing.expect_value(t, err, "")
 		if err != "" do continue
-		compiler: Moth_Compiler
-		compile_mothball(&compiler, code[:])
+		compiler: dsl.Moth_Compiler
+		dsl.compile_mothball(&compiler, code[:])
 		testing.expect(t, !compiler.ok)
-		destroy_moth_compiler(&compiler)
-		destroy_moth_code(&code)
+		dsl.destroy_moth_compiler(&compiler)
+		dsl.destroy_moth_code(&code)
 	}
 }
 
@@ -65,28 +67,28 @@ mothball_range_rejects_invalid_arguments_and_duplicate_initialization :: proc(t:
 mothball_range_handles_equal_zero_and_large_bounds :: proc(t: ^testing.T) {
 	scripts := [?]string{"initAirRange(0, 0) w", "initGndRange(0.2, 0.2) w", "initAirRange(1e308, 1e308) w"}
 	for script in scripts {
-		code, err := parse_mothball(script)
+		code, err := dsl.parse_mothball(script)
 		testing.expect_value(t, err, "")
 		if err != "" do continue
-		compiler: Moth_Compiler
-		compile_mothball(&compiler, code[:])
+		compiler: dsl.Moth_Compiler
+		dsl.compile_mothball(&compiler, code[:])
 		testing.expect(t, compiler.ok)
 		testing.expect_value(t, compiler.init_v_extra, 0.0)
 		testing.expect(t, !math.is_inf(compiler.init_v, 0))
 		testing.expect_value(t, compiler.facing_map[1], 2)
-		destroy_moth_compiler(&compiler)
-		destroy_moth_code(&code)
+		dsl.destroy_moth_compiler(&compiler)
+		dsl.destroy_moth_code(&code)
 	}
 }
 
 @(test)
 mothball_fixed_initialization_keeps_one_initial_angle :: proc(t: ^testing.T) {
-	code, err := parse_mothball("initGnd(0.2, 30) w [wa.wd(2) sa.wa] w")
+	code, err := dsl.parse_mothball("initGnd(0.2, 30) w [wa.wd(2) sa.wa] w")
 	testing.expect_value(t, err, "")
-	defer destroy_moth_code(&code)
-	compiler: Moth_Compiler
-	defer destroy_moth_compiler(&compiler)
-	compile_mothball(&compiler, code[:])
+	defer dsl.destroy_moth_code(&code)
+	compiler: dsl.Moth_Compiler
+	defer dsl.destroy_moth_compiler(&compiler)
+	dsl.compile_mothball(&compiler, code[:])
 	testing.expect(t, compiler.ok)
 	testing.expect(t, !compiler.init_v_range)
 	testing.expect_value(t, compiler.init_angle, 30.0)

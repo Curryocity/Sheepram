@@ -1,9 +1,11 @@
-package dsl
+package dsl_test
+
+import dsl "../../src/dsl"
 
 import "core:math"
 import "core:strings"
 import "core:testing"
-import opt "../optimizer"
+import opt "../../src/optimizer"
 
 @(test)
 math_test :: proc(t: ^testing.T) {
@@ -13,10 +15,10 @@ math_test :: proc(t: ^testing.T) {
 @(test)
 problem_dsl_rejects_terminal_facing_with_valid_range :: proc(t: ^testing.T) {
 	model := opt.Model{n = 13}
-	parser := init_parser(&model)
-	defer destroy(&parser)
+	parser := dsl.init_parser(&model)
+	defer dsl.destroy(&parser)
 
-	expr, err := parse_expr(&parser, "F[n]")
+	expr, err := dsl.parse_expr(&parser, "F[n]")
 	defer opt.destroy_raw_expr(&expr)
 	defer delete(err)
 	testing.expect(
@@ -28,10 +30,10 @@ problem_dsl_rejects_terminal_facing_with_valid_range :: proc(t: ^testing.T) {
 @(test)
 problem_dsl_rejects_turn_using_terminal_facing_with_valid_range :: proc(t: ^testing.T) {
 	model := opt.Model{n = 13}
-	parser := init_parser(&model)
-	defer destroy(&parser)
+	parser := dsl.init_parser(&model)
+	defer dsl.destroy(&parser)
 
-	expr, err := parse_expr(&parser, "T[n-1]")
+	expr, err := dsl.parse_expr(&parser, "T[n-1]")
 	defer opt.destroy_raw_expr(&expr)
 	defer delete(err)
 	testing.expect(
@@ -42,8 +44,8 @@ problem_dsl_rejects_turn_using_terminal_facing_with_valid_range :: proc(t: ^test
 
 @(test)
 lexer_skips_line_comments :: proc(t: ^testing.T) {
-	lexer := Lexer{data = "// leading comment\nX[n] // trailing comment\n- X[0]"}
-	expected_types := [?]Token_Type {
+	lexer := dsl.Lexer{data = "// leading comment\nX[n] // trailing comment\n- X[0]"}
+	expected_types := [?]dsl.Token_Type {
 		.Identifier,
 		.L_Bracket,
 		.Identifier,
@@ -58,7 +60,7 @@ lexer_skips_line_comments :: proc(t: ^testing.T) {
 	expected_text := [?]string{"X", "[", "n", "]", "-", "X", "[", "0", "]", ""}
 
 	for i in 0..<len(expected_types) {
-		token := lexer_next(&lexer)
+		token := dsl.lexer_next(&lexer)
 		testing.expect_value(t, token.type, expected_types[i])
 		testing.expect_value(t, token.text, expected_text[i])
 	}
@@ -66,25 +68,25 @@ lexer_skips_line_comments :: proc(t: ^testing.T) {
 
 @(test)
 lexer_preserves_division_operator :: proc(t: ^testing.T) {
-	lexer := Lexer{data = "1 / 2"}
-	testing.expect_value(t, lexer_next(&lexer).type, Token_Type.Number)
-	operator := lexer_next(&lexer)
-	testing.expect_value(t, operator.type, Token_Type.Operator)
+	lexer := dsl.Lexer{data = "1 / 2"}
+	testing.expect_value(t, dsl.lexer_next(&lexer).type, dsl.Token_Type.Number)
+	operator := dsl.lexer_next(&lexer)
+	testing.expect_value(t, operator.type, dsl.Token_Type.Operator)
 	testing.expect_value(t, operator.text, "/")
-	testing.expect_value(t, lexer_next(&lexer).type, Token_Type.Number)
-	testing.expect_value(t, lexer_next(&lexer).type, Token_Type.End)
+	testing.expect_value(t, dsl.lexer_next(&lexer).type, dsl.Token_Type.Number)
+	testing.expect_value(t, dsl.lexer_next(&lexer).type, dsl.Token_Type.End)
 }
 
 @(test)
 mothball_inertia_defaults_to_point_zero_zero_five :: proc(t: ^testing.T) {
-	code, parse_err := parse_mothball("initGnd(0.3)")
-	defer destroy_moth_code(&code)
+	code, parse_err := dsl.parse_mothball("initGnd(0.3)")
+	defer dsl.destroy_moth_code(&code)
 	testing.expect_value(t, parse_err, "")
 	if parse_err != "" do return
 
-	compiler := Moth_Compiler{}
-	defer destroy_moth_compiler(&compiler)
-	compile_mothball(&compiler, code[:])
+	compiler := dsl.Moth_Compiler{}
+	defer dsl.destroy_moth_compiler(&compiler)
+	dsl.compile_mothball(&compiler, code[:])
 
 	testing.expect(t, compiler.ok)
 	testing.expect_value(t, compiler.inertia_threshold, 0.005)
@@ -92,14 +94,14 @@ mothball_inertia_defaults_to_point_zero_zero_five :: proc(t: ^testing.T) {
 
 @(test)
 mothball_inertia_can_be_set_once :: proc(t: ^testing.T) {
-	code, parse_err := parse_mothball("initGnd(0.3) inertia(0.0125)")
-	defer destroy_moth_code(&code)
+	code, parse_err := dsl.parse_mothball("initGnd(0.3) inertia(0.0125)")
+	defer dsl.destroy_moth_code(&code)
 	testing.expect_value(t, parse_err, "")
 	if parse_err != "" do return
 
-	compiler := Moth_Compiler{}
-	defer destroy_moth_compiler(&compiler)
-	compile_mothball(&compiler, code[:])
+	compiler := dsl.Moth_Compiler{}
+	defer dsl.destroy_moth_compiler(&compiler)
+	dsl.compile_mothball(&compiler, code[:])
 
 	testing.expect(t, compiler.ok)
 	testing.expect_value(t, compiler.inertia_threshold, 0.0125)
@@ -107,16 +109,16 @@ mothball_inertia_can_be_set_once :: proc(t: ^testing.T) {
 
 @(test)
 mothball_inertia_rejects_a_second_call :: proc(t: ^testing.T) {
-	code, parse_err := parse_mothball(
+	code, parse_err := dsl.parse_mothball(
 		"initGnd(0.3) inertia(0.01) repeat(2) { inertia(0.02) }",
 	)
-	defer destroy_moth_code(&code)
+	defer dsl.destroy_moth_code(&code)
 	testing.expect_value(t, parse_err, "")
 	if parse_err != "" do return
 
-	compiler := Moth_Compiler{}
-	defer destroy_moth_compiler(&compiler)
-	compile_mothball(&compiler, code[:])
+	compiler := dsl.Moth_Compiler{}
+	defer dsl.destroy_moth_compiler(&compiler)
+	dsl.compile_mothball(&compiler, code[:])
 
 	testing.expect(t, !compiler.ok)
 	testing.expect_value(t, compiler.err, "Error: inertia(...) can only be called once")
@@ -125,14 +127,14 @@ mothball_inertia_rejects_a_second_call :: proc(t: ^testing.T) {
 
 @(test)
 mothball_tracks_nominal_inertia_drag :: proc(t: ^testing.T) {
-	code, parse_err := parse_mothball("initGnd(0.3) w w")
-	defer destroy_moth_code(&code)
+	code, parse_err := dsl.parse_mothball("initGnd(0.3) w w")
+	defer dsl.destroy_moth_code(&code)
 	testing.expect_value(t, parse_err, "")
 	if parse_err != "" do return
 
-	compiler := Moth_Compiler{}
-	defer destroy_moth_compiler(&compiler)
-	compile_mothball(&compiler, code[:])
+	compiler := dsl.Moth_Compiler{}
+	defer dsl.destroy_moth_compiler(&compiler)
+	dsl.compile_mothball(&compiler, code[:])
 
 	testing.expect(t, compiler.ok)
 	testing.expect(t, compiler.inertia_drag[0] > 0)
@@ -142,14 +144,14 @@ mothball_tracks_nominal_inertia_drag :: proc(t: ^testing.T) {
 
 @(test)
 mothball_builtin_movement_uses_minecraft_rounded_coefficients :: proc(t: ^testing.T) {
-	code, parse_err := parse_mothball("initGnd(0.3) s.w sa.wa")
-	defer destroy_moth_code(&code)
+	code, parse_err := dsl.parse_mothball("initGnd(0.3) s.w sa.wa")
+	defer dsl.destroy_moth_code(&code)
 	testing.expect_value(t, parse_err, "")
 	if parse_err != "" do return
 
-	compiler := Moth_Compiler{}
-	defer destroy_moth_compiler(&compiler)
-	compile_mothball(&compiler, code[:])
+	compiler := dsl.Moth_Compiler{}
+	defer dsl.destroy_moth_compiler(&compiler)
+	dsl.compile_mothball(&compiler, code[:])
 
 	testing.expect(t, compiler.ok)
 	for tick in 1..=2 {
@@ -172,19 +174,19 @@ mothball_jump_durations_match_explicit_air_ticks :: proc(t: ^testing.T) {
 		{"initGnd(0.3) snj.s(3)", "initGnd(0.3) snj.s sna.s(2)"},
 	}
 	for scripts in cases {
-		compact_code, compact_parse_err := parse_mothball(scripts[0])
-		expanded_code, expanded_parse_err := parse_mothball(scripts[1])
+		compact_code, compact_parse_err := dsl.parse_mothball(scripts[0])
+		expanded_code, expanded_parse_err := dsl.parse_mothball(scripts[1])
 		testing.expect_value(t, compact_parse_err, "")
 		testing.expect_value(t, expanded_parse_err, "")
 		if compact_parse_err != "" || expanded_parse_err != "" {
-			destroy_moth_code(&compact_code)
-			destroy_moth_code(&expanded_code)
+			dsl.destroy_moth_code(&compact_code)
+			dsl.destroy_moth_code(&expanded_code)
 			continue
 		}
 
-		compact, expanded: Moth_Compiler
-		compile_mothball(&compact, compact_code[:])
-		compile_mothball(&expanded, expanded_code[:])
+		compact, expanded: dsl.Moth_Compiler
+		dsl.compile_mothball(&compact, compact_code[:])
+		dsl.compile_mothball(&expanded, expanded_code[:])
 		testing.expect(t, compact.ok)
 		testing.expect(t, expanded.ok)
 		testing.expect_value(t, compact.n, expanded.n)
@@ -208,23 +210,23 @@ mothball_jump_durations_match_explicit_air_ticks :: proc(t: ^testing.T) {
 			testing.expect_value(t, compact_movement.sprint_jump, expanded_movement.sprint_jump)
 		}
 
-		destroy_moth_compiler(&compact)
-		destroy_moth_compiler(&expanded)
-		destroy_moth_code(&compact_code)
-		destroy_moth_code(&expanded_code)
+		dsl.destroy_moth_compiler(&compact)
+		dsl.destroy_moth_compiler(&expanded)
+		dsl.destroy_moth_code(&compact_code)
+		dsl.destroy_moth_code(&expanded_code)
 	}
 }
 
 @(test)
 mothball_wall_hits_zero_drag_before_the_next_movement :: proc(t: ^testing.T) {
-	code, parse_err := parse_mothball("initGnd(0.3) wx w wz w")
-	defer destroy_moth_code(&code)
+	code, parse_err := dsl.parse_mothball("initGnd(0.3) wx w wz w")
+	defer dsl.destroy_moth_code(&code)
 	testing.expect_value(t, parse_err, "")
 	if parse_err != "" do return
 
-	compiler := Moth_Compiler{}
-	defer destroy_moth_compiler(&compiler)
-	compile_mothball(&compiler, code[:])
+	compiler := dsl.Moth_Compiler{}
+	defer dsl.destroy_moth_compiler(&compiler)
+	dsl.compile_mothball(&compiler, code[:])
 
 	testing.expect(t, compiler.ok)
 	expected_initial_drag := f64(f32(0.91)*f32(0.6))
@@ -241,14 +243,14 @@ mothball_wall_hits_zero_drag_before_the_next_movement :: proc(t: ^testing.T) {
 
 @(test)
 mothball_wall_hit_counts_apply_to_jump_duration_ticks :: proc(t: ^testing.T) {
-	code, parse_err := parse_mothball("initGnd(0.3) wx(2) wz(2) sj(3)")
-	defer destroy_moth_code(&code)
+	code, parse_err := dsl.parse_mothball("initGnd(0.3) wx(2) wz(2) sj(3)")
+	defer dsl.destroy_moth_code(&code)
 	testing.expect_value(t, parse_err, "")
 	if parse_err != "" do return
 
-	compiler := Moth_Compiler{}
-	defer destroy_moth_compiler(&compiler)
-	compile_mothball(&compiler, code[:])
+	compiler := dsl.Moth_Compiler{}
+	defer dsl.destroy_moth_compiler(&compiler)
+	dsl.compile_mothball(&compiler, code[:])
 
 	testing.expect(t, compiler.ok)
 	for tick in 0..=1 {
@@ -265,14 +267,14 @@ mothball_wall_hit_counts_apply_to_jump_duration_ticks :: proc(t: ^testing.T) {
 
 @(test)
 mothball_wall_hits_apply_to_custom_movements :: proc(t: ^testing.T) {
-	code, parse_err := parse_mothball("initGnd(0.3) wx set(d, 0.8) wz mv(d, 0.1)")
-	defer destroy_moth_code(&code)
+	code, parse_err := dsl.parse_mothball("initGnd(0.3) wx set(d, 0.8) wz mv(d, 0.1)")
+	defer dsl.destroy_moth_code(&code)
 	testing.expect_value(t, parse_err, "")
 	if parse_err != "" do return
 
-	compiler := Moth_Compiler{}
-	defer destroy_moth_compiler(&compiler)
-	compile_mothball(&compiler, code[:])
+	compiler := dsl.Moth_Compiler{}
+	defer dsl.destroy_moth_compiler(&compiler)
+	dsl.compile_mothball(&compiler, code[:])
 
 	testing.expect(t, compiler.ok)
 	testing.expect_value(t, compiler.drag_x[0], 0.0)

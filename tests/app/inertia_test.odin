@@ -1,9 +1,11 @@
-package app
+package app_test
+
+import app "../../src/app"
 
 import "core:strings"
 import "core:testing"
 
-import opt "../optimizer"
+import opt "../../src/optimizer"
 
 // Future second-pass Avoid constraint fixtures found in saved presets:
 // - low Z h2h / low Zmm h2h: Z Avoid+ at tick 6
@@ -14,16 +16,16 @@ import opt "../optimizer"
 @(test)
 test_parse_and_apply_inertia_hits :: proc(t: ^testing.T) {
 	texts: [2][3]string
-	texts[int(Inertia_Axis.X)][int(Inertia_Choice.Hit)-1] = "2, 0, 2"
-	texts[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Plus)-1] = "3"
-	texts[int(Inertia_Axis.Z)][int(Inertia_Choice.Hit)-1] = "1"
+	texts[int(app.Inertia_Axis.X)][int(app.Inertia_Choice.Hit)-1] = "2, 0, 2"
+	texts[int(app.Inertia_Axis.X)][int(app.Inertia_Choice.Avoid_Plus)-1] = "3"
+	texts[int(app.Inertia_Axis.Z)][int(app.Inertia_Choice.Hit)-1] = "1"
 
-	assignments, err := parse_inertia_assignments(&texts, 4)
-	defer destroy_inertia_assignments(&assignments)
+	assignments, err := app.parse_inertia_assignments(&texts, 4)
+	defer app.destroy_inertia_assignments(&assignments)
 	defer delete(err)
 	testing.expect_value(t, err, "")
 	if err != "" do return
-	testing.expect_value(t, len(assignments.ticks[int(Inertia_Axis.X)][int(Inertia_Choice.Hit)-1]), 2)
+	testing.expect_value(t, len(assignments.ticks[int(app.Inertia_Axis.X)][int(app.Inertia_Choice.Hit)-1]), 2)
 
 	drag_x := [?]f64{1, 1, 1, 1}
 	drag_z := [?]f64{1, 1, 1, 1}
@@ -32,7 +34,7 @@ test_parse_and_apply_inertia_hits :: proc(t: ^testing.T) {
 		{drag_x = 1, drag_z = 1},
 		{drag_x = 1, drag_z = 1},
 	}
-	initial_drag_x, initial_drag_z := apply_inertia_hits(&assignments, drag_x[:], drag_z[:], exact[:])
+	initial_drag_x, initial_drag_z := app.apply_inertia_hits(&assignments, drag_x[:], drag_z[:], exact[:])
 	testing.expect_value(t, initial_drag_x, 0)
 	testing.expect_value(t, initial_drag_z, 1)
 	testing.expect_value(t, drag_x[0], 0)
@@ -44,7 +46,7 @@ test_parse_and_apply_inertia_hits :: proc(t: ^testing.T) {
 
 	custom_drag_x := [?]f64{1, 1, 1, 1}
 	custom_drag_z := [?]f64{1, 1, 1, 1}
-	_, _ = apply_inertia_hits(&assignments, custom_drag_x[:], custom_drag_z[:], nil)
+	_, _ = app.apply_inertia_hits(&assignments, custom_drag_x[:], custom_drag_z[:], nil)
 	testing.expect_value(t, custom_drag_x[2], 0)
 	testing.expect_value(t, custom_drag_z[1], 0)
 }
@@ -52,10 +54,10 @@ test_parse_and_apply_inertia_hits :: proc(t: ^testing.T) {
 @(test)
 test_inertia_assignment_conflict_is_an_error :: proc(t: ^testing.T) {
 	texts: [2][3]string
-	texts[int(Inertia_Axis.X)][int(Inertia_Choice.Hit)-1] = "2"
-	texts[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Plus)-1] = "2"
-	assignments, err := parse_inertia_assignments(&texts, 4)
-	defer destroy_inertia_assignments(&assignments)
+	texts[int(app.Inertia_Axis.X)][int(app.Inertia_Choice.Hit)-1] = "2"
+	texts[int(app.Inertia_Axis.X)][int(app.Inertia_Choice.Avoid_Plus)-1] = "2"
+	assignments, err := app.parse_inertia_assignments(&texts, 4)
+	defer app.destroy_inertia_assignments(&assignments)
 	defer delete(err)
 	testing.expect(t, strings.contains(err, "assigned to both X Hit and X Avoid+"))
 }
@@ -63,9 +65,9 @@ test_inertia_assignment_conflict_is_an_error :: proc(t: ^testing.T) {
 @(test)
 test_invalid_inertia_ticks_are_errors :: proc(t: ^testing.T) {
 	texts: [2][3]string
-	texts[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Minus)-1] = "4"
-	assignments, err := parse_inertia_assignments(&texts, 4)
-	defer destroy_inertia_assignments(&assignments)
+	texts[int(app.Inertia_Axis.Z)][int(app.Inertia_Choice.Avoid_Minus)-1] = "4"
+	assignments, err := app.parse_inertia_assignments(&texts, 4)
+	defer app.destroy_inertia_assignments(&assignments)
 	defer delete(err)
 	testing.expect(t, strings.contains(err, "outside [0, 4)"))
 }
@@ -73,11 +75,11 @@ test_invalid_inertia_ticks_are_errors :: proc(t: ^testing.T) {
 @(test)
 test_inertia_constraints_use_velocity_drag_and_requested_sign :: proc(t: ^testing.T) {
 	texts: [2][3]string
-	texts[int(Inertia_Axis.X)][int(Inertia_Choice.Hit)-1] = "1"
-	texts[int(Inertia_Axis.X)][int(Inertia_Choice.Avoid_Minus)-1] = "2"
-	texts[int(Inertia_Axis.Z)][int(Inertia_Choice.Avoid_Plus)-1] = "0"
-	assignments, parse_err := parse_inertia_assignments(&texts, 4)
-	defer destroy_inertia_assignments(&assignments)
+	texts[int(app.Inertia_Axis.X)][int(app.Inertia_Choice.Hit)-1] = "1"
+	texts[int(app.Inertia_Axis.X)][int(app.Inertia_Choice.Avoid_Minus)-1] = "2"
+	texts[int(app.Inertia_Axis.Z)][int(app.Inertia_Choice.Avoid_Plus)-1] = "0"
+	assignments, parse_err := app.parse_inertia_assignments(&texts, 4)
+	defer app.destroy_inertia_assignments(&assignments)
 	defer delete(parse_err)
 	testing.expect_value(t, parse_err, "")
 	if parse_err != "" do return
@@ -85,7 +87,7 @@ test_inertia_constraints_use_velocity_drag_and_requested_sign :: proc(t: ^testin
 	problem := opt.Raw_Problem {n = 4, objective = opt.make_raw_expr(4)}
 	defer opt.destroy_raw_problem(&problem)
 	drags := [?]f64{0.5, 0.6, 0.7, 0}
-	err := add_inertia_constraints(&problem, &assignments, drags[:], 0.005)
+	err := app.add_inertia_constraints(&problem, &assignments, drags[:], 0.005)
 	defer delete(err)
 	testing.expect_value(t, err, "")
 	testing.expect_value(t, len(problem.ineq_cons), 4)
@@ -113,16 +115,16 @@ test_inertia_constraints_use_velocity_drag_and_requested_sign :: proc(t: ^testin
 @(test)
 test_terminal_inertia_assignment_is_rejected_when_constraints_are_added :: proc(t: ^testing.T) {
 	texts: [2][3]string
-	texts[int(Inertia_Axis.Z)][int(Inertia_Choice.Hit)-1] = "3"
-	assignments, parse_err := parse_inertia_assignments(&texts, 4)
-	defer destroy_inertia_assignments(&assignments)
+	texts[int(app.Inertia_Axis.Z)][int(app.Inertia_Choice.Hit)-1] = "3"
+	assignments, parse_err := app.parse_inertia_assignments(&texts, 4)
+	defer app.destroy_inertia_assignments(&assignments)
 	defer delete(parse_err)
 	testing.expect_value(t, parse_err, "")
 
 	problem := opt.Raw_Problem {n = 4, objective = opt.make_raw_expr(4)}
 	defer opt.destroy_raw_problem(&problem)
 	drags := [?]f64{0.5, 0.5, 0.5, 0}
-	err := add_inertia_constraints(&problem, &assignments, drags[:], 0.005)
+	err := app.add_inertia_constraints(&problem, &assignments, drags[:], 0.005)
 	defer delete(err)
 	testing.expect(t, strings.contains(err, ">= n-1"))
 }

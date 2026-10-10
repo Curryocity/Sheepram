@@ -1,4 +1,6 @@
-package app
+package app_test
+
+import app "../../src/app"
 
 import "core:math"
 import "core:strings"
@@ -13,12 +15,12 @@ range_initialization_works_across_continuous_and_discrete_solvers :: proc(t: ^te
 		"initGndRange(0.2, 0.2) [w.wa w.wd] w",
 	}
 	bounds := [?][2]f64{{0.1, 0.3}, {0.1, 0.3}, {0, 0}, {0.2, 0.2}}
-	optimizers := [?]Continuous_Optimizer{.BFGS, .Spine, .Pancake}
+	optimizers := [?]app.Continuous_Optimizer{.BFGS, .Spine, .Pancake}
 	for script, i in scripts {
 		for optimizer in optimizers {
 			for discrete in 0..<2 {
 				for multistart in 0..<2 {
-					material := Optimizer_Material {
+					material := app.Optimizer_Material {
 						continuous_optimizer = optimizer,
 						pancake_recovery = .BFGS,
 						obj_type = .Custom,
@@ -32,7 +34,7 @@ range_initialization_works_across_continuous_and_discrete_solvers :: proc(t: ^te
 						x_origin_script = "Vx[0]",
 						z_origin_script = "Vz[0]",
 					}
-					result := optimize(&material)
+					result := app.optimize(&material)
 					testing.expect_value(t, result.error, "")
 					testing.expect(t, result.solution != nil)
 					if result.solution != nil {
@@ -49,19 +51,19 @@ range_initialization_works_across_continuous_and_discrete_solvers :: proc(t: ^te
 						testing.expect(t, math.abs(facing-expected_facing) < 1e-12)
 						testing.expect(t, math.abs(result.x_origin-vx) < 1e-12)
 						testing.expect(t, math.abs(result.z_origin-vz) < 1e-12)
-						testing.expect(t, solution_is_finite(s))
+						testing.expect(t, app.solution_is_finite(s))
 					}
 					if i == 0 && discrete == 1 {
 						material.discrete_search = false
-						continuous := optimize(&material)
+						continuous := app.optimize(&material)
 						testing.expect_value(t, continuous.error, "")
 						if continuous.solution != nil && result.solution != nil {
 							testing.expect(t, math.abs(result.solution.xs[1]-continuous.solution.xs[1]) < 1e-14)
 							testing.expect(t, math.abs(result.solution.zs[1]-continuous.solution.zs[1]) < 1e-14)
 						}
-						destroy_optimizer_result(&continuous)
+						app.destroy_optimizer_result(&continuous)
 					}
-					destroy_optimizer_result(&result)
+					app.destroy_optimizer_result(&result)
 				}
 			}
 		}
@@ -71,7 +73,7 @@ range_initialization_works_across_continuous_and_discrete_solvers :: proc(t: ^te
 @(test)
 range_initialization_rejects_initial_facing_in_app_expressions :: proc(t: ^testing.T) {
 	for location in 0..<3 {
-		material := Optimizer_Material {
+		material := app.Optimizer_Material {
 			movement_script = "initAirRange(0.1, 0.3) wa(3)",
 			obj_type = .Z,
 			x_origin_script = "0",
@@ -83,18 +85,18 @@ range_initialization_rejects_initial_facing_in_app_expressions :: proc(t: ^testi
 			material.obj_type = .Custom
 			material.obj_script = "F[0]"
 		}
-		result := optimize(&material)
+		result := app.optimize(&material)
 		testing.expect(t, strings.contains(result.error, "cannot be used with initial velocity ranges"))
-		destroy_optimizer_result(&result)
+		app.destroy_optimizer_result(&result)
 	}
 }
 
 @(test)
 range_initialization_supports_constraints_cooking_and_tightening :: proc(t: ^testing.T) {
-	optimizers := [?]Continuous_Optimizer{.BFGS, .Spine, .Pancake}
+	optimizers := [?]app.Continuous_Optimizer{.BFGS, .Spine, .Pancake}
 	for optimizer in optimizers {
 		for mode in 0..<3 {
-			material := Optimizer_Material {
+			material := app.Optimizer_Material {
 				continuous_optimizer = optimizer,
 				obj_type = .Z,
 				maximize = true,
@@ -108,7 +110,7 @@ range_initialization_supports_constraints_cooking_and_tightening :: proc(t: ^tes
 				z_origin_script = "0",
 			}
 			if mode == 2 do material.cons_script = "X[n] > 0.02\nX[n] < 0.020000001"
-			result := optimize(&material)
+			result := app.optimize(&material)
 			testing.expect_value(t, result.error, "")
 			testing.expect(t, result.solution != nil)
 			if result.solution != nil {
@@ -117,22 +119,22 @@ range_initialization_supports_constraints_cooking_and_tightening :: proc(t: ^tes
 				if mode == 1 do testing.expect_value(t, result.chefs_completed, 2)
 				if mode == 2 do testing.expect(t, result.tightening_retries > 0)
 			}
-			destroy_optimizer_result(&result)
+			app.destroy_optimizer_result(&result)
 		}
 	}
 }
 
 @(test)
 fixed_initialization_still_preserves_explicit_angle_in_discrete_search :: proc(t: ^testing.T) {
-	material := Optimizer_Material {
+	material := app.Optimizer_Material {
 		movement_script = "initAir(0.2, 30) [wa.wa wa.wd] wa",
 		obj_type = .Z,
 		discrete_search = true,
 		x_origin_script = "0",
 		z_origin_script = "0",
 	}
-	result := optimize(&material)
-	defer destroy_optimizer_result(&result)
+	result := app.optimize(&material)
+	defer app.destroy_optimizer_result(&result)
 	testing.expect_value(t, result.error, "")
 	testing.expect(t, result.solution != nil)
 	if result.solution != nil {
