@@ -208,11 +208,11 @@ exe_code :: proc(state: ^Moth_Compiler, code: []Arg) {
 					return
 				}
 				rounded := math.round(duration_value)
-				if duration_value != rounded || rounded <= 0 {
+				if duration_value != rounded || rounded < 0 {
 					set_model_error(
 						state,
 						fmt.tprintf(
-							"Error: duration in %s(...) must be a positive whole number",
+							"Error: duration in %s(...) must be a nonnegative whole number",
 							mf.name,
 						),
 					)
@@ -591,7 +591,6 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 			set_model_error(state, accel_err)
 			return
 		}
-		state.discrete_supported = false
 		duration := 1
 		if len(cmd.args) == 3 {
 			duration_value, duration_err := eval_moth_number(
@@ -605,15 +604,17 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 			}
 
 			duration_rounded := math.round(duration_value)
-			if duration_value != duration_rounded || duration_rounded <= 0 {
+			if duration_value != duration_rounded || duration_rounded < 0 {
 				set_model_error(
 					state,
-					"Error: mv(...) duration must be a positive integer",
+					"Error: mv(...) duration must be a nonnegative integer",
 				)
 				return
 			}
 			duration = int(duration_rounded)
 		}
+		if duration == 0 do return
+		state.discrete_supported = false
 
 		for _ in 0..<duration {
 			wall_x, wall_z := consume_wall_hits(state)
