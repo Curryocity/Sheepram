@@ -1,10 +1,7 @@
 package app
 
 import "core:c"
-import "core:fmt"
 import "core:math"
-import "core:strconv"
-import "core:strings"
 
 import opt "../optimizer"
 import im "../../third_party/odin-imgui"
@@ -16,49 +13,6 @@ Inertia_Detector_Row :: struct {
 	in_detection_range: bool,
 	has_velocity: bool,
 	nonzero: bool,
-}
-
-parse_inertia_tick_list :: proc(buffer: []byte) -> [dynamic]int {
-	values: [dynamic]int
-	text := buffer_string(buffer)
-	start := 0
-	for start < len(text) {
-		end := start
-		for end < len(text) && text[end] != ',' do end += 1
-		token := strings.trim_space(text[start:end])
-		if token != "" {
-			value, ok := strconv.parse_int(token, 10)
-			if ok && value >= 0 do append(&values, value)
-		}
-		start = end+1
-	}
-	return values
-}
-
-normalize_inertia_tick_list :: proc(buffer: []byte) {
-	values := parse_inertia_tick_list(buffer)
-	defer delete(values)
-	for i in 1..<len(values) {
-		value := values[i]
-		j := i
-		for j > 0 && values[j-1] > value {
-			values[j] = values[j-1]
-			j -= 1
-		}
-		values[j] = value
-	}
-
-	builder := strings.builder_make()
-	written := 0
-	for value, i in values {
-		if i > 0 && value == values[i-1] do continue
-		if written > 0 do strings.write_string(&builder, ", ")
-		fmt.sbprintf(&builder, "%d", value)
-		written += 1
-	}
-	text := strings.to_string(builder)
-	defer delete(text)
-	buffer_set(buffer, text)
 }
 
 inertia_tick_list_contains :: proc(values: []int, tick: int) -> bool {
@@ -174,13 +128,6 @@ draw_inertia_list :: proc(state: ^Environment) {
 			first_toggle = false
 		}
 	}
-	im.SameLine(0, ui_px(8))
-	if im.Button("Sort") {
-		for axis in 0..<2 {
-			for list_index in 0..<3 do normalize_inertia_tick_list(state.inertia_tick_lists[axis][list_index][:])
-		}
-	}
-	if im.IsItemHovered() do im.SetTooltip("Sort valid ticks, remove duplicates, and normalize spacing.")
 
 	for axis in axes {
 		axis_visible := false
@@ -205,7 +152,9 @@ draw_inertia_list :: proc(state: ^Environment) {
 				im.TableSetColumnIndex(1)
 				im.SetNextItemWidth(-1)
 				im.PushIDInt(c.int(int(axis)*3+list_index))
+				pushed_code := push_font(code_font)
 				_ = input_text("##ticks", state.inertia_tick_lists[int(axis)][list_index][:])
+				pop_font(pushed_code)
 				im.PopID()
 			}
 			im.EndTable()
@@ -253,20 +202,14 @@ draw_inertia_detector :: proc(state: ^Environment) {
 	if !state.last_solution_discrete do border_tolerance = opt.ACCEPT_TOL
 	detection_limit := state.inertia_detection_range*threshold
 
-	lists: [2][3][dynamic]int
-	defer {
-		for axis in 0..<2 {
-			for list_index in 0..<3 do delete(lists[axis][list_index])
-		}
-	}
+	im.TextDisabled("Assignments reflect the last optimization.")
+	lists := &state.last_inertia_assignments.ticks
 	detector_ticks: [dynamic]int
 	defer delete(detector_ticks)
 	for tick in 0..<movement_count do append(&detector_ticks, tick)
 	for axis in 0..<2 {
 		for list_index in 0..<3 {
-			if !state.inertia_tick_list_visible[axis][list_index] do continue
-			lists[axis][list_index] = parse_inertia_tick_list(state.inertia_tick_lists[axis][list_index][:])
-			for tick in lists[axis][list_index] {
+			for tick in lists^[axis][list_index] {
 				if tick >= movement_count do append(&detector_ticks, tick)
 			}
 		}
@@ -293,7 +236,7 @@ draw_inertia_detector :: proc(state: ^Environment) {
 	for tick in detector_ticks {
 		for axis in axes {
 			row := get_inertia_detector_row(state, tick, axis, threshold, border_tolerance, detection_limit)
-			choice := inertia_choice_for_tick(&lists, tick, axis)
+			choice := inertia_choice_for_tick(lists, tick, axis)
 			if show_inertia_detector_row(row, choice, state.inertia_detector_filter) {
 				row_count += 1
 			}
@@ -314,7 +257,7 @@ draw_inertia_detector :: proc(state: ^Environment) {
 		for tick in detector_ticks {
 			for axis in axes {
 				row := get_inertia_detector_row(state, tick, axis, threshold, border_tolerance, detection_limit)
-				choice := inertia_choice_for_tick(&lists, tick, axis)
+					choice := inertia_choice_for_tick(lists, tick, axis)
 				if show_inertia_detector_row(row, choice, state.inertia_detector_filter) {
 					draw_inertia_detector_line(tick, axis, row, choice)
 				}
