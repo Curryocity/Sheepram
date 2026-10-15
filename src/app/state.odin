@@ -71,6 +71,18 @@ Inertia_Detector_Filter :: enum {
 	None,
 }
 
+Constraint_Result_Filter :: enum {
+	All,
+	Violated_Only,
+	Inactive_Only,
+}
+
+Constraint_Result_Status :: enum {
+	Inactive,
+	Active,
+	Violated,
+}
+
 Environment :: struct {
 	maximize: bool,
 	discrete_search: bool,
@@ -88,6 +100,7 @@ Environment :: struct {
 	movement_script: [MOVEMENT_SCRIPT_CAPACITY]byte,
 
 	constraint_script: [SCRIPT_CAPACITY]byte,
+	constraint_result_filter: Constraint_Result_Filter,
 	post:              Post_State,
 
 	last_solution: ^opt.Solution,

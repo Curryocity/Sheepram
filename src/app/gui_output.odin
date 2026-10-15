@@ -255,7 +255,27 @@ read_only_block :: proc(label: cstring, text: string, copy_text: string) {
 	pop_font(pushed_code)
 }
 
-draw_constraint_results :: proc(solution: ^opt.Solution, discrete_solution: bool) {
+constraint_result_status :: proc(result: opt.Constraint_Result, discrete_solution: bool) -> Constraint_Result_Status {
+	if result.cmp == .Equal {
+		return .Violated if result.margin > opt.ACCEPT_TOL else .Active
+	}
+	violation_limit := 0.0 if discrete_solution else -opt.ACCEPT_TOL
+	if result.margin < violation_limit do return .Violated
+	if result.margin <= opt.ACCEPT_TOL do return .Active
+	return .Inactive
+}
+
+constraint_result_visible :: proc(result: opt.Constraint_Result, discrete_solution: bool, filter: Constraint_Result_Filter) -> bool {
+	status := constraint_result_status(result, discrete_solution)
+	switch filter {
+	case .All: return true
+	case .Violated_Only: return status == .Violated
+	case .Inactive_Only: return status == .Inactive
+	}
+	return false
+}
+
+draw_constraint_results :: proc(solution: ^opt.Solution, discrete_solution: bool, filter: ^Constraint_Result_Filter) {
 	pushed_ui := push_font(ui_font)
 	open := im.CollapsingHeader("Constraint Results", {})
 	pop_font(pushed_ui)
@@ -265,9 +285,26 @@ draw_constraint_results :: proc(solution: ^opt.Solution, discrete_solution: bool
 		im.TextDisabled("No constraints.")
 		return
 	}
+	pushed_ui = push_font(ui_font)
+	im.AlignTextToFramePadding()
+	im.Text("Shown:")
+	im.SameLine(0, ui_px(8))
+	im.SetNextItemWidth(ui_px(160))
+	filter_labels := [?]cstring{"All", "Violated only", "Inactive only"}
+	filter_index := c.int(filter^)
+	if combo_select("##constraint_result_filter", &filter_index, filter_labels[:]) do filter^ = Constraint_Result_Filter(filter_index)
+	pop_font(pushed_ui)
+	row_count := 0
+	for result in solution.constraints {
+		if constraint_result_visible(result, discrete_solution, filter^) do row_count += 1
+	}
+	if row_count == 0 {
+		im.TextDisabled("No matching constraints.")
+		return
+	}
 
 	im.PushStyleVarImVec2(.CellPadding, {ui_px(10), ui_px(3)})
-	visible_rows := min(len(solution.constraints), 13)
+	visible_rows := min(row_count, 13)
 	table_height := ui_px(f32(visible_rows)*34+50)
 	table_flags := im.TableFlags_RowBg | im.TableFlags_BordersOuter |
 	               im.TableFlags_BordersV | im.TableFlags_SizingFixedFit |
@@ -285,6 +322,7 @@ draw_constraint_results :: proc(solution: ^opt.Solution, discrete_solution: bool
 		}
 
 		for result in solution.constraints {
+			if !constraint_result_visible(result, discrete_solution, filter^) do continue
 			metric_text := fmt.aprintf("%+.6g", result.margin)
 			status := "Inactive"
 			color := im.Vec4{0.45, 0.85, 0.55, 1}
@@ -292,23 +330,15 @@ draw_constraint_results :: proc(solution: ^opt.Solution, discrete_solution: bool
 			if result.cmp == .Equal {
 				delete(metric_text)
 				metric_text = fmt.aprintf("%.6g", result.margin)
-				if result.margin > opt.ACCEPT_TOL {
-					status = "Violated"
-					color = {1, 0.4, 0.4, 1}
-				} else {
-					status = "Active"
-					color = {1, 0.75, 0.3, 1}
-				}
-			} else {
-				violation_limit := -opt.ACCEPT_TOL
-				if discrete_solution do violation_limit = 0
-				if result.margin < violation_limit {
-					status = "Violated"
-					color = {1, 0.4, 0.4, 1}
-				} else if result.margin <= opt.ACCEPT_TOL {
-					status = "Active"
-					color = {1, 0.75, 0.3, 1}
-				}
+			}
+			switch constraint_result_status(result, discrete_solution) {
+			case .Violated:
+				status = "Violated"
+				color = {1, 0.4, 0.4, 1}
+			case .Active:
+				status = "Active"
+				color = {1, 0.75, 0.3, 1}
+			case .Inactive:
 			}
 
 			im.TableNextRow({}, ui_px(20))
@@ -531,7 +561,7 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	_ = im.Checkbox(" Color jump ticks", &state.color_jump_ticks)
 	im.Spacing(); im.Spacing()
 
-	draw_constraint_results(solution, state.last_solution_discrete)
+	draw_constraint_results(solution, state.last_solution_discrete, &state.constraint_result_filter)
 	im.Spacing(); im.Spacing()
 
 	pushed_ui = push_font(ui_font)
