@@ -45,6 +45,7 @@ Constraint_Tightening :: struct {
 
 Optimizer_Result :: struct {
 	solution:                 ^opt.Solution,
+	init_v_defaulted:         bool,
 	discrete:                 bool,
 	cooking:                  bool,
 	chefs_completed:          int,
@@ -133,6 +134,7 @@ apply_optimizer_result :: proc(state: ^Environment, result: ^Optimizer_Result) {
 	buffer_clear(state.last_error[:])
 
 	state.last_solution = result.solution
+	state.last_init_v_defaulted = result.init_v_defaulted
 	result.solution = nil
 	state.last_solution_discrete = result.discrete
 	state.last_solution_cooking = result.cooking
@@ -647,6 +649,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	result.x_origin = eval_raw_solution(x_origin_expr, solution, result.discrete)
 	result.z_origin = eval_raw_solution(z_origin_expr, solution, result.discrete)
 	result.inertia_threshold = m.inertia_threshold
+	result.init_v_defaulted = !m.has_init_v
 	result.inertia_drag = m.inertia_drag
 	m.inertia_drag = nil
 	result.inertia_assignments = assignments

@@ -157,8 +157,8 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 	if !state.ok do return
 
 	if !state.has_init_v {
-		set_model_error(state, "Error: initial velocity missing")
-		return
+		state.init_v = 0
+		state.init_slip = 0.6
 	}
 
 	if state.in_chunk {

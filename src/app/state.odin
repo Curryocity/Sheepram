@@ -104,6 +104,7 @@ Environment :: struct {
 	post:              Post_State,
 
 	last_solution: ^opt.Solution,
+	last_init_v_defaulted: bool,
 	last_solution_discrete: bool,
 	last_solution_cooking: bool,
 	last_solution_chefs_completed: int,
@@ -161,6 +162,7 @@ clear_solution :: proc(state: ^Environment) {
 		state.last_solution = nil
 	}
 	state.last_solution_discrete = false
+	state.last_init_v_defaulted = false
 	state.last_solution_cooking = false
 	state.last_solution_chefs_completed = 0
 	state.last_solution_chefs_total = 0

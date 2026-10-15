@@ -75,7 +75,7 @@ equivalent to `wj.wd wa.wd(11)`.
 
 | Command | Description |
 | --- | --- |
-| `initGnd(vel)`/ `initAir(vel)` | Sets the initial velocity. Two variants differs by previous slip (initGnd takes the current slip when it is executed). One of them must appear exactly once and should normally be the first command. |
+| `initGnd(vel)`/ `initAir(vel)` | Sets the initial velocity. The variants differ by previous slip (initGnd takes the current slip when it is executed). At most one initialization command is allowed per script. If none existed, defaults to `initGnd(0)`. |
 | `initGndRange(min, max)`/`initAirRange(min, max)` | Optimizes the initial speed within a range. |
 | `slip(value)` | Sets the ground slipperiness used by subsequent ground movements. The default is `0.6`. |
 | `speed(level)`/`slow(level)` | Sets the Speed/Slowness effect level. The level must be a whole number from `0` to `255`. |
