@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:os"
+import "core:strings"
 
 import app "./app"
 import nfd "./nfd"
@@ -13,7 +14,8 @@ import "../third_party/odin-imgui/imgui_impl_opengl3"
 import gl "vendor:OpenGL"
 import "vendor:glfw"
 
-TITLE :: "Wolfram? No. Sheepram."
+
+VERSION :: #load("../Version", string)
 
 glfw_error_callback :: proc "c" (error_code: c.int, description: cstring) {
 	context = runtime.default_context()
@@ -66,7 +68,8 @@ try_create_window :: proc(major, minor: int, request_profile: bool) -> glfw.Wind
 	} else {
 		if request_profile do glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 	}
-	window := glfw.CreateWindow(1100, 720, TITLE, nil, nil)
+	title := fmt.ctprintf("Wolfram? Nah. Sheepram (%s)", strings.trim_space(VERSION))
+	window := glfw.CreateWindow(1100, 720, title, nil, nil)
 	if window == nil do return nil
 	glfw.MakeContextCurrent(window)
 	if glfw.GetCurrentContext() != window {
