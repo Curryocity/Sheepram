@@ -381,6 +381,16 @@ tabs_directory :: proc() -> (string, os.Error) {
 	return os.join_path({root, PRESET_FOLDER}, context.allocator)
 }
 
+open_saves_folder :: proc() -> string {
+	dir, dir_err := tabs_directory()
+	if dir_err != nil do return fmt.aprintf("Failed to find saves folder: %v", dir_err)
+	defer delete(dir)
+	if err := os.make_directory_all(dir); err != nil && !os.is_dir(dir) {
+		return fmt.aprintf("Failed to create saves folder: %v", err)
+	}
+	return open_folder(dir)
+}
+
 preference_path :: proc() -> (string, os.Error) {
 	root, err := data_root()
 	if err != nil do return "", err

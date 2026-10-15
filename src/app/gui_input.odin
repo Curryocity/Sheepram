@@ -162,25 +162,6 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	im.PopStyleVar()
 	im.Spacing()
 
-	im.AlignTextToFramePadding(); im.Text("Theme:"); im.SameLine()
-	theme := c.int(app_state.theme)
-	im.SetNextItemWidth(ui_px(180))
-	theme_items := [?]cstring{"Obsidian", "Curry", "Luminous Abyss", "Cherry Blossom", "Crimson Forest"}
-	if combo_select("##theme_bottom", &theme, theme_items[:]) {
-		app_state.theme = Theme(theme)
-		apply_theme(app_state.theme)
-		save_preferences(app_state)
-	}
-	im.SameLine(0, ui_px(14))
-	im.AlignTextToFramePadding(); im.Text("UI Size:"); im.SameLine()
-	ui_level := c.int(app_state.ui_size_level-1)
-	im.SetNextItemWidth(ui_px(80))
-	ui_size_items := [?]cstring{"1", "2", "3"}
-	if combo_select("##ui_size", &ui_level, ui_size_items[:]) {
-		app_state.ui_size_level = int(ui_level)+1
-		save_preferences(app_state)
-	}
-
 	im.AlignTextToFramePadding(); im.Text("Title:"); im.SameLine()
 	im.SetNextItemWidth(ui_px(220))
 	_ = input_text("##tab_name", tab.name_draft[:])

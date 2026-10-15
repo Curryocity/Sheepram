@@ -11,6 +11,61 @@ nfd_ready: bool
 show_exit_prompt: bool
 request_exit: bool
 exit_error: [ERROR_CAPACITY]byte
+options_error: [ERROR_CAPACITY]byte
+show_options: bool
+
+draw_options_menu :: proc(app_state: ^App_State) {
+	im.Dummy({0, ui_px(36)})
+	pushed_heading := push_font(big_code_font)
+	heading_width := im.CalcTextSize("Options").x
+	im.SetCursorPosX(im.GetCursorPosX()+max(f32(0), (im.GetContentRegionAvail().x-heading_width)/2))
+	im.Text("Options")
+	pop_font(pushed_heading)
+	im.Dummy({0, ui_px(24)})
+	available := im.GetContentRegionAvail()
+	panel_width := min(ui_px(560), max(f32(1), available.x-ui_px(40)))
+	panel_x := im.GetCursorPosX()+(available.x-panel_width)/2
+	im.SetCursorPosX(panel_x)
+	im.PushStyleVarImVec2(.WindowPadding, {ui_px(20), ui_px(20)})
+	im.BeginChild("OptionsSettings", {panel_width, max(ui_px(1), available.y-ui_px(64))}, {.Borders, .AlwaysUseWindowPadding})
+	im.PopStyleVar()
+	pushed_code := push_font(code_font)
+	im.SeparatorText("Theme")
+	theme_items := [?]cstring{"Obsidian", "Curry", "Luminous Abyss", "Cherry Blossom", "Crimson Forest"}
+	for label, i in theme_items {
+		if im.RadioButton(label, int(app_state.theme) == i) {
+			app_state.theme = Theme(i)
+			apply_theme(app_state.theme)
+			save_preferences(app_state)
+		}
+	}
+	im.Dummy({0, ui_px(20)})
+	im.SeparatorText("UI Scale")
+	ui_size_items := [?]cstring{"Small (90%)", "Default (100%)", "Large (115%)"}
+	for label, i in ui_size_items {
+		if im.RadioButton(label, app_state.ui_size_level == i+1) {
+			app_state.ui_size_level = i+1
+			save_preferences(app_state)
+		}
+	}
+	im.Dummy({0, ui_px(20)})
+	im.SeparatorText("Saves")
+	if im.Button("Open Saves Folder") {
+		err := open_saves_folder()
+		buffer_set(options_error[:], err)
+		delete(err)
+	}
+	if error_text := buffer_string(options_error[:]); error_text != "" {
+		im.PushTextWrapPos(0)
+		im.TextColored({1, 0.4, 0.4, 1}, "%s", fmt.ctprintf("%s", error_text))
+		im.PopTextWrapPos()
+	}
+	pop_font(pushed_code)
+	im.EndChild()
+	im.Dummy({0, ui_px(8)})
+	im.SetCursorPosX(panel_x+(panel_width-ui_px(100))/2)
+	if im.Button("Close", {ui_px(100), 0}) do show_options = false
+}
 
 close_tab :: proc(app_state: ^App_State, index: int) {
 	if app_state.tab_count <= 1 {
@@ -142,10 +197,17 @@ draw_split_app :: proc(app_state: ^App_State) {
 	im.SetNextWindowSize(viewport.Size)
 	flags := im.WindowFlags_NoDecoration | im.WindowFlags{.NoMove, .NoResize, .NoCollapse}
 	if im.Begin("SheepramRoot", nil, flags) {
+		if show_options {
+			draw_options_menu(app_state)
+			draw_exit_popup(app_state)
+			im.End()
+			return
+		}
 		close_index := -1
 		just_created := -1
-		if im.BeginTable("top_bar", 2, im.TableFlags_SizingStretchSame | im.TableFlags_NoBordersInBody) {
+		if im.BeginTable("top_bar", 3, im.TableFlags_SizingStretchSame | im.TableFlags_NoBordersInBody) {
 			im.TableSetupColumn("tabs", {.WidthStretch})
+			im.TableSetupColumn("options", {.WidthFixed}, ui_px(90))
 			im.TableSetupColumn("load", {.WidthFixed}, ui_px(120))
 			im.TableNextRow()
 			im.TableSetColumnIndex(0)
@@ -190,6 +252,11 @@ draw_split_app :: proc(app_state: ^App_State) {
 				im.EndTabBar()
 			}
 			im.TableSetColumnIndex(1)
+			if im.Button("Options", {-1, 0}) {
+				buffer_clear(options_error[:])
+				show_options = true
+			}
+			im.TableSetColumnIndex(2)
 			if im.Button("Load Preset", {-1, 0}) {
 				tab := app_state.tabs[app_state.active_tab]
 				if !nfd_ready {
