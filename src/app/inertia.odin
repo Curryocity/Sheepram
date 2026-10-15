@@ -1,10 +1,11 @@
 package app
 
 import "core:fmt"
-import "core:strconv"
+import "core:math"
 import "core:strings"
 
 import opt "../optimizer"
+import dsl "../dsl"
 
 Inertia_Assignments :: struct {
 	ticks: [2][3][dynamic]int,
@@ -30,7 +31,11 @@ inertia_assignment_name :: proc(axis, mode: int) -> string {
 	return fmt.tprintf("%s %s", axis_name, mode_names[mode])
 }
 
-parse_inertia_assignments :: proc(texts: ^[2][3]string, n: int) -> (Inertia_Assignments, string) {
+parse_inertia_assignments :: proc(texts: ^[2][3]string, n: int, variables: map[string]f64 = nil) -> (Inertia_Assignments, string) {
+	model := opt.Model{n = n}
+	parser := dsl.init_parser(&model)
+	defer dsl.destroy(&parser)
+	dsl.add_resolved_variables(&parser, variables)
 	assignments: Inertia_Assignments
 	for axis in 0..<2 {
 		for mode in 0..<3 {
@@ -47,13 +52,19 @@ parse_inertia_assignments :: proc(texts: ^[2][3]string, n: int) -> (Inertia_Assi
 					return assignments, fmt.aprintf("%s contains an empty tick.", name)
 				}
 
-				tick, ok := strconv.parse_int(token, 10)
-				if !ok {
-					return assignments, fmt.aprintf("%s contains invalid tick '%s'.", name, token)
+				value, err := dsl.parse_constant(&parser, token)
+				if err != "" {
+					message := fmt.aprintf("%s contains invalid tick expression '%s':\n%s", name, token, err)
+					delete(err)
+					return assignments, message
 				}
-				if tick < 0 || tick >= n {
-					return assignments, fmt.aprintf("%s tick %d is outside [0, %d).", name, tick, n)
+				if math.is_nan(value) || math.is_inf(value, 0) || value != math.trunc(value) {
+					return assignments, fmt.aprintf("%s tick expression '%s' must resolve to a finite whole number.", name, token)
 				}
+				if value < 0 || value >= f64(n) {
+					return assignments, fmt.aprintf("%s tick %g is outside [0, %d).", name, value, n)
+				}
+				tick := int(value)
 
 				for other_mode in 0..<mode {
 					if inertia_assignment_contains(assignments.ticks[axis][other_mode][:], tick) {
@@ -67,6 +78,16 @@ parse_inertia_assignments :: proc(texts: ^[2][3]string, n: int) -> (Inertia_Assi
 
 				if end == len(text) do break
 				start = end+1
+			}
+			ticks := assignments.ticks[axis][mode][:]
+			for i in 1..<len(ticks) {
+				value := ticks[i]
+				j := i
+				for j > 0 && ticks[j-1] > value {
+					ticks[j] = ticks[j-1]
+					j -= 1
+				}
+				ticks[j] = value
 			}
 		}
 	}

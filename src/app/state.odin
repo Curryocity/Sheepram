@@ -107,6 +107,7 @@ Environment :: struct {
 	inertia_detection_range: f64,
 	inertia_threshold: f64,
 	inertia_drag: [dynamic]f64,
+	last_inertia_assignments: Inertia_Assignments,
 	inertia_tick_lists: [2][3][INERTIA_TICK_LIST_CAPACITY]byte,
 	inertia_tick_list_visible: [2][3]bool,
 	inertia_detector_filter: Inertia_Detector_Filter,
@@ -162,6 +163,7 @@ clear_solution :: proc(state: ^Environment) {
 	state.last_jump_ticks = nil
 	delete(state.inertia_drag)
 	state.inertia_drag = nil
+	destroy_inertia_assignments(&state.last_inertia_assignments)
 	state.inertia_threshold = 0
 }
 

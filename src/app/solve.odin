@@ -62,6 +62,7 @@ Optimizer_Result :: struct {
 	jump_ticks:               [dynamic]bool,
 	inertia_threshold:        f64,
 	inertia_drag:             [dynamic]f64,
+	inertia_assignments:      Inertia_Assignments,
 	error:                    string,
 }
 
@@ -112,6 +113,7 @@ destroy_optimizer_result :: proc(result: ^Optimizer_Result) {
 	delete(result.angle_offset)
 	delete(result.jump_ticks)
 	delete(result.inertia_drag)
+	destroy_inertia_assignments(&result.inertia_assignments)
 	delete(result.error)
 	delete(result.tightening_epsilons)
 	result^ = {}
@@ -155,6 +157,8 @@ apply_optimizer_result :: proc(state: ^Environment, result: ^Optimizer_Result) {
 	state.inertia_threshold = result.inertia_threshold
 	state.inertia_drag = result.inertia_drag
 	result.inertia_drag = nil
+	state.last_inertia_assignments = result.inertia_assignments
+	result.inertia_assignments = {}
 	buffer_set(state.last_error[:], result.error)
 }
 
@@ -245,7 +249,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	}
 
 	n := m.n
-	assignments, inertia_err := parse_inertia_assignments(&material.inertia_tick_lists, n)
+	assignments, inertia_err := parse_inertia_assignments(&material.inertia_tick_lists, n, m.variables)
 	defer destroy_inertia_assignments(&assignments)
 	if inertia_err != "" {
 		set_optimizer_error(&result, fmt.tprintf("Error:\nInertia Manager:\n%s", inertia_err))
@@ -645,6 +649,8 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	result.inertia_threshold = m.inertia_threshold
 	result.inertia_drag = m.inertia_drag
 	m.inertia_drag = nil
+	result.inertia_assignments = assignments
+	assignments = {}
 
 	result.solution = solution
 	return result

@@ -56,7 +56,7 @@ Movement functions support these modifiers:
 | `j` suffix | Performs the movement as a jump, for example `sj`.  |
 | `a` suffix | Performs the movement in air, for example `sa`. |
 | `.input` | Sets the movement keys using any valid combination of `w`, `a`, `s`, and `d`, for example `s.wa` or `sa.d`. Without it, movement defaults to forward (`w`). |
-| `(duration)` | Repeats the movement for a positive whole-number duration, for example `sa.wa(11)`. A jump movement performs one jump tick followed by airborne ticks. |
+| `(duration)` | Repeats the movement for a nonnegative integer duration, for example `sa.wa(11)`. A jump movement performs one jump tick followed by airborne ticks. |
 
 Examples:
 
@@ -82,7 +82,7 @@ equivalent to `wj.wd wa.wd(11)`.
 | `set(name, value)` | Evaluates `value` immediately and assigns it to `name`. Later commands and movements can use the variable. |
 | `t(name)` | Records the current tick into the named variable. |
 | `wx/wz(ticks)` | Simulates an X/Z-axis wall hit velocity simulation for some amount of ticks(position will not be clamp to the wall) |
-| `mv(drag, accel, duration = 1)` | Adds a custom movement segment with the given drag, acceleration and optional duration. |
+| `mv(drag, accel, duration = 1)` | Adds a custom movement segment with the given drag, acceleration and optional nonnegative whole-number duration. Zero skips the segment and does not disable Discrete Local Search. |
 | `r(count) { ... }` | Repeats a non-empty block of movement functions and commands. `repeat(...)` is an alias. |
 
 These built-in constants are always available and cannot be redefined:
