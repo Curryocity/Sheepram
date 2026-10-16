@@ -344,6 +344,7 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 
 safe_file_name :: proc(raw_name: string) -> string {
 	builder := strings.builder_make()
+	defer strings.builder_destroy(&builder)
 	name := strings.trim_space(raw_name)
 	for ch in name {
 		forbidden := ch == '/' || ch == '\\' || ch == ':' || ch == '*' ||
@@ -458,6 +459,9 @@ load_tab_from_file :: proc(tab: ^Tab_State, path: string) -> string {
 	if load_err := load_tab_from_json(tab, data); load_err != "" do return load_err
 
 	filename := filepath.base(path)
+	title := filepath.stem(filename)
+	buffer_set(tab.name[:], title)
+	buffer_set(tab.name_draft[:], title)
 	buffer_set(tab.saved_file_name[:], filename)
 	fingerprint := build_tab_fingerprint(tab)
 	defer delete(fingerprint)
