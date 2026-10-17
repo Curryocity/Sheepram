@@ -498,6 +498,12 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 			"Discrete" if state.last_solution_discrete else "Continuous",
 		)
 	}
+	initial_vx := solution.xs[1]-solution.xs[0]
+	initial_vz := solution.zs[1]-solution.zs[0]
+	initial_speed := math.sqrt(initial_vx*initial_vx+initial_vz*initial_vz)
+	initial_facing := solution.thetas[0]
+	if !state.last_solution_discrete do initial_facing *= 180/math.PI
+	im.TextDisabled("InitV: (%.6f, %.3f)", initial_speed, wrap_degrees_180(initial_facing))
 	im.Spacing(); im.Spacing()
 
 	count := len(solution.xs)
