@@ -355,6 +355,10 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		return result
 	}
 	defer opt.destroy_raw_expr(&z_origin_expr)
+	default_initial_angle := !m.init_v_range && m.init_v == 0 && !m.has_init_angle && objective.f_coeff[0] == 0 && x_origin_expr.f_coeff[0] == 0 && z_origin_expr.f_coeff[0] == 0
+	for constraint in constraints {
+		if constraint.lhs.f_coeff[0] != 0 do default_initial_angle = false
+	}
 
 	// 8. Build the raw problem and reduce it to the continuous optimizer problem
 	raw_problem := opt.make_raw_problem(objective, constraints[:], n)
@@ -467,6 +471,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 			free(solution)
 			return result
 		}
+		if default_initial_angle do solution.thetas[0] = 0
 		copy(prev_thetas, solution.thetas[:])
 
 		result.continuous_time_seconds += time.duration_seconds(time.tick_since(continuous_start))
