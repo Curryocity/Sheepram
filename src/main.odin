@@ -15,7 +15,7 @@ import gl "vendor:OpenGL"
 import "vendor:glfw"
 
 
-VERSION :: #load("../Version", string)
+VERSION :: #load("../VERSION", string)
 
 glfw_error_callback :: proc "c" (error_code: c.int, description: cstring) {
 	context = runtime.default_context()
