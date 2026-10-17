@@ -208,7 +208,7 @@ draw_split_app :: proc(app_state: ^App_State) {
 		if im.BeginTable("top_bar", 3, im.TableFlags_SizingStretchSame | im.TableFlags_NoBordersInBody) {
 			im.TableSetupColumn("tabs", {.WidthStretch})
 			im.TableSetupColumn("options", {.WidthFixed}, ui_px(90))
-			im.TableSetupColumn("load", {.WidthFixed}, ui_px(120))
+			im.TableSetupColumn("load", {.WidthFixed}, ui_px(75))
 			im.TableNextRow()
 			im.TableSetColumnIndex(0)
 			if im.BeginTabBar("optimizer_tabs") {
@@ -257,7 +257,7 @@ draw_split_app :: proc(app_state: ^App_State) {
 				show_options = true
 			}
 			im.TableSetColumnIndex(2)
-			if im.Button("Load Preset", {-1, 0}) {
+			if im.Button("Load", {-1, 0}) {
 				tab := app_state.tabs[app_state.active_tab]
 				if !nfd_ready {
 					buffer_set(tab.inline_save_message[:], fmt.tprintf("Load failed: %s", nfd.get_error()))
