@@ -448,6 +448,8 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	original_pancake_dual_bound: f64 // dual bound for untighten problem
 	previous_discrete: opt.Solution
 	defer opt.destroy_solution(&previous_discrete)
+	standard_state: opt.Discrete_State
+	defer opt.destroy_discrete_state(&standard_state)
 	// The tightening loop
 	for attempt in 0..<max_tightening_attempts {
 		if attempt > 0 {
@@ -489,83 +491,25 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 
 		discrete_start := time.tick_now()
 
-		search_mode := opt.Local_Search_Mode.Regular
-		starts := 1
-		if material.cook {
-			search_mode = .Cooking
-			starts = clamp(material.chefs, 1, 1000)
-		}
-
 		exact_work := opt.make_exact_workspace(n)
 		defer opt.destroy_exact_workspace(&exact_work)
-
 		best_discrete_state: opt.Discrete_State
 		defer opt.destroy_discrete_state(&best_discrete_state)
 		best_grade: opt.Grade
-		has_best := false // does the first candidate even exist?
-		completed_starts := 0
-
-		cancelled := false
-		for start in 0..<starts {
-			if optimizer_cancel_requested(control) {
-				cancelled = true
-				break
-			}
-
-			local_search_cancelled := false
-			local_search_control := opt.LS_Control {
-				cancel_check = optimizer_cancel_check,
-				cancel_data  = rawptr(control),
-				cancelled    = &local_search_cancelled,
-			}
-			candidate_state := opt.local_search(
-				&discrete_model,
-				&discrete_problem,
-				&raw_problem,
-				solution,
-				search_mode,
-				&local_search_control,
-			)
-
-			candidate_grade: opt.Grade
-			opt.exact_grading(
-				&candidate_grade,
-				&discrete_model,
-				&raw_problem,
-				candidate_state,
-				&exact_work,
-			)
-
-			accept_candidate := !has_best || opt.improveQ(&candidate_grade, &best_grade, .Repair)
-
-			if accept_candidate {
-				if has_best do opt.destroy_discrete_state(&best_discrete_state)
-				best_discrete_state = candidate_state
-				best_grade = candidate_grade
-				has_best = true
-			} else {
-				opt.destroy_discrete_state(&candidate_state)
-			}
-			completed_starts = start+1
-
-			if has_best {
+		has_best := false
+		cancelled := optimizer_cancel_requested(control)
+		if !cancelled {
+			search_control := opt.LS_Control{cancel_check = optimizer_cancel_check, cancel_data = rawptr(control), cancelled = &cancelled}
+			best_discrete_state = opt.local_search(&discrete_model, &discrete_problem, &raw_problem, solution, .Regular, &search_control)
+			opt.exact_grading(&best_grade, &discrete_model, &raw_problem, best_discrete_state, &exact_work)
+			has_best = true
+			cancelled = cancelled || optimizer_cancel_requested(control)
+			if !material.cook {
 				progress_solution := opt.create_exact_solution(&discrete_model, best_discrete_state)
-				progress_solution.optimum = eval_raw_solution(raw_problem.objective, &progress_solution, true)
-				progress_objective := progress_solution.optimum
-				if material.maximize do progress_objective *= -1
-				publish_optimizer_progress(
-					control,
-					progress_objective,
-					progress_solution.thetas[:],
-					start+1,
-					starts,
-				)
+				objective := best_grade.objective
+				if material.maximize do objective *= -1
+				publish_optimizer_progress(control, objective, progress_solution.thetas[:], 0, 0, best_grade.feasible)
 				opt.destroy_solution(&progress_solution)
-			}
-
-			if local_search_cancelled || optimizer_cancel_requested(control) {
-				cancelled = true
-				break
 			}
 		}
 
@@ -583,6 +527,8 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 			return result
 		}
 
+		opt.destroy_discrete_state(&standard_state)
+		standard_state = opt.clone_discrete_state(best_discrete_state)
 		exact_solution := opt.create_exact_solution(&discrete_model, best_discrete_state)
 		exact_solution.optimum = eval_raw_solution(raw_problem.objective, &exact_solution, true)
 		exact_solution.continuous_globally_optimal = continuous_globally_certified
@@ -599,13 +545,31 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		opt.destroy_solution(solution)
 		solution^ = exact_solution
 		result.discrete = true
-		result.cooking = material.cook
-		result.chefs_completed = completed_starts if material.cook else 0
-		result.chefs_total = starts if material.cook else 0
 		result.discrete_time_seconds += time.duration_seconds(time.tick_since(discrete_start))
 
 		if !tightened do break
 		config.tightened = true
+	}
+	if material.discrete_search && material.cook {
+		result.cooking = true
+		result.chefs_total = clamp(material.chefs, 1, 1000)
+	}
+	if material.discrete_search && material.cook && !optimizer_cancel_requested(control) {
+		n_init_angles := 2 if m.init_v_range else 1
+		initial_thetas: [2]f64
+		copy(initial_thetas[:n_init_angles], prev_thetas[:n_init_angles])
+		if m.has_init_angle do initial_thetas[0] = m.init_angle*math.PI/180
+		discrete_problem := opt.freeze_initial_problem(&problem, initial_thetas[:n_init_angles])
+		defer opt.destroy_problem(&discrete_problem)
+		cooking_start := time.tick_now()
+		result.chefs_completed = run_cooking_phase(material, &discrete_model, &discrete_problem, &raw_problem, &standard_state, control)
+		result.discrete_time_seconds += time.duration_seconds(time.tick_since(cooking_start))
+		cooked := opt.create_exact_solution(&discrete_model, standard_state)
+		delete(solution.thetas)
+		delete(solution.xs)
+		delete(solution.zs)
+		solution.thetas, solution.xs, solution.zs = cooked.thetas, cooked.xs, cooked.zs
+		solution.optimum = eval_raw_solution(raw_problem.objective, solution, true)
 	}
 
 	// 11. Convert optimizer-space results back into UI/reporting-space results
@@ -657,6 +621,38 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 
 	result.solution = solution
 	return result
+}
+
+run_cooking_phase :: proc(material: ^Optimizer_Material, model: ^opt.Discrete_Model, problem: ^opt.Problem, raw: ^opt.Raw_Problem, best_state: ^opt.Discrete_State, control: ^Optimizer_Control) -> int {
+	work := opt.make_exact_workspace(model.n)
+	defer opt.destroy_exact_workspace(&work)
+	best_grade: opt.Grade
+	opt.exact_grading(&best_grade, model, raw, best_state^, &work)
+	starts := clamp(material.chefs, 1, 1000)
+	completed := 0
+	for {
+		progress_solution := opt.create_exact_solution(model, best_state^)
+		objective := best_grade.objective
+		if material.maximize do objective *= -1
+		publish_optimizer_progress(control, objective, progress_solution.thetas[:], completed, starts, best_grade.feasible)
+		opt.destroy_solution(&progress_solution)
+		if completed >= starts || optimizer_cancel_requested(control) do break
+		cancelled := false
+		search_control := opt.LS_Control{cancel_check = optimizer_cancel_check, cancel_data = rawptr(control), cancelled = &cancelled}
+		candidate := opt.local_search_from_state(model, problem, raw, best_state^, .Cooking, &search_control)
+		grade: opt.Grade
+		opt.exact_grading(&grade, model, raw, candidate, &work)
+		if opt.improveQ(&grade, &best_grade, .Repair) {
+			opt.destroy_discrete_state(best_state)
+			best_state^ = candidate
+			best_grade = grade
+		} else {
+			opt.destroy_discrete_state(&candidate)
+		}
+		completed += 1
+		if cancelled do break
+	}
+	return completed
 }
 
 tighten_raw_problem :: proc(raw_problem: ^opt.Raw_Problem, tighten_mod: ^Constraint_Tightening, exact_sol: ^opt.Solution) -> bool{

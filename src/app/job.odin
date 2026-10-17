@@ -7,6 +7,7 @@ import "core:time"
 Optimizer_Progress :: struct {
 	mutex: sync.Atomic_Mutex,
 	has_best: bool,
+	has_feasible: bool,
 	best_objective: f64,
 	angles: [dynamic]f64,
 	completed_chefs: int,
@@ -57,6 +58,7 @@ publish_optimizer_progress :: proc(
 	objective: f64,
 	angles: []f64,
 	completed_chefs, total_chefs: int,
+	feasible: bool,
 ) {
 	if control == nil do return
 	progress := &control.progress
@@ -64,6 +66,7 @@ publish_optimizer_progress :: proc(
 	defer sync.atomic_mutex_unlock(&progress.mutex)
 
 	progress.has_best = true
+	progress.has_feasible = feasible
 	progress.best_objective = objective
 	resize(&progress.angles, len(angles))
 	copy(progress.angles[:], angles)

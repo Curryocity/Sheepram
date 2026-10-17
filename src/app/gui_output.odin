@@ -368,11 +368,13 @@ draw_optimizer_progress :: proc(tab: ^Tab_State) {
 
 	progress := &job.control.progress
 	has_best: bool
+	best_feasible: bool
 	best_objective: f64
 	completed_chefs, total_chefs: int
 
 	sync.atomic_mutex_lock(&progress.mutex)
 	has_best = progress.has_best
+	best_feasible = progress.has_feasible
 	best_objective = progress.best_objective
 	angles := make([dynamic]f64, len(progress.angles))
 	copy(angles[:], progress.angles[:])
@@ -394,9 +396,10 @@ draw_optimizer_progress :: proc(tab: ^Tab_State) {
 	im.TextDisabled("Elapsed Time: %s", elapsed_c)
 
 	if !has_best {
-		im.TextDisabled("Waiting...")
+		im.TextDisabled("Running Standard baseline..." if tab.env.cook else "Waiting...")
 		return
 	}
+	if !best_feasible do im.TextColored({1, 0.75, 0.3, 1}, "Repairing - no feasible solution yet")
 
 	im.Spacing()
 	pushed_big := push_font(big_code_font)

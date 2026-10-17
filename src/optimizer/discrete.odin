@@ -435,19 +435,45 @@ make_discrete_state :: proc(model: ^Discrete_Model, sol: ^Solution) -> Discrete_
 	return state
 }
 
-local_search :: proc(
+perturb_discrete_state :: proc(state: ^Discrete_State, rng := context.random_generator) {
+	for &idx in state.indices {
+		draw := rand.int_max(10, rng)
+		delta := 0
+		if draw == 0 do delta = -2
+		else if draw < 3 do delta = -1
+		else if draw < 7 do delta = 0
+		else if draw < 9 do delta = 1
+		else do delta = 2
+		idx = offset_index(idx, delta)
+	}
+}
+
+local_search :: proc(model: ^Discrete_Model, p: ^Problem, exact_p: ^Raw_Problem, sol: ^Solution, search_mode: Local_Search_Mode, control: ^LS_Control = nil) -> Discrete_State {
+	state := make_discrete_state(model, sol)
+	defer destroy_discrete_state(&state)
+	return local_search_from_state(model, p, exact_p, state, search_mode, control)
+}
+
+local_search_from_state :: proc(
 	model: ^Discrete_Model,
 	p: ^Problem,
 	exact_p: ^Raw_Problem,
-	sol: ^Solution,
+	state: Discrete_State,
 	search_mode: Local_Search_Mode,
 	control: ^LS_Control = nil,
 ) -> Discrete_State {
 
 	ilen := discrete_angle_len(model)
 
-	trial := make_discrete_state(model, sol)
+	assert_discrete_state(model, state)
+	trial := clone_discrete_state(state)
 	defer destroy_discrete_state(&trial)
+	if search_mode == .Cooking {
+		rng_state: rand.Xoshiro256_Random_State
+		rng := rand.xoshiro256_random_generator(&rng_state)
+		perturb_discrete_state(&trial, rng)
+		perturb_discrete_state(&trial, rng)
+	}
 
 	// Two modes:
 	// Repair: no exact-feasible solution yet.
