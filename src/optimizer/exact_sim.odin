@@ -2,12 +2,20 @@ package optimizer
 
 import "core:math"
 
+Minecraft_Version :: enum {
+	V1_8_9,
+	V1_21_3,
+}
+
+minecraft_version_name :: proc(version: Minecraft_Version) -> string {
+	return "1.21.3" if version == .V1_21_3 else "1.8.9"
+}
 
 Exact_Movement :: struct {
 	drag_x: f64,
 	drag_z: f64,
-	forward: f32,
-	strafe: f32,
+	forward: f64,
+	strafe: f64,
 	sprint_jump: bool,
 }
 
@@ -34,6 +42,7 @@ get_exact_movement :: proc(
 	slip: f32,
 	airborne, sprint, sneak, jump, stop: bool,
 	speed, slow: u8,
+	version := Minecraft_Version.V1_8_9,
 ) -> Exact_Movement {
 	drag: f32 = 0.91
 
@@ -58,7 +67,13 @@ get_exact_movement :: proc(
 	}
 
 	accel_f := f32(accel)
-	if !airborne {
+	if version == .V1_21_3 {
+		if airborne {
+			accel_f = f32(0.025999999) if sprint else f32(0.02)
+		} else {
+			accel_f *= f32(0.21600002)/(slip*slip*slip)
+		}
+	} else if !airborne {
 		accel_f *= f32(0.16277136)/(drag*drag*drag)
 	}
 
@@ -75,6 +90,23 @@ get_exact_movement :: proc(
 	forward *= f32(0.98)
 	strafe *= f32(0.98)
 
+	if version == .V1_21_3 {
+		forward_d, strafe_d := f64(forward), f64(strafe)
+		dist2 := forward_d*forward_d+strafe_d*strafe_d
+		if dist2 < 1.0e-7 {
+			forward_d, strafe_d = 0, 0
+		} else {
+			if dist2 > 1 {
+				distance := math.sqrt(dist2)
+				forward_d /= distance
+				strafe_d /= distance
+			}
+			forward_d *= f64(accel_f)
+			strafe_d *= f64(accel_f)
+		}
+		return {drag_x = f64(drag), drag_z = f64(drag), forward = forward_d, strafe = strafe_d, sprint_jump = sprint && jump}
+	}
+
 	dist2 := forward*forward+strafe*strafe
 	if dist2 > 1 {
 		accel_f /= f32(math.sqrt(f64(dist2)))
@@ -85,8 +117,8 @@ get_exact_movement :: proc(
 	return Exact_Movement {
 		drag_x = f64(drag),
 		drag_z = f64(drag),
-		forward = forward,
-		strafe = strafe,
+		forward = f64(forward),
+		strafe = f64(strafe),
 		sprint_jump = sprint && jump,
 	}
 }
@@ -130,20 +162,24 @@ exact_simulation :: proc(
 
 		m := model.exact_movement[t-1]
 		angle_index := state.indices[ut]
-		sin_value := sin_index(angle_index)
-		cos_value := cos_index(angle_index)
+		sin_value := sin_index(angle_index, model.minecraft_version)
+		cos_value := cos_index(angle_index, model.minecraft_version)
 
-		if m.sprint_jump {
-			vx += f64(sin_value*f32(0.2))
-			vz += f64(cos_value*f32(0.2))
+		if model.minecraft_version == .V1_21_3 {
+			if m.sprint_jump {
+				vx += f64(sin_value)*0.2
+				vz += f64(cos_value)*0.2
+			}
+			vx += m.forward*f64(sin_value)-m.strafe*f64(cos_value)
+			vz += m.forward*f64(cos_value)+m.strafe*f64(sin_value)
+		} else {
+			if m.sprint_jump {
+				vx += f64(sin_value*f32(0.2))
+				vz += f64(cos_value*f32(0.2))
+			}
+			vx += f64(f32(m.forward)*sin_value-f32(m.strafe)*cos_value)
+			vz += f64(f32(m.forward)*cos_value+f32(m.strafe)*sin_value)
 		}
-
-		vx += f64(
-			m.forward*sin_value-m.strafe*cos_value,
-		)
-		vz += f64(
-			m.forward*cos_value+m.strafe*sin_value,
-		)
 	}
 }
 

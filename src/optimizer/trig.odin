@@ -12,6 +12,8 @@ sine_table: [SINE_TABLE_SIZE]f32
 facing_table: [SINE_TABLE_SIZE]f64
 sin_value_table: [SINE_TABLE_SIZE]f32
 cos_value_table: [SINE_TABLE_SIZE]f32
+modern_sin_value_table: [SINE_TABLE_SIZE]f32
+modern_cos_value_table: [SINE_TABLE_SIZE]f32
 
 @(init)
 init_sine_table :: proc "contextless" () {
@@ -25,6 +27,9 @@ init_sine_table :: proc "contextless" () {
 		facing_table[i] = facing
 		sin_value_table[i] = sin(f32(facing))
 		cos_value_table[i] = cos(f32(facing))
+		rad := f32(facing)*f32(0.017453292)
+		modern_sin_value_table[i] = sine_table[int(rad*INDEX_PER_RAD)&SINE_TABLE_MASK]
+		modern_cos_value_table[i] = sine_table[int(rad*INDEX_PER_RAD+RIGHT_ANGLE)&SINE_TABLE_MASK]
 	}
 }
 
@@ -53,21 +58,23 @@ facing_cos_index :: proc "contextless" (deg: f32) -> u16 {
 	return u16(int(rad * INDEX_PER_RAD + RIGHT_ANGLE) & SINE_TABLE_MASK)
 }
 
-sin_index :: proc "contextless" (index: u16) -> f32 {
+sin_index :: proc "contextless" (index: u16, version := Minecraft_Version.V1_8_9) -> f32 {
+	if version == .V1_21_3 do return modern_sin_value_table[int(index)]
 	return sin_value_table[int(index)]
 }
 
-cos_index :: proc "contextless" (index: u16) -> f32 {
+cos_index :: proc "contextless" (index: u16, version := Minecraft_Version.V1_8_9) -> f32 {
+	if version == .V1_21_3 do return modern_cos_value_table[int(index)]
 	return cos_value_table[int(index)]
 }
 
-update_discrete_trig_cache :: proc(work: ^Workspace, state: Discrete_State) {
+update_discrete_trig_cache :: proc(work: ^Workspace, state: Discrete_State, version := Minecraft_Version.V1_8_9) {
 	assert(len(work.sin_cache) == len(state.indices))
 	assert(len(work.cos_cache) == len(state.indices))
 	for index, i in state.indices {
 		ut := i
-		work.sin_cache[ut] = f64(sin_index(index))
-		work.cos_cache[ut] = f64(cos_index(index))
+		work.sin_cache[ut] = f64(sin_index(index, version))
+		work.cos_cache[ut] = f64(cos_index(index, version))
 	}
 }
 

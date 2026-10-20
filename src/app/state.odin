@@ -26,6 +26,8 @@ Continuous_Optimizer :: enum {
 	Pancake,
 }
 
+Minecraft_Version :: opt.Minecraft_Version
+
 Pancake_Recovery :: enum {
 	Spine,
 	BFGS,
@@ -84,6 +86,7 @@ Constraint_Result_Status :: enum {
 }
 
 Environment :: struct {
+	minecraft_version: Minecraft_Version,
 	maximize: bool,
 	auto_delays: bool,
 	discrete_search: bool,

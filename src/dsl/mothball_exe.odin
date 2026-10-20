@@ -11,6 +11,7 @@ MOTH_PI :: math.PI
 MOTH_DEFAULT_INERTIA_THRESHOLD :: 0.005
 
 Moth_Compiler :: struct {
+	minecraft_version: opt.Minecraft_Version,
 	speed: u8,
 	slow: u8,
 	slip: f64,
@@ -110,14 +111,15 @@ append_movement_tick :: proc(state: ^Moth_Compiler, movement: MoveFunc) {
 		movement.stop,
 		state.speed,
 		state.slow,
+		state.minecraft_version,
 	)
 	exact_base.sprint_jump = movement.sprint && movement.jump
 	state.prev_sprint = movement.sprint
 	state.prev_sneak = movement.sneak
 	drag := exact_base.drag_x
-	forward := f64(exact_base.forward)
-	strafe := f64(exact_base.strafe)
-	if exact_base.sprint_jump do forward += f64(f32(0.2))
+	forward := exact_base.forward
+	strafe := exact_base.strafe
+	if exact_base.sprint_jump do forward += 0.2 if state.minecraft_version == .V1_21_3 else f64(f32(0.2))
 	final_accel := math.sqrt(forward*forward+strafe*strafe)
 	angle_offset := math.atan2(-strafe, forward)*180/math.PI
 
@@ -147,10 +149,10 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 	state.initial_wall_x = false
 	state.initial_wall_z = false
 	state.inertia_threshold = MOTH_DEFAULT_INERTIA_THRESHOLD
+	if state.minecraft_version == .V1_21_3 do state.inertia_threshold = 0.003
 	state.inertia_set = false
-	// 1.8.9 delays airborne sprint acceleration but uses the current sneak input.
-	state.sprint_delay = state.auto_delays
-	state.sneak_delay = false
+	state.sprint_delay = state.auto_delays && state.minecraft_version == .V1_8_9
+	state.sneak_delay = state.auto_delays && state.minecraft_version == .V1_21_3
 	state.prev_sprint = false
 	state.prev_sneak = false
 	state.ok = true

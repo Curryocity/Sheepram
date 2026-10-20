@@ -10,6 +10,7 @@ import opt "../optimizer"
 max_tightening_attempts :: 10
 
 Optimizer_Material :: struct {
+	minecraft_version: Minecraft_Version,
 	maximize:             bool,
 	auto_delays:          bool,
 	discrete_search:      bool,
@@ -70,6 +71,7 @@ Optimizer_Result :: struct {
 
 make_optimizer_material :: proc(state: ^Environment) -> Optimizer_Material {
 	material := Optimizer_Material {
+		minecraft_version      = state.minecraft_version,
 		maximize             = state.maximize,
 		auto_delays          = state.auto_delays,
 		discrete_search      = state.discrete_search,
@@ -216,7 +218,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	compile_start := time.tick_now()
 
 	// 1. Initialize the sequential Mothball compiler
-	m := dsl.Moth_Compiler{auto_delays = material.auto_delays}
+	m := dsl.Moth_Compiler{minecraft_version = material.minecraft_version, auto_delays = material.auto_delays}
 	defer dsl.destroy_moth_compiler(&m)
 
 	// 2. Parse Mothball into a command tree
@@ -438,6 +440,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	defer opt.destroy_discrete_model(&discrete_model)
 	if material.discrete_search {
 		discrete_model = opt.Discrete_Model {
+			minecraft_version = m.minecraft_version,
 			n = n,
 			init_v_range = m.init_v_range,
 			init_drag_x = initial_drag_x,

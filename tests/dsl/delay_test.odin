@@ -2,8 +2,9 @@ package dsl_test
 
 import "core:testing"
 import dsl "../../src/dsl"
+import opt "../../src/optimizer"
 
-expect_delayed_movement :: proc(t: ^testing.T, script, manual_script: string, auto_delays: bool) {
+expect_delayed_movement :: proc(t: ^testing.T, script, manual_script: string, auto_delays: bool, version := opt.Minecraft_Version.V1_8_9) {
 	code, err := dsl.parse_mothball(script)
 	defer dsl.destroy_moth_code(&code)
 	defer delete(err)
@@ -15,6 +16,8 @@ expect_delayed_movement :: proc(t: ^testing.T, script, manual_script: string, au
 	if err != "" || manual_err != "" do return
 	actual, expected: dsl.Moth_Compiler
 	actual.auto_delays = auto_delays
+	actual.minecraft_version = version
+	expected.minecraft_version = version
 	defer dsl.destroy_moth_compiler(&actual)
 	defer dsl.destroy_moth_compiler(&expected)
 	dsl.compile_mothball(&actual, code[:])
@@ -62,4 +65,32 @@ automatic_delay_keeps_current_sneak_input_for_1_8_9 :: proc(t: ^testing.T) {
 @(test)
 manual_delay_mode_keeps_current_input_behavior :: proc(t: ^testing.T) {
 	expect_delayed_movement(t, "sa sn.w sa.wd", "sa sn.w sa.wd", false)
+}
+
+@(test)
+modern_auto_delay_delays_sneak_without_delaying_sprint :: proc(t: ^testing.T) {
+	expect_delayed_movement(t, "sn.w w sn.w", "w sn.w w", true, .V1_21_3)
+	expect_delayed_movement(t, "initAir(0.3) sa(2) wa(2)", "initAir(0.3) sa(2) wa(2)", true, .V1_21_3)
+	expect_delayed_movement(t, "r(2){sn.w w}", "w sn.w w sn.w", true, .V1_21_3)
+}
+
+@(test)
+minecraft_version_sets_inertia_defaults_and_keeps_explicit_override :: proc(t: ^testing.T) {
+	for version in ([2]opt.Minecraft_Version{.V1_8_9, .V1_21_3}) {
+		for overridden in ([2]bool{false, true}) {
+			code, err := dsl.parse_mothball("inertia(0.004) w" if overridden else "w")
+			testing.expect_value(t, err, "")
+			compiler := dsl.Moth_Compiler{minecraft_version = version, auto_delays = true}
+			dsl.compile_mothball(&compiler, code[:])
+			testing.expect(t, compiler.ok)
+			expected := 0.003 if version == .V1_21_3 else 0.005
+			if overridden do expected = 0.004
+			testing.expect_value(t, compiler.inertia_threshold, expected)
+			testing.expect_value(t, compiler.sprint_delay, version == .V1_8_9)
+			testing.expect_value(t, compiler.sneak_delay, version == .V1_21_3)
+			dsl.destroy_moth_compiler(&compiler)
+			dsl.destroy_moth_code(&code)
+			delete(err)
+		}
+	}
 }

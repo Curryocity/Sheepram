@@ -6,6 +6,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import dsl "../dsl"
+import opt "../optimizer"
 
 APP_NAME :: "Sheepram"
 PREFERENCE_FILE :: "preference.json"
@@ -40,6 +41,7 @@ Saved_Inertia_List :: struct {
 }
 
 Saved_Tab :: struct {
+	minecraft_version:   string     `json:"minecraftVersion"`,
 	title:             string     `json:"title"`,
 	maximize:          bool       `json:"maximize"`,
 	auto_delays:       bool       `json:"autoDelays"`,
@@ -68,6 +70,7 @@ Preferences :: struct {
 }
 
 free_saved_tab :: proc(saved: ^Saved_Tab) {
+	delete(saved.minecraft_version)
 	for value in saved.global_names do delete(value)
 	for value in saved.global_values do delete(value)
 	delete(saved.title)
@@ -94,6 +97,7 @@ free_saved_tab :: proc(saved: ^Saved_Tab) {
 saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 	env := &tab.env
 	saved := Saved_Tab {
+		minecraft_version   = opt.minecraft_version_name(env.minecraft_version),
 		title             = buffer_string(tab.name[:]),
 		maximize          = env.maximize,
 		auto_delays       = env.auto_delays,
@@ -243,6 +247,14 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	if globals_err := migrate_saved_global_table(&saved); globals_err != "" {
 		return globals_err
 	}
+	minecraft_version := Minecraft_Version.V1_8_9
+	switch saved.minecraft_version {
+	case "", "1.8.9":
+	case "1.21.3":
+		minecraft_version = .V1_21_3
+	case:
+		return strings.clone("Invalid field: minecraftVersion (expected 1.8.9 or 1.21.3)")
+	}
 
 	if saved.obj_type < int(Objective_Type.X) || saved.obj_type > int(Objective_Type.Custom) {
 		return strings.clone("Invalid field: currObj")
@@ -278,6 +290,7 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 
 	clear_solution(&tab.env)
 	env := &tab.env
+	env.minecraft_version = minecraft_version
 	env.inertia_tick_lists = {}
 	env.inertia_tick_list_visible = {}
 	env.maximize = saved.maximize

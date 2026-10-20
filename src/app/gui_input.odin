@@ -189,10 +189,17 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 	// === Movement Model ===
 	im.SeparatorText("Mothball Model")
 	im.AlignTextToFramePadding()
+	im.Text("Version:")
+	im.SameLine(0, ui_px(8))
+	version := c.int(state.minecraft_version)
+	version_items := [?]cstring{"1.8.9", "1.21.3"}
+	im.SetNextItemWidth(ui_px(110))
+	if combo_select("##minecraft_version", &version, version_items[:]) do state.minecraft_version = Minecraft_Version(version)
+	im.AlignTextToFramePadding()
 	im.Text("Sprint/Sneak Delay:")
 	im.SameLine(0, ui_px(8))
 	delay_mode := c.int(0 if state.auto_delays else 1)
-	delay_items := [?]cstring{"Auto", "Manual"}
+	delay_items := [?]cstring{"Auto", "None"}
 	im.SetNextItemWidth(ui_px(110))
 	if combo_select("##movement_delays", &delay_mode, delay_items[:]) do state.auto_delays = delay_mode == 0
 	tab.movement_editor_height = clamp(tab.movement_editor_height, ui_px(80), ui_px(360))

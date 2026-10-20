@@ -7,6 +7,7 @@ import "core:time"
 // In the code, 'ut' or 'utick' indexes a searchable movement facing.
 
 Discrete_Model :: struct {
+	minecraft_version: Minecraft_Version,
 	// Part II optimization
 	n: int,
 	init_vx: f64,
@@ -581,7 +582,7 @@ rebuild_discrete_baseline :: proc(
 	assert(len(base.equality_values) == len(p.eq_cons))
 
 	copy_discrete_state(&base.state, state)
-	update_discrete_trig_cache(work, state)
+	update_discrete_trig_cache(work, state, model.minecraft_version)
 
 	base.objective = eval_discrete_expr(p.objective, state, work)
 	base.violation_sqr = 0
@@ -639,8 +640,8 @@ grade_two_opt :: proc(
 		old_idx := base.state.indices[state_index]
 		new_idx := offset_index(old_idx, move.deltas[i])
 
-		old_s, old_c := f64(sin_index(old_idx)),  f64(cos_index(old_idx))
-		new_s, new_c := f64(sin_index(new_idx)),  f64(cos_index(new_idx))
+		old_s, old_c := f64(sin_index(old_idx, model.minecraft_version)), f64(cos_index(old_idx, model.minecraft_version))
+		new_s, new_c := f64(sin_index(new_idx, model.minecraft_version)), f64(cos_index(new_idx, model.minecraft_version))
 
 		move.dsin[i] = new_s - old_s
 		move.dcos[i] = new_c - old_c
