@@ -13,6 +13,8 @@ request_exit: bool
 exit_error: [ERROR_CAPACITY]byte
 options_error: [ERROR_CAPACITY]byte
 show_options: bool
+duplicate_file_name: [NAME_CAPACITY]byte
+duplicate_rotation: c.int
 
 draw_options_menu :: proc(app_state: ^App_State) {
 	im.Dummy({0, ui_px(36)})
@@ -30,23 +32,36 @@ draw_options_menu :: proc(app_state: ^App_State) {
 	im.BeginChild("OptionsSettings", {panel_width, max(ui_px(1), available.y-ui_px(64))}, {.Borders, .AlwaysUseWindowPadding})
 	im.PopStyleVar()
 	pushed_code := push_font(code_font)
-	im.SeparatorText("Theme")
-	theme_items := [?]cstring{"Obsidian", "Curry", "Luminous Abyss", "Cherry Blossom", "Crimson Forest"}
-	for label, i in theme_items {
-		if im.RadioButton(label, int(app_state.theme) == i) {
-			app_state.theme = Theme(i)
+	im.SeparatorText("Appearance")
+	if im.BeginTable("AppearanceFields", 2, im.TableFlags_SizingStretchProp) {
+		im.TableSetupColumn("Label", {.WidthFixed}, ui_px(132))
+		im.TableSetupColumn("Value", {.WidthStretch})
+		im.TableNextRow()
+		im.TableSetColumnIndex(0)
+		im.AlignTextToFramePadding()
+		im.Text("Theme:")
+		im.TableSetColumnIndex(1)
+		theme := c.int(app_state.theme)
+		theme_items := [?]cstring{"Obsidian", "Curry", "Luminous Abyss", "Cherry Blossom", "Crimson Forest"}
+		im.SetNextItemWidth(-1)
+		if combo_select("##options_theme", &theme, theme_items[:]) {
+			app_state.theme = Theme(theme)
 			apply_theme(app_state.theme)
 			save_preferences(app_state)
 		}
-	}
-	im.Dummy({0, ui_px(20)})
-	im.SeparatorText("UI Scale")
-	ui_size_items := [?]cstring{"Small (90%)", "Default (100%)", "Large (115%)"}
-	for label, i in ui_size_items {
-		if im.RadioButton(label, app_state.ui_size_level == i+1) {
-			app_state.ui_size_level = i+1
+		im.TableNextRow()
+		im.TableSetColumnIndex(0)
+		im.AlignTextToFramePadding()
+		im.Text("UI Scale:")
+		im.TableSetColumnIndex(1)
+		ui_size := c.int(app_state.ui_size_level-1)
+		ui_size_items := [?]cstring{"Small (90%)", "Default (100%)", "Large (115%)"}
+		im.SetNextItemWidth(-1)
+		if combo_select("##options_ui_scale", &ui_size, ui_size_items[:]) {
+			app_state.ui_size_level = int(ui_size)+1
 			save_preferences(app_state)
 		}
+		im.EndTable()
 	}
 	im.Dummy({0, ui_px(20)})
 	im.SeparatorText("Saves")
@@ -60,6 +75,41 @@ draw_options_menu :: proc(app_state: ^App_State) {
 		im.TextColored({1, 0.4, 0.4, 1}, "%s", fmt.ctprintf("%s", error_text))
 		im.PopTextWrapPos()
 	}
+	im.Dummy({0, ui_px(20)})
+	im.SeparatorText("Duplicate Save")
+	tab := app_state.tabs[app_state.active_tab]
+	if im.BeginTable("DuplicateSaveFields", 2, im.TableFlags_SizingStretchProp) {
+		im.TableSetupColumn("Label", {.WidthFixed}, ui_px(132))
+		im.TableSetupColumn("Value", {.WidthStretch})
+		im.TableNextRow()
+		im.TableSetColumnIndex(0)
+		im.Text("Source:")
+		im.TableSetColumnIndex(1)
+		im.TextWrapped("%s", cstring(&tab.name[0]))
+		im.TableNextRow()
+		im.TableSetColumnIndex(0)
+		im.AlignTextToFramePadding()
+		im.Text("New Filename:")
+		im.TableSetColumnIndex(1)
+		im.SetNextItemWidth(-1)
+		_ = input_text("##duplicate_file_name", duplicate_file_name[:])
+		im.TableNextRow()
+		im.TableSetColumnIndex(0)
+		im.AlignTextToFramePadding()
+		im.Text("Rotation:")
+		im.TableSetColumnIndex(1)
+		rotation_items := [?]cstring{"0 (None)", "90", "180", "270"}
+		im.SetNextItemWidth(-1)
+		_ = combo_select("##duplicate_rotation", &duplicate_rotation, rotation_items[:])
+		im.EndTable()
+	}
+	im.Spacing()
+	im.BeginDisabled()
+	_ = im.Button("Create Copy")
+	im.EndDisabled()
+	im.PushTextWrapPos(0)
+	im.TextDisabled("UI preview only. Creating copies is not available yet.")
+	im.PopTextWrapPos()
 	pop_font(pushed_code)
 	im.EndChild()
 	im.Dummy({0, ui_px(8)})
@@ -254,6 +304,9 @@ draw_split_app :: proc(app_state: ^App_State) {
 			im.TableSetColumnIndex(1)
 			if im.Button("Options", {-1, 0}) {
 				buffer_clear(options_error[:])
+				tab := app_state.tabs[app_state.active_tab]
+				buffer_set(duplicate_file_name[:], fmt.tprintf("%s copy", buffer_string(tab.name[:])))
+				duplicate_rotation = 0
 				show_options = true
 			}
 			im.TableSetColumnIndex(2)
