@@ -8,6 +8,7 @@ import "core:time"
 
 Discrete_Model :: struct {
 	minecraft_version: Minecraft_Version,
+	facing_table: ^Facing_Table,
 	// Part II optimization
 	n: int,
 	init_vx: f64,
@@ -78,6 +79,7 @@ destroy_discrete_cand :: proc(cand: ^Discrete_Cand) {
 }
 
 destroy_discrete_model :: proc(model: ^Discrete_Model) {
+	free(model.facing_table)
 	delete(model.exact_movement)
 	delete(model.facing_map)
 	destroy_compiled_expr_array(&model.vx)
@@ -106,7 +108,7 @@ copy_discrete_exprs :: proc(discrete: ^Discrete_Model, model: ^Model, initial_th
 	}
 	discrete.init_vx = discrete.vx[0].constant
 	discrete.init_vz = discrete.vz[0].constant
-	discrete.init_facing = initial_velocity_facing(discrete.init_vx, discrete.init_vz) if model.init_v_range else initial_thetas[0]
+	discrete.init_facing = wrap_radians(initial_velocity_facing(discrete.init_vx, discrete.init_vz), model.facing_range_midpoint) if model.init_v_range else initial_thetas[0]
 }
 
 discrete_angle_len :: proc(model: ^Discrete_Model) -> int {
@@ -128,10 +130,10 @@ discrete_state_deg :: proc(state: Discrete_State, t: int, model: ^Discrete_Model
 	n_init_angles := 2 if model.init_v_range else 1
 	ut := model.facing_map[t]-n_init_angles
 	assert(ut >= 0 && ut < len(state.indices))
-	return index_to_facing(state.indices[ut])
+	return index_to_facing(state.indices[ut], model.facing_table)
 }
 
-eval_discrete_expr :: proc(expr: Compiled_Expr, state: Discrete_State, work: ^Workspace) -> f64 {
+eval_discrete_expr :: proc(expr: Compiled_Expr, state: Discrete_State, work: ^Workspace, table: ^Facing_Table = nil) -> f64 {
 	n_unique := len(state.indices)
 	assert(len(expr.theta_coeff) == n_unique)
 	assert(len(expr.sin_coeff) == n_unique)
@@ -143,7 +145,7 @@ eval_discrete_expr :: proc(expr: Compiled_Expr, state: Discrete_State, work: ^Wo
 
 	for index, i in state.indices {
 		ut := i
-		theta := index_to_radians(index) 
+		theta := index_to_radians(index, table)
 		value += expr.theta_coeff[ut]*theta +
 		         expr.sin_coeff[ut]*work.sin_cache[ut] +
 		         expr.cos_coeff[ut]*work.cos_cache[ut]
@@ -432,7 +434,7 @@ make_discrete_state :: proc(model: ^Discrete_Model, sol: ^Solution) -> Discrete_
 	state := Discrete_State {
 		indices = make([dynamic]u16, discrete_angle_len(model)),
 	}
-	for &angle_index, i in state.indices do angle_index = index(f32(sol.thetas[i+n_init_angles]))
+	for &angle_index, i in state.indices do angle_index = nearest_facing_index(sol.thetas[i+n_init_angles], model.facing_table)
 	return state
 }
 
@@ -582,14 +584,14 @@ rebuild_discrete_baseline :: proc(
 	assert(len(base.equality_values) == len(p.eq_cons))
 
 	copy_discrete_state(&base.state, state)
-	update_discrete_trig_cache(work, state, model.minecraft_version)
+	update_discrete_trig_cache(work, state, model.minecraft_version, model.facing_table)
 
-	base.objective = eval_discrete_expr(p.objective, state, work)
+	base.objective = eval_discrete_expr(p.objective, state, work, model.facing_table)
 	base.violation_sqr = 0
 	base.feasible = true
 
 	for constraint, i in p.ineq_cons {
-		value := eval_discrete_expr(constraint, state, work)
+		value := eval_discrete_expr(constraint, state, work, model.facing_table)
 		base.inequality_values[i] = value
 		violation := max(0.0, value)
 		base.violation_sqr += violation*violation
@@ -597,7 +599,7 @@ rebuild_discrete_baseline :: proc(
 	}
 
 	for constraint, i in p.eq_cons {
-		value := eval_discrete_expr(constraint, state, work)
+		value := eval_discrete_expr(constraint, state, work, model.facing_table)
 		base.equality_values[i] = value
 		violation := math.abs(value)
 		base.violation_sqr += violation*violation
@@ -640,12 +642,12 @@ grade_two_opt :: proc(
 		old_idx := base.state.indices[state_index]
 		new_idx := offset_index(old_idx, move.deltas[i])
 
-		old_s, old_c := f64(sin_index(old_idx, model.minecraft_version)), f64(cos_index(old_idx, model.minecraft_version))
-		new_s, new_c := f64(sin_index(new_idx, model.minecraft_version)), f64(cos_index(new_idx, model.minecraft_version))
+		old_s, old_c := f64(sin_index(old_idx, model.minecraft_version, model.facing_table)), f64(cos_index(old_idx, model.minecraft_version, model.facing_table))
+		new_s, new_c := f64(sin_index(new_idx, model.minecraft_version, model.facing_table)), f64(cos_index(new_idx, model.minecraft_version, model.facing_table))
 
 		move.dsin[i] = new_s - old_s
 		move.dcos[i] = new_c - old_c
-		move.dtheta[i] = index_to_radians(new_idx) - index_to_radians(old_idx)
+		move.dtheta[i] = index_to_radians(new_idx, model.facing_table)-index_to_radians(old_idx, model.facing_table)
 	}
 
 	out.objective_delta = two_opt_expr_delta(p.objective, move)
@@ -761,7 +763,7 @@ create_exact_solution :: proc(model: ^Discrete_Model, state: Discrete_State) -> 
 
 	for t in 1..< model.n {
 		ut := model.facing_map[t]-n_init_angles
-		solution.thetas[t] = index_to_facing(state.indices[ut])
+		solution.thetas[t] = index_to_facing(state.indices[ut], model.facing_table)
 	}
 
 	if model.n > 1 {

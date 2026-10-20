@@ -162,8 +162,8 @@ exact_simulation :: proc(
 
 		m := model.exact_movement[t-1]
 		angle_index := state.indices[ut]
-		sin_value := sin_index(angle_index, model.minecraft_version)
-		cos_value := cos_index(angle_index, model.minecraft_version)
+		sin_value := sin_index(angle_index, model.minecraft_version, model.facing_table)
+		cos_value := cos_index(angle_index, model.minecraft_version, model.facing_table)
 
 		if model.minecraft_version == .V1_21_3 {
 			if m.sprint_jump {

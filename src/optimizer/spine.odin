@@ -431,6 +431,7 @@ spine_optimize :: proc(
 	if kkt_converged_out != nil do kkt_converged_out^ = false
 	n := problem.n
 	assert(len(thetas) == n)
+	for &theta in thetas do theta = wrap_radians(theta, model.facing_range_midpoint)
 	owned_workspace: Workspace
 	work := workspace
 	if work == nil {

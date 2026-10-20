@@ -17,6 +17,7 @@ Optimizer_Material :: struct {
 	cook:                 bool,
 	chefs:                int,
 	seed:                  f64,
+	facing_range_midpoint: f64,
 	multistart_on:         bool,
 	seed_samples:          int,
 	continuous_optimizer: Continuous_Optimizer,
@@ -78,6 +79,7 @@ make_optimizer_material :: proc(state: ^Environment) -> Optimizer_Material {
 		cook                 = state.cook,
 		chefs                = state.chefs,
 		seed                  = state.seed,
+		facing_range_midpoint = state.facing_range_midpoint,
 		multistart_on         = state.multistart_on,
 		seed_samples          = state.seed_samples,
 		continuous_optimizer = state.continuous_optimizer,
@@ -188,12 +190,6 @@ eval_raw_solution :: proc(expr: opt.Raw_Expr, solution: ^opt.Solution, facings_a
 	return value
 }
 
-wrap_radians_pi :: proc(rad: f64) -> f64 {
-	wrapped := math.mod(rad+math.PI, 2*math.PI)
-	if wrapped < 0 do wrapped += 2*math.PI
-	return wrapped-math.PI
-}
-
 solution_is_finite :: proc(solution: ^opt.Solution) -> bool {
 	if math.is_nan(solution.optimum) || math.is_inf(solution.optimum, 0) do return false
 	for theta in solution.thetas {
@@ -216,6 +212,18 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 
 	// 0. Initialize result
 	compile_start := time.tick_now()
+	midpoint_limit := opt.REGULAR_FACING_MIDPOINT_LIMIT
+	if !opt.valid_facing_range(material.facing_range_midpoint) || math.abs(material.facing_range_midpoint) > midpoint_limit {
+		set_optimizer_error(&result, fmt.tprintf("Error:\nRegular angle search requires a yaw range midpoint between %g and %g.", -midpoint_limit, midpoint_limit))
+		return result
+	}
+	if material.continuous_optimizer != .Pancake && !material.multistart_on {
+		lower, upper := material.facing_range_midpoint-180, material.facing_range_midpoint+180
+		if math.is_nan(material.seed) || math.is_inf(material.seed, 0) || material.seed < lower || material.seed >= upper {
+			set_optimizer_error(&result, fmt.tprintf("Error:\nInitial guess must be a finite yaw in [%g, %g).", lower, upper))
+			return result
+		}
+	}
 
 	// 1. Initialize the sequential Mothball compiler
 	m := dsl.Moth_Compiler{minecraft_version = material.minecraft_version, auto_delays = material.auto_delays}
@@ -233,6 +241,10 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	dsl.compile_mothball(&m, code[:])
 	if !m.ok {
 		set_optimizer_error(&result, fmt.tprintf("Error:\nMovement script:\n%s", m.err))
+		return result
+	}
+	if m.has_init_angle && (m.init_angle < material.facing_range_midpoint-180 || m.init_angle >= material.facing_range_midpoint+180) {
+		set_optimizer_error(&result, "Error:\nInitial yaw must lie inside the selected yaw range.")
 		return result
 	}
 	if m.n < N_MIN {
@@ -265,6 +277,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	initial_drag_x, initial_drag_z := apply_inertia_hits(&assignments, m.drag_x[:n], m.drag_z[:n], m.exact_movement[:])
 
 	model := opt.Model {
+		facing_range_midpoint = material.facing_range_midpoint,
 		n      = n,
 		drag_x = m.drag_x,
 		drag_z = m.drag_z,
@@ -383,7 +396,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		p_test := opt.reduce_problem(&raw_problem, &model)
 		defer opt.destroy_problem(&p_test)
 		if !opt.pure_position_expr(p_test.objective) {
-			set_optimizer_error(&result, "Error:\nFacing and turn expressions (F and T) are not allowed in the objective.")
+			set_optimizer_error(&result, "Error:\nYaw and turn expressions (F and T) are not allowed in the objective.")
 			return result
 		}
 		result.compile_time_seconds = time.duration_seconds(time.tick_since(compile_start))
@@ -441,6 +454,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	if material.discrete_search {
 		discrete_model = opt.Discrete_Model {
 			minecraft_version = m.minecraft_version,
+			facing_table = opt.make_facing_table(material.facing_range_midpoint, m.minecraft_version),
 			n = n,
 			init_v_range = m.init_v_range,
 			init_drag_x = initial_drag_x,
@@ -476,7 +490,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 			free(solution)
 			return result
 		}
-		if default_initial_angle do solution.thetas[0] = 0
+		if default_initial_angle do solution.thetas[0] = opt.wrap_radians(0, model.facing_range_midpoint)
 		copy(prev_thetas, solution.thetas[:])
 
 		result.continuous_time_seconds += time.duration_seconds(time.tick_since(continuous_start))
@@ -600,7 +614,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 			opt.update_trig_cache(&work, solution.thetas[:])
 			vx := opt.eval(model.vx[0], solution.thetas[:], &work)
 			vz := opt.eval(model.vz[0], solution.thetas[:], &work)
-			facings[0] = opt.initial_velocity_facing(vx, vz)
+			facings[0] = opt.wrap_radians(opt.initial_velocity_facing(vx, vz), model.facing_range_midpoint)
 			opt.destroy_workspace(&work)
 		}
 		delete(solution.thetas)
@@ -739,7 +753,7 @@ run_continuous_phase :: proc(
 		seeds := make([dynamic]f64, sample_count)
 		defer delete(seeds)
 		for i in 0..<sample_count {
-			seed_degrees := 360 * f64(i) / f64(sample_count)
+			seed_degrees := model.facing_range_midpoint-180+360*f64(i)/f64(sample_count)
 			seeds[i] = seed_degrees * math.PI / 180
 		}
 		best_seed_index: int
@@ -753,7 +767,7 @@ run_continuous_phase :: proc(
 				out^, best_seed_index = opt.optimize_multistart(model, &problem, seeds[:])
 		}
 		if best_seed_index >= 0 && best_seed_index < sample_count {
-			result.winner_seed = 360 * f64(best_seed_index) / f64(sample_count)
+			result.winner_seed = model.facing_range_midpoint-180+360*f64(best_seed_index)/f64(sample_count)
 		}
 	} 
 
@@ -765,7 +779,7 @@ run_continuous_phase :: proc(
 			return false
 		}
 
-		for &theta in out.thetas do theta = wrap_radians_pi(theta)
+		opt.normalize_solution_facings(out, model, &problem)
 	}
 
 	// THE INERTIA SECOND PASS
@@ -801,7 +815,7 @@ run_continuous_phase :: proc(
 			set_optimizer_error(result, "Error:\nThe inertia recovery pass returned a non-finite solution.")
 			return false
 		}
-		for &theta in recovered.thetas do theta = wrap_radians_pi(theta)
+		opt.normalize_solution_facings(&recovered, model, &problem)
 
 		opt.destroy_solution(out)
 		out^ = recovered

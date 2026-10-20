@@ -14,6 +14,7 @@ Constraint_Result :: struct {
 }
 
 Model :: struct {
+	facing_range_midpoint: f64,
 	// Require initialization
 
 	// the number of ticks
@@ -51,6 +52,26 @@ assert_valid_objective :: proc(problem: ^Problem) {
 		pure_position_expr(problem.objective),
 		"Optimization objective cannot contain theta terms",
 	)
+}
+
+facing_variable_constrained :: proc(problem: ^Problem, i: int) -> bool {
+	for expr in problem.ineq_cons do if expr.theta_coeff[i] != 0 do return true
+	for expr in problem.eq_cons do if expr.theta_coeff[i] != 0 do return true
+	return false
+}
+
+normalize_solution_facings :: proc(solution: ^Solution, model: ^Model, problem: ^Problem) {
+	for &theta, i in solution.thetas {
+		if !facing_variable_constrained(problem, i) do theta = wrap_radians(theta, model.facing_range_midpoint)
+	}
+	work := make_workspace(problem.n)
+	defer destroy_workspace(&work)
+	update_trig_cache(&work, solution.thetas[:])
+	solution.optimum = eval(problem.objective, solution.thetas[:], &work)
+	for tick in 0..<model.n {
+		solution.xs[tick] = eval(model.x[tick], solution.thetas[:], &work)
+		solution.zs[tick] = eval(model.z[tick], solution.thetas[:], &work)
+	}
 }
 
 Solution :: struct {

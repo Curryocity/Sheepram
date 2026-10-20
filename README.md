@@ -30,7 +30,7 @@ the [P2P example](P2P.md).
 
 Describe the movement timeline with the built-in Mothball-style DSL. The script
 generates the model length, drag, acceleration, and movement-relative angle
-offsets. Sheepram then optimizes the **facing angles only**.
+offsets. Sheepram then optimizes the **yaw angles only**.
 
 ```Sheepram
 initGnd(0.3169516131491288) sj.w sa.wa(11)
@@ -116,7 +116,7 @@ Supported indexed variables:
 | `Z[i]`   | Z position at tick `i`      |
 | `Vx[i]`  | X velocity: `X[i+1] - X[i]` |
 | `Vz[i]`  | Z velocity: `Z[i+1] - Z[i]` |
-| `F[i]`   | Facing angle (degrees)      |
+| `F[i]`   | Yaw angle (degrees)         |
 | `T[i]`   | Turn: `F[i+1] - F[i]`       |
 
 Example:

@@ -288,6 +288,25 @@ draw_input_panel :: proc(app_state: ^App_State, tab: ^Tab_State) {
 
 	// === Engine Settings ===
 	if im.CollapsingHeader("Engine Settings", {}) {
+		im.Spacing()
+		row_y := im.GetCursorPosY()
+		label_font := im.GetFontBaked()
+		label_ascent := label_font.Ascent*im.GetFontSize()/label_font.Size
+		pushed := push_font(code_font)
+		field_font := im.GetFontBaked()
+		field_ascent := field_font.Ascent*im.GetFontSize()/field_font.Size
+		pop_font(pushed)
+		im.SetCursorPosY(row_y+im.GetStyle().FramePadding.y+field_ascent-label_ascent)
+		im.Text("Yaw Range Midpoint:")
+		im.SameLine(0, ui_px(8))
+		im.SetCursorPosY(row_y)
+		pushed = push_font(code_font)
+		im.SetNextItemWidth(ui_px(80))
+		_ = im.InputDouble("##facing_range_midpoint", &state.facing_range_midpoint, 0, 0, "%.9g")
+		im.SameLine(0, ui_px(8))
+		im.SetCursorPosY(row_y)
+		im.Text(" =>  [%.9g, %.9g)", state.facing_range_midpoint-180, state.facing_range_midpoint+180)
+		pop_font(pushed)
 		draw_continuous_optimizer_options(state)
 		draw_discrete_search_options(state)
 	}

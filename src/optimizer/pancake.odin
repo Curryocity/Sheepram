@@ -393,6 +393,7 @@ pancake_solution_from_relaxation :: proc(
 	fallback: Pancake_Fallback = .Spine,
 	workspace: ^Workspace = nil,
 ) -> Solution {
+	for &theta in relaxation.thetas do theta = wrap_radians(theta, model.facing_range_midpoint)
 	owned_workspace: Workspace
 	work := workspace
 	if work == nil {

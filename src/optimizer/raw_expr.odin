@@ -222,6 +222,18 @@ reduce_problem :: proc(rp: ^Raw_Problem, model: ^Model) -> Problem {
 		append(&problem.eq_cons, reduce_expr(con, model))
 	}
 
+	// Facing constraints use raw angles, so keep their variables inside the range.
+	for i in 0..<problem.n {
+		if !facing_variable_constrained(&problem, i) do continue
+		lower := make_compiled_expr(problem.n)
+		lower.theta_coeff[i] = -180/math.PI
+		lower.constant = model.facing_range_midpoint-180
+		upper := make_compiled_expr(problem.n)
+		upper.theta_coeff[i] = 180/math.PI
+		upper.constant = -(model.facing_range_midpoint+180)
+		append(&problem.ineq_cons, lower, upper)
+	}
+
 	return problem
 }
 

@@ -93,6 +93,7 @@ Environment :: struct {
 	cook: bool,
 	chefs: int,
 	seed: f64,
+	facing_range_midpoint: f64,
 	multistart_on: bool,
 	seed_samples: int,
 	continuous_optimizer: Continuous_Optimizer,

@@ -83,7 +83,7 @@ line_search_zoom :: proc(
 	deri_lo := dot(ctx.temp_grad[:], ctx.step)
 	val_hi := val_hi_in
 	deri_hi := deri_hi_in
-	max_zoom_iter :: 20
+	max_zoom_iter :: 64
 	for _ in 0..<max_zoom_iter {
 		trial_alpha := polynomial_zoom_trial(
 			lo,
@@ -97,7 +97,8 @@ line_search_zoom :: proc(
 		deri_trial := dot(ctx.temp_grad[:], ctx.step)
 
 		// Armijo fail or value increase: keep the low side of the bracket.
-		if val_trial > ctx.val+c1*trial_alpha*ctx.deri ||
+		if math.is_nan(val_trial) || math.is_inf(val_trial, 0) || math.is_nan(deri_trial) || math.is_inf(deri_trial, 0) ||
+		   val_trial > ctx.val+c1*trial_alpha*ctx.deri ||
 		   val_trial >= val_lo {
 			hi = trial_alpha
 			val_hi = val_trial
@@ -112,10 +113,10 @@ line_search_zoom :: proc(
 			deri_lo = deri_trial
 		}
 	}
-	return 0.5*(lo+hi)
+	return 0
 }
 
-// Strong Wolfe
+// Strong Wolfe, returns 0 if no acceptable step is found.
 line_search :: proc(
 	thetas: []f64,
 	problem: ^Problem,
@@ -153,7 +154,8 @@ line_search :: proc(
 		// Armijo fail -> zoom
 		val_alpha := line_search_phi(&ctx, alpha, ctx.temp_grad[:])
 		deri_alpha := dot(ctx.temp_grad[:], step)
-		if val_alpha > val+c1*alpha*deri {
+		if math.is_nan(val_alpha) || math.is_inf(val_alpha, 0) || math.is_nan(deri_alpha) || math.is_inf(deri_alpha, 0) ||
+		   val_alpha > val+c1*alpha*deri {
 			return line_search_zoom(
 				&ctx,
 				base,
@@ -194,7 +196,7 @@ line_search :: proc(
 		base = alpha
 		alpha *= 2
 	}
-	return alpha
+	return 0
 }
 
 bfgs :: proc(
@@ -236,6 +238,17 @@ bfgs :: proc(
 		}
 
 		alpha := line_search(thetas, problem, lamb, nu, pen, step[:], val, deri, work, line_search_grad[:], line_search_trial[:])
+		if alpha == 0 {
+			// Retry with gradient descent if the inverse Hessian gives an unusable step.
+			matrix_set_identity(&h)
+			set_scaled(step[:], grad_vec[:], -1)
+			deri = dot(grad_vec[:], step[:])
+			alpha = line_search(thetas, problem, lamb, nu, pen, step[:], val, deri, work, line_search_grad[:], line_search_trial[:])
+		}
+		if alpha == 0 {
+			delete(step)
+			break
+		}
 		scale_vector(step[:], alpha)
 		// Modify/update thetas by step
 		add_scaled(thetas, step[:], 1)
@@ -283,6 +296,7 @@ optimize :: proc(
 	n := model.n
 	n_unique := problem.n
 	assert(len(thetas) == n_unique)
+	for &theta in thetas do theta = wrap_radians(theta, model.facing_range_midpoint)
 	owned_workspace: Workspace
 	work := workspace
 	if work == nil {

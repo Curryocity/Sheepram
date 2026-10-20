@@ -49,6 +49,7 @@ Saved_Tab :: struct {
 	cook:              bool       `json:"cook"`,
 	chefs:             int        `json:"chefs"`,
 	seed:              f64       `json:"initialAngleDeg"`,
+	facing_range_midpoint: f64    `json:"facingRangeMidpoint"`,
 	multistart:        bool       `json:"multistart"`,
 	try_preset_initial_angles: bool `json:"tryPresetInitialAngles,omitempty"`,
 	initial_angle_samples: int    `json:"initialAngleSamples"`,
@@ -105,6 +106,7 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 		cook              = env.cook,
 		chefs             = env.chefs,
 		seed              = env.seed,
+		facing_range_midpoint = env.facing_range_midpoint,
 		multistart        = env.multistart_on,
 		initial_angle_samples = env.seed_samples,
 		continuous_optimizer = int(env.continuous_optimizer),
@@ -248,6 +250,7 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 		return globals_err
 	}
 	minecraft_version := Minecraft_Version.V1_8_9
+	if !opt.valid_facing_range(saved.facing_range_midpoint) do return strings.clone("Invalid field: facingRangeMidpoint")
 	switch saved.minecraft_version {
 	case "", "1.8.9":
 	case "1.21.3":
@@ -299,6 +302,7 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	env.cook = saved.cook
 	env.chefs = clamp(saved.chefs, 1, 1000)
 	env.seed = saved.seed
+	env.facing_range_midpoint = saved.facing_range_midpoint
 	env.multistart_on = saved.multistart || saved.try_preset_initial_angles
 	env.seed_samples = clamp(saved.initial_angle_samples, 8, 256)
 	env.continuous_optimizer = Continuous_Optimizer(saved.continuous_optimizer)

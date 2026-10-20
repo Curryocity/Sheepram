@@ -154,9 +154,9 @@ draw_xz_plot :: proc(
 
 		tooltip := strings.builder_make()
 		if hovered_index < len(xs)-1 {
-			fmt.sbprintf(&tooltip, "Facing: %.*f\n", angle_precision, facings[hovered_index])
+			fmt.sbprintf(&tooltip, "Yaw: %.*f\n", angle_precision, facings[hovered_index])
 		} else {
-			strings.write_string(&tooltip, "Facing: -\n")
+			strings.write_string(&tooltip, "Yaw: -\n")
 		}
 		fmt.sbprintf(
 			&tooltip,
@@ -210,6 +210,12 @@ copy_separator :: proc(separator: Separator_Type) -> string {
 	return ","
 }
 
+solution_facings_degrees :: proc(solution: ^opt.Solution, discrete: bool) -> [dynamic]f64 {
+	facings := make([dynamic]f64, len(solution.thetas))
+	for angle, i in solution.thetas do facings[i] = angle if discrete else angle*180/math.PI
+	return facings
+}
+
 format_angle_list :: proc(facings: []f64, turns: bool, separator: string) -> string {
 	builder := strings.builder_make()
 	count := len(facings)-1
@@ -218,7 +224,7 @@ format_angle_list :: proc(facings: []f64, turns: bool, separator: string) -> str
 		if i > 0 do strings.write_string(&builder, separator)
 		value := facings[i]
 		if turns {
-			value = wrap_degrees_180(facings[i+1]-value)
+			value = facings[i+1]-value
 		}
 		part := fmt.tprintf("%.3f", value)
 		strings.write_string(&builder, part)
@@ -418,7 +424,7 @@ draw_optimizer_progress :: proc(tab: ^Tab_State) {
 	defer delete(display_facings)
 	copied_facings := format_angle_list(angles[:], false, copy_separator(tab.env.post.copy_separator))
 	defer delete(copied_facings)
-	read_only_block("Best Facing", display_facings, copied_facings)
+	read_only_block("Best Yaw", display_facings, copied_facings)
 }
 
 draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
@@ -501,21 +507,13 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	initial_vx := solution.xs[1]-solution.xs[0]
 	initial_vz := solution.zs[1]-solution.zs[0]
 	initial_speed := math.sqrt(initial_vx*initial_vx+initial_vz*initial_vz)
-	initial_facing := solution.thetas[0]
-	if !state.last_solution_discrete do initial_facing *= 180/math.PI
-	im.TextDisabled("InitV: (%.6f, %.3f)", initial_speed, wrap_degrees_180(initial_facing))
+	facings := solution_facings_degrees(solution, state.last_solution_discrete)
+	defer delete(facings)
+	initial_facing := facings[0]
+	im.TextDisabled("InitV: (%.6f, %.3f)", initial_speed, initial_facing)
 	im.Spacing(); im.Spacing()
 
 	count := len(solution.xs)
-	facings := make([dynamic]f64, count); defer delete(facings)
-	for i in 0..<len(solution.thetas) {
-		if state.last_solution_discrete {
-			facings[i] = solution.thetas[i]
-		} else {
-			wrapped := wrap_degrees_180(solution.thetas[i]*180/math.PI)
-			facings[i] = math.round(200*wrapped)*0.005
-		}
-	}
 	turns := make([dynamic]string, count); defer delete(turns)
 	xvals := make([dynamic]f64, count); defer delete(xvals)
 	zvals := make([dynamic]f64, count); defer delete(zvals)
@@ -533,7 +531,7 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 		zvals[i] = solution.zs[i]-state.z_origin
 	}
 	for i in 0..<count-2 {
-		turns[i] = fmt.aprintf("%.3f", wrap_degrees_180(facings[i+1]-facings[i]))
+		turns[i] = fmt.aprintf("%.3f", facings[i+1]-facings[i])
 	}
 	defer for i in 0..<count-2 do delete(turns[i])
 	for i in 0..<count-1 {
@@ -590,7 +588,7 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 			im.TableSetupScrollFreeze(1, 1)
 			headers := [?]cstring{
 				"Tick",
-				"Facing",
+				"Yaw",
 				"Turn",
 				"X",
 				"Z",
@@ -683,7 +681,7 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 				reason_codes_c := strings.clone_to_cstring(reason_codes_text)
 				defer delete(reason_codes_c)
 				im.TextDisabled("Reason: %s", reason_codes_c)
-				im.TextDisabled("1. Facing constraint exists")
+				im.TextDisabled("1. Yaw constraint exists")
 				im.TextDisabled("2. Non-unit vector strength")
 				im.TextDisabled("3. Large dual gap")
 				im.TextDisabled("4. Infeasible solution")
@@ -706,18 +704,14 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	copied_turns := format_angle_list(copy_angles, true, copy_separator(state.post.copy_separator))
 	defer delete(copied_turns)
 
-	initial_angle := solution.thetas[0]
-	if !state.last_solution_discrete {
-		initial_angle = wrap_degrees_180(initial_angle*180/math.PI)
-	}
 	pushed_ui = push_font(ui_font)
-	_ = im.Checkbox(" Include Initial Angle", &state.post.include_initial_angle)
+	_ = im.Checkbox(" Include Initial Yaw", &state.post.include_initial_angle)
 	im.SameLine(0, 10)
-	im.TextDisabled("(Value: %.9f)", initial_angle)
+	im.TextDisabled("(Value: %.9f)", initial_facing)
 	pop_font(pushed_ui)
 	im.Spacing()
 
-	read_only_block("Facing", display_facings, copied_facings)
+	read_only_block("Yaw", display_facings, copied_facings)
 	im.Spacing()
 	read_only_block("Turn", display_turns, copied_turns)
 
