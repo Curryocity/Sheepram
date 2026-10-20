@@ -85,6 +85,7 @@ Constraint_Result_Status :: enum {
 
 Environment :: struct {
 	maximize: bool,
+	auto_delays: bool,
 	discrete_search: bool,
 	cook: bool,
 	chefs: int,
@@ -201,6 +202,7 @@ make_default_tab :: proc(tab_id: int) -> ^Tab_State {
 	buffer_set(tab.name[:], fmt.tprintf("Untitled %d", tab_id))
 	buffer_set(tab.name_draft[:], buffer_string(tab.name[:]))
 	tab.env.obj_type = .X
+	tab.env.auto_delays = true
 	tab.env.continuous_optimizer = .Pancake
 	tab.env.chefs = 5
 	tab.env.seed = 45

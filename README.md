@@ -47,7 +47,8 @@ initGnd(0.3169516131491288) sj.w sa.wa(11)
 | `st` | No movement input|
 
 > [!NOTE]
-> Sheepram does not have sprint delay.
+> Sheepram does not have sprint delay.[v1.4.0 and below]
+> For v1.5.0 and above you can set sprint/sneak delay to auto/manual.
 
 Movement functions support these modifiers:
 

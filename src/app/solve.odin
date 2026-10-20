@@ -11,6 +11,7 @@ max_tightening_attempts :: 10
 
 Optimizer_Material :: struct {
 	maximize:             bool,
+	auto_delays:          bool,
 	discrete_search:      bool,
 	cook:                 bool,
 	chefs:                int,
@@ -70,6 +71,7 @@ Optimizer_Result :: struct {
 make_optimizer_material :: proc(state: ^Environment) -> Optimizer_Material {
 	material := Optimizer_Material {
 		maximize             = state.maximize,
+		auto_delays          = state.auto_delays,
 		discrete_search      = state.discrete_search,
 		cook                 = state.cook,
 		chefs                = state.chefs,
@@ -214,7 +216,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	compile_start := time.tick_now()
 
 	// 1. Initialize the sequential Mothball compiler
-	m := dsl.Moth_Compiler{}
+	m := dsl.Moth_Compiler{auto_delays = material.auto_delays}
 	defer dsl.destroy_moth_compiler(&m)
 
 	// 2. Parse Mothball into a command tree

@@ -42,6 +42,7 @@ Saved_Inertia_List :: struct {
 Saved_Tab :: struct {
 	title:             string     `json:"title"`,
 	maximize:          bool       `json:"maximize"`,
+	auto_delays:       bool       `json:"autoDelays"`,
 	discrete_search:   bool       `json:"discreteSearch"`,
 	cook:              bool       `json:"cook"`,
 	chefs:             int        `json:"chefs"`,
@@ -95,6 +96,7 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 	saved := Saved_Tab {
 		title             = buffer_string(tab.name[:]),
 		maximize          = env.maximize,
+		auto_delays       = env.auto_delays,
 		discrete_search   = env.discrete_search,
 		cook              = env.cook,
 		chefs             = env.chefs,
@@ -279,6 +281,7 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	env.inertia_tick_lists = {}
 	env.inertia_tick_list_visible = {}
 	env.maximize = saved.maximize
+	env.auto_delays = saved.auto_delays
 	env.discrete_search = saved.discrete_search
 	env.cook = saved.cook
 	env.chefs = clamp(saved.chefs, 1, 1000)

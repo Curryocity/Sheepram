@@ -48,7 +48,7 @@ get_exact_movement :: proc(
 		if accel < 0 do accel = 0
 	}
 
-	// Sheepram intentional has user to do sprint delay manually
+	// Sprint delays are resolved by the movement compiler
 	if sprint {
 		if airborne {
 			accel += accel*0.3

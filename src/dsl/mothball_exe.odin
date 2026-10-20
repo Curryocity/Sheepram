@@ -20,6 +20,11 @@ Moth_Compiler :: struct {
 	initial_wall_z: bool,
 	inertia_threshold: f64,
 	inertia_set: bool,
+	auto_delays: bool,
+	sprint_delay: bool,
+	sneak_delay: bool,
+	prev_sprint: bool,
+	prev_sneak: bool,
 
 	ok: bool,
 	err: string,
@@ -91,18 +96,24 @@ set_model_error :: proc(state: ^Moth_Compiler, message: string) {
 }
 
 append_movement_tick :: proc(state: ^Moth_Compiler, movement: MoveFunc) {
+	effective := movement
+	if state.sprint_delay && movement.airborne do effective.sprint = state.prev_sprint
+	if state.sneak_delay do effective.sneak = state.prev_sneak
 	exact_base := opt.get_exact_movement(
 		movement.w,
 		movement.a,
 		f32(state.slip),
 		movement.airborne,
-		movement.sprint,
-		movement.sneak,
+		effective.sprint,
+		effective.sneak,
 		movement.jump,
 		movement.stop,
 		state.speed,
 		state.slow,
 	)
+	exact_base.sprint_jump = movement.sprint && movement.jump
+	state.prev_sprint = movement.sprint
+	state.prev_sneak = movement.sneak
 	drag := exact_base.drag_x
 	forward := f64(exact_base.forward)
 	strafe := f64(exact_base.strafe)
@@ -137,6 +148,11 @@ compile_mothball :: proc(state: ^Moth_Compiler, code: []Arg) {
 	state.initial_wall_z = false
 	state.inertia_threshold = MOTH_DEFAULT_INERTIA_THRESHOLD
 	state.inertia_set = false
+	// 1.8.9 delays airborne sprint acceleration but uses the current sneak input.
+	state.sprint_delay = state.auto_delays
+	state.sneak_delay = false
+	state.prev_sprint = false
+	state.prev_sneak = false
 	state.ok = true
 	state.discrete_supported = true
 	ensure_moth_variables(state)
@@ -635,6 +651,9 @@ exe_model_cmd :: proc(state: ^Moth_Compiler, cmd: ^Command) {
 			append(&state.facing_map, state.unique_facing_counts - 1)
 		}
 		state.n += duration
+		// Custom movement has no sprint or sneak input.
+		state.prev_sprint = false
+		state.prev_sneak = false
 		return
 
 	case .Repeat:
