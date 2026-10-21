@@ -46,6 +46,7 @@ Saved_Tab :: struct {
 	maximize:          bool       `json:"maximize"`,
 	auto_delays:       bool       `json:"autoDelays"`,
 	discrete_search:   bool       `json:"discreteSearch"`,
+	half_angle_search: bool       `json:"halfAngleSearch,omitempty"`,
 	cook:              bool       `json:"cook"`,
 	chefs:             int        `json:"chefs"`,
 	seed:              f64       `json:"initialAngleDeg"`,
@@ -103,6 +104,7 @@ saved_from_tab :: proc(tab: ^Tab_State) -> Saved_Tab {
 		maximize          = env.maximize,
 		auto_delays       = env.auto_delays,
 		discrete_search   = env.discrete_search,
+		half_angle_search = env.half_angle_search,
 		cook              = env.cook,
 		chefs             = env.chefs,
 		seed              = env.seed,
@@ -299,6 +301,7 @@ load_tab_from_json :: proc(tab: ^Tab_State, data: []byte) -> string {
 	env.maximize = saved.maximize
 	env.auto_delays = saved.auto_delays
 	env.discrete_search = saved.discrete_search
+	env.half_angle_search = saved.half_angle_search
 	env.cook = saved.cook
 	env.chefs = clamp(saved.chefs, 1, 1000)
 	env.seed = saved.seed

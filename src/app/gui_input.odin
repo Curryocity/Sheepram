@@ -53,6 +53,9 @@ draw_discrete_search_options :: proc(state: ^Environment) {
 	im.SeparatorText("Discrete Local Search")
 
 	_ = im.Checkbox(" Enable", &state.discrete_search)
+	im.BeginDisabled(!state.discrete_search)
+	_ = im.Checkbox(" Half Angle", &state.half_angle_search)
+	im.EndDisabled()
 
 	im.AlignTextToFramePadding()
 	im.Text("Mode:")

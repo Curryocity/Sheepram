@@ -90,6 +90,7 @@ Environment :: struct {
 	maximize: bool,
 	auto_delays: bool,
 	discrete_search: bool,
+	half_angle_search: bool,
 	cook: bool,
 	chefs: int,
 	seed: f64,
