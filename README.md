@@ -230,6 +230,14 @@ and counts normally in all indices.
 > to either facing angle can cause large changes in the resulting direction
 > and make optimization less reliable.
 
+### Duplicate and Rotate Saves (v1.5.0+)
+
+In **Options → Duplicate Save**, enter a new filename and choose a rotation that's a multiple of 90. Choosing 0 just duplicates the file without doing anything
+
+The copy is saved and opened in a new tab. 
+Rotation adjusts yaw values, objectives, constraints, wall axes, inertia
+assignments, and postprocessor origins.
+
 ## Installation
 
 Download the `.zip` for your platform from the latest release.

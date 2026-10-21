@@ -14,7 +14,9 @@ exit_error: [ERROR_CAPACITY]byte
 options_error: [ERROR_CAPACITY]byte
 show_options: bool
 duplicate_file_name: [NAME_CAPACITY]byte
+duplicate_name_edited: bool
 duplicate_rotation: c.int
+duplicate_error: [ERROR_CAPACITY]byte
 
 draw_options_menu :: proc(app_state: ^App_State) {
 	im.Dummy({0, ui_px(36)})
@@ -92,23 +94,50 @@ draw_options_menu :: proc(app_state: ^App_State) {
 		im.Text("New Filename:")
 		im.TableSetColumnIndex(1)
 		im.SetNextItemWidth(-1)
-		_ = input_text("##duplicate_file_name", duplicate_file_name[:])
+		if input_text("##duplicate_file_name", duplicate_file_name[:]) do duplicate_name_edited = true
 		im.TableNextRow()
 		im.TableSetColumnIndex(0)
 		im.AlignTextToFramePadding()
 		im.Text("Rotation:")
 		im.TableSetColumnIndex(1)
-		rotation_items := [?]cstring{"0 (None)", "90", "180", "270"}
-		im.SetNextItemWidth(-1)
-		_ = combo_select("##duplicate_rotation", &duplicate_rotation, rotation_items[:])
+		button_width := ui_px(52)
+		spacing := im.GetStyle().ItemSpacing.x
+		im.SetNextItemWidth(max(ui_px(60), im.GetContentRegionAvail().x-2*(button_width+spacing)))
+		rotation_changed := im.InputInt("##duplicate_rotation", &duplicate_rotation, 0, 0)
+		im.SameLine()
+		if im.Button("-90", {button_width, 0}) {
+			duplicate_rotation = c.int(step_duplicate_rotation(int(duplicate_rotation), -1))
+			rotation_changed = true
+		}
+		im.SameLine()
+		if im.Button("+90", {button_width, 0}) {
+			duplicate_rotation = c.int(step_duplicate_rotation(int(duplicate_rotation), 1))
+			rotation_changed = true
+		}
+		if rotation_changed {
+			if !duplicate_name_edited {
+				name := duplicate_save_name(buffer_string(tab.name[:]), int(duplicate_rotation))
+				buffer_set(duplicate_file_name[:], name)
+				delete(name)
+			}
+			buffer_clear(duplicate_error[:])
+		}
 		im.EndTable()
 	}
 	im.Spacing()
-	im.BeginDisabled()
-	_ = im.Button("Create Copy")
+	im.BeginDisabled(app_state.tab_count >= MAX_TABS)
+	if im.Button("Create Copy") {
+		err := create_duplicate_save(app_state, buffer_string(duplicate_file_name[:]), int(duplicate_rotation))
+		buffer_set(duplicate_error[:], err)
+		if err == "" do show_options = false
+		delete(err)
+	}
 	im.EndDisabled()
 	im.PushTextWrapPos(0)
-	im.TextDisabled("UI preview only. Creating copies is not available yet.")
+	if app_state.tab_count >= MAX_TABS do im.TextDisabled("Close a tab before creating a copy.")
+	if error_text := buffer_string(duplicate_error[:]); error_text != "" {
+		im.TextColored({1, 0.4, 0.4, 1}, "%s", fmt.ctprintf("%s", error_text))
+	}
 	im.PopTextWrapPos()
 	pop_font(pushed_code)
 	im.EndChild()
@@ -279,6 +308,7 @@ draw_split_app :: proc(app_state: ^App_State) {
 					open := true
 					tab_flags: im.TabItemFlags
 					if i == just_created do tab_flags += {.SetSelected}
+					if tab.id == app_state.pending_select_tab_id do tab_flags += {.SetSelected}
 					if im.BeginTabItem(c_label, &open, tab_flags) {
 						app_state.active_tab = i
 						im.EndTabItem()
@@ -300,12 +330,17 @@ draw_split_app :: proc(app_state: ^App_State) {
 					delete(c_label); delete(label)
 				}
 				im.EndTabBar()
+				app_state.pending_select_tab_id = 0
 			}
 			im.TableSetColumnIndex(1)
 			if im.Button("Options", {-1, 0}) {
 				buffer_clear(options_error[:])
+				buffer_clear(duplicate_error[:])
 				tab := app_state.tabs[app_state.active_tab]
-				buffer_set(duplicate_file_name[:], fmt.tprintf("%s copy", buffer_string(tab.name[:])))
+				name := duplicate_save_name(buffer_string(tab.name[:]), 0)
+				buffer_set(duplicate_file_name[:], name)
+				delete(name)
+				duplicate_name_edited = false
 				duplicate_rotation = 0
 				show_options = true
 			}

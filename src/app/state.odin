@@ -155,6 +155,7 @@ App_State :: struct {
 	tabs:                 [MAX_TABS]^Tab_State,
 	tab_count:            int,
 	active_tab:           int,
+	pending_select_tab_id: int,
 	next_tab_id:          int,
 	pending_close_tab_id: int,
 	close_popup_error:    [ERROR_CAPACITY]byte,
