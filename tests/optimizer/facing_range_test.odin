@@ -8,9 +8,12 @@ import opt "../../src/optimizer"
 facing_tables_match_actual_yaw_in_each_range :: proc(t: ^testing.T) {
 	for version in ([2]opt.Minecraft_Version{.V1_8_9, .V1_21_3}) {
 		for midpoint in ([5]f64{0, 180, 37.12345, 1800, -1800}) {
-			table := opt.make_facing_table(midpoint, version)
+			table := opt.regular_facing_table(midpoint, version)
+			testing.expect(t, table != nil)
+			if table == nil do continue
+			testing.expect_value(t, table.angles_count, opt.SINE_TABLE_SIZE)
 			for i in 0..<opt.SINE_TABLE_SIZE {
-				idx := u16(i)
+				idx := u32(i)
 				facing := opt.index_to_facing(idx, table)
 				testing.expect(t, facing >= midpoint-180 && facing < midpoint+180)
 				yaw := f32(facing)
@@ -18,9 +21,10 @@ facing_tables_match_actual_yaw_in_each_range :: proc(t: ^testing.T) {
 				rad := yaw*f32(0.017453292) if version == .V1_21_3 else yaw*f32(math.PI)/f32(180)
 				s := int(rad*f32(10430.378))&65535
 				c := int(rad*f32(10430.378)+f32(16384))&65535
-				testing.expect_value(t, opt.sin_index(idx, version, table), f32(math.sin(f64(s)*2*math.PI/65536)))
-				testing.expect_value(t, opt.cos_index(idx, version, table), f32(math.sin(f64(c)*2*math.PI/65536)))
+				testing.expect_value(t, opt.sin_index(idx, table), f32(math.sin(f64(s)*2*math.PI/65536)))
+				testing.expect_value(t, opt.cos_index(idx, table), f32(math.sin(f64(c)*2*math.PI/65536)))
 			}
+			opt.destroy_facing_table(table)
 			free(table)
 		}
 	}
@@ -67,7 +71,7 @@ custom_range_fast_grades_and_exact_replay_use_the_same_facings :: proc(t: ^testi
 	for version in ([2]opt.Minecraft_Version{.V1_8_9, .V1_21_3}) {
 		model := opt.Discrete_Model {
 			minecraft_version = version,
-			facing_table = opt.make_facing_table(180, version),
+			facing_table = opt.regular_facing_table(180, version),
 			n = 4,
 			n_unique = 3,
 			facing_map = make([dynamic]int, 4),
@@ -76,7 +80,7 @@ custom_range_fast_grades_and_exact_replay_use_the_same_facings :: proc(t: ^testi
 		defer opt.destroy_discrete_model(&model)
 		copy(model.facing_map[:], []int{0, 1, 2, 2})
 		model.exact_movement[0] = opt.get_exact_movement(1, 1, 0.6, false, true, false, true, false, 0, 0, version)
-		state := opt.Discrete_State{indices = make([dynamic]u16, 2)}
+		state := opt.Discrete_State{indices = make([dynamic]u32, 2)}
 		defer opt.destroy_discrete_state(&state)
 		state.indices[0], state.indices[1] = 65535, 0
 		problem := opt.Problem{n = 2, objective = opt.make_compiled_expr(2)}
@@ -94,15 +98,15 @@ custom_range_fast_grades_and_exact_replay_use_the_same_facings :: proc(t: ^testi
 		grade: opt.Two_Opt_Grade
 		opt.grade_two_opt(&grade, &baseline, &model, &problem, &move, .Polish)
 		state.indices[0], state.indices[1] = 0, 65535
-		opt.update_discrete_trig_cache(&work, state, version, model.facing_table)
+		opt.update_discrete_trig_cache(&work, state, model.facing_table)
 		expected := opt.eval_discrete_expr(problem.objective, state, &work, model.facing_table)
 		testing.expect(t, math.abs(baseline.objective+grade.objective_delta-expected) < 1e-12)
 		testing.expect(t, math.abs(grade.violation_sqr-expected*expected) < 1e-12)
 		solution := opt.create_exact_solution(&model, state)
 		defer opt.destroy_solution(&solution)
 		testing.expect_value(t, solution.thetas[1], opt.index_to_facing(0, model.facing_table))
-		sine := opt.sin_index(0, version, model.facing_table)
-		cosine := opt.cos_index(0, version, model.facing_table)
+		sine := opt.sin_index(0, model.facing_table)
+		cosine := opt.cos_index(0, model.facing_table)
 		m := model.exact_movement[0]
 		vx := f64(sine)*0.2+m.forward*f64(sine)-m.strafe*f64(cosine)
 		vz := f64(cosine)*0.2+m.forward*f64(cosine)+m.strafe*f64(sine)

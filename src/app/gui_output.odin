@@ -3,6 +3,7 @@ package app
 import "core:c"
 import "core:fmt"
 import "core:math"
+import "core:strconv"
 import "core:strings"
 import "core:sync"
 import "core:time"
@@ -216,8 +217,9 @@ solution_facings_degrees :: proc(solution: ^opt.Solution, discrete: bool) -> [dy
 	return facings
 }
 
-format_angle_list :: proc(facings: []f64, turns: bool, separator: string) -> string {
+format_angle_list :: proc(facings: []f64, turns: bool, separator: string, full_precision := false) -> string {
 	builder := strings.builder_make()
+	number_buffer: [512]byte
 	count := len(facings)-1
 	if turns do count -= 1
 	for i in 0..<max(0, count) {
@@ -226,8 +228,12 @@ format_angle_list :: proc(facings: []f64, turns: bool, separator: string) -> str
 		if turns {
 			value = facings[i+1]-value
 		}
-		part := fmt.tprintf("%.3f", value)
-		strings.write_string(&builder, part)
+		if full_precision {
+			part := strconv.write_float(number_buffer[:], value, 'f', -1, 64)
+			strings.write_string(&builder, strings.trim_prefix(part, "+"))
+		} else {
+			strings.write_string(&builder, fmt.tprintf("%.3f", value))
+		}
 	}
 	return strings.to_string(builder)
 }
@@ -422,7 +428,7 @@ draw_optimizer_progress :: proc(tab: ^Tab_State) {
 
 	display_facings := format_angle_list(angles[:], false, ", ")
 	defer delete(display_facings)
-	copied_facings := format_angle_list(angles[:], false, copy_separator(tab.env.post.copy_separator))
+	copied_facings := format_angle_list(angles[:], false, copy_separator(tab.env.post.copy_separator), true)
 	defer delete(copied_facings)
 	read_only_block("Best Yaw", display_facings, copied_facings)
 }
@@ -699,9 +705,9 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	defer delete(display_facings)
 	display_turns := format_angle_list(copy_angles, true, ", ")
 	defer delete(display_turns)
-	copied_facings := format_angle_list(copy_angles, false, copy_separator(state.post.copy_separator))
+	copied_facings := format_angle_list(copy_angles, false, copy_separator(state.post.copy_separator), true)
 	defer delete(copied_facings)
-	copied_turns := format_angle_list(copy_angles, true, copy_separator(state.post.copy_separator))
+	copied_turns := format_angle_list(copy_angles, true, copy_separator(state.post.copy_separator), true)
 	defer delete(copied_turns)
 
 	pushed_ui = push_font(ui_font)

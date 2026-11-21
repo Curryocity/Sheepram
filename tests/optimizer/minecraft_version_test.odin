@@ -15,6 +15,7 @@ modern_exact_movement_matches_mothmotica_reference :: proc(t: ^testing.T) {
 	}
 	model := opt.Discrete_Model {
 		minecraft_version = .V1_21_3,
+		facing_table = opt.regular_facing_table(0, .V1_21_3),
 		n = 3,
 		n_unique = 2,
 		facing_map = make([dynamic]int, 3),
@@ -22,12 +23,12 @@ modern_exact_movement_matches_mothmotica_reference :: proc(t: ^testing.T) {
 	}
 	defer opt.destroy_discrete_model(&model)
 	model.facing_map[1], model.facing_map[2] = 1, 1
-	state := opt.Discrete_State{indices = make([dynamic]u16, 1)}
+	state := opt.Discrete_State{indices = make([dynamic]u32, 1)}
 	defer opt.destroy_discrete_state(&state)
 	state.indices[0] = 12345
 	work := opt.make_exact_workspace(3)
 	defer opt.destroy_exact_workspace(&work)
-	testing.expect_value(t, f32(opt.index_to_facing(12345)), f32(67.815))
+	testing.expect_value(t, f32(opt.index_to_facing(12345, model.facing_table)), f32(67.815))
 	for want, i in expected {
 		strafe: f32 = 0 if i == 0 else (1 if i == 1 else -1)
 		model.exact_movement[0] = opt.get_exact_movement(1, strafe, 0.6, i == 2, i != 0, false, i == 3, false, 0, 0, .V1_21_3)
@@ -39,37 +40,43 @@ modern_exact_movement_matches_mothmotica_reference :: proc(t: ^testing.T) {
 
 @(test)
 modern_fast_grades_use_modern_yaw_conversion :: proc(t: ^testing.T) {
+	legacy_table := opt.regular_facing_table(0, .V1_8_9)
+	defer {
+		opt.destroy_facing_table(legacy_table)
+		free(legacy_table)
+	}
+	model := opt.Discrete_Model{minecraft_version = .V1_21_3, n = 4, n_unique = 3, facing_table = opt.regular_facing_table(0, .V1_21_3)}
+	defer opt.destroy_discrete_model(&model)
 	first_difference := -1
 	for i in 0..<opt.SINE_TABLE_SIZE {
-		angle := u16(i)
-		if opt.sin_index(angle, .V1_8_9) != opt.sin_index(angle, .V1_21_3) || opt.cos_index(angle, .V1_8_9) != opt.cos_index(angle, .V1_21_3) {
+		angle := u32(i)
+		if opt.sin_index(angle, legacy_table) != opt.sin_index(angle, model.facing_table) || opt.cos_index(angle, legacy_table) != opt.cos_index(angle, model.facing_table) {
 			first_difference = i
 			break
 		}
 	}
 	testing.expect(t, first_difference >= 0)
 	if first_difference < 0 do return
-	model := opt.Discrete_Model{minecraft_version = .V1_21_3, n = 4, n_unique = 3}
 	problem := opt.Problem{n = 2, objective = opt.make_compiled_expr(2)}
 	defer opt.destroy_problem(&problem)
 	problem.objective.sin_coeff[0], problem.objective.cos_coeff[0] = 2, -0.4
 	problem.objective.sin_coeff[1], problem.objective.cos_coeff[1] = -0.3, 0.7
-	state := opt.Discrete_State{indices = make([dynamic]u16, 2)}
+	state := opt.Discrete_State{indices = make([dynamic]u32, 2)}
 	defer opt.destroy_discrete_state(&state)
-	state.indices[0], state.indices[1] = u16(first_difference), 32768
+	state.indices[0], state.indices[1] = u32(first_difference), 32768
 	work := opt.make_workspace(2)
 	defer opt.destroy_workspace(&work)
 	baseline := opt.make_discrete_baseline(&model, &problem)
 	defer opt.destroy_discrete_baseline(&baseline)
 	opt.rebuild_discrete_baseline(&baseline, &model, &problem, state, &work, .Polish)
-	testing.expect_value(t, work.sin_cache[0], f64(opt.sin_index(state.indices[0], .V1_21_3)))
-	testing.expect_value(t, work.cos_cache[0], f64(opt.cos_index(state.indices[0], .V1_21_3)))
+	testing.expect_value(t, work.sin_cache[0], f64(opt.sin_index(state.indices[0], model.facing_table)))
+	testing.expect_value(t, work.cos_cache[0], f64(opt.cos_index(state.indices[0], model.facing_table)))
 	move := opt.Two_Opt_Move{uticks = {0, 1}, deltas = {1, -1}}
 	grade: opt.Two_Opt_Grade
 	opt.grade_two_opt(&grade, &baseline, &model, &problem, &move, .Polish)
-	state.indices[0] = opt.offset_index(state.indices[0], 1)
-	state.indices[1] = opt.offset_index(state.indices[1], -1)
-	opt.update_discrete_trig_cache(&work, state, .V1_21_3)
-	expected := opt.eval_discrete_expr(problem.objective, state, &work)
+	state.indices[0] = opt.offset_index(state.indices[0], 1, model.facing_table.angles_count)
+	state.indices[1] = opt.offset_index(state.indices[1], -1, model.facing_table.angles_count)
+	opt.update_discrete_trig_cache(&work, state, model.facing_table)
+	expected := opt.eval_discrete_expr(problem.objective, state, &work, model.facing_table)
 	testing.expect(t, math.abs(baseline.objective+grade.objective_delta-expected) < 1e-12)
 }

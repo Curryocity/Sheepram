@@ -14,6 +14,7 @@ Optimizer_Material :: struct {
 	maximize:             bool,
 	auto_delays:          bool,
 	discrete_search:      bool,
+	half_angle:           bool,
 	cook:                 bool,
 	chefs:                int,
 	seed:                  f64,
@@ -76,6 +77,7 @@ make_optimizer_material :: proc(state: ^Environment) -> Optimizer_Material {
 		maximize             = state.maximize,
 		auto_delays          = state.auto_delays,
 		discrete_search      = state.discrete_search,
+		half_angle           = state.half_angle_search,
 		cook                 = state.cook,
 		chefs                = state.chefs,
 		seed                  = state.seed,
@@ -454,7 +456,6 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	if material.discrete_search {
 		discrete_model = opt.Discrete_Model {
 			minecraft_version = m.minecraft_version,
-			facing_table = opt.make_facing_table(material.facing_range_midpoint, m.minecraft_version),
 			n = n,
 			init_v_range = m.init_v_range,
 			init_drag_x = initial_drag_x,
@@ -462,6 +463,12 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 			exact_movement = m.exact_movement,
 			n_unique = problem.n,
 			facing_map = make([dynamic]int, len(model.facing_map)),
+		}
+
+		if material.half_angle {
+			discrete_model.facing_table = opt.half_angle_facing_table(material.facing_range_midpoint, m.minecraft_version)
+		}else {
+			discrete_model.facing_table = opt.regular_facing_table(material.facing_range_midpoint, m.minecraft_version)
 		}
 
 		m.exact_movement = nil

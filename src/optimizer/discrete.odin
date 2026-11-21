@@ -28,8 +28,9 @@ Discrete_Model :: struct {
 	z:  [dynamic]Compiled_Expr,
 }
 
+// soon needs to be changed to u32 because of half angles
 Discrete_State :: struct {
-	indices: [dynamic]u16,
+	indices: [dynamic]u32,
 }
 
 Grade :: struct {
@@ -45,7 +46,7 @@ Discrete_Cand :: struct {
 
 clone_discrete_state :: proc(state: Discrete_State) -> Discrete_State {
 	out := Discrete_State {
-		indices    = make([dynamic]u16, len(state.indices)),
+		indices    = make([dynamic]u32, len(state.indices)),
 	}
 	copy(out.indices[:], state.indices[:])
 	return out
@@ -79,6 +80,7 @@ destroy_discrete_cand :: proc(cand: ^Discrete_Cand) {
 }
 
 destroy_discrete_model :: proc(model: ^Discrete_Model) {
+	destroy_facing_table(model.facing_table)
 	free(model.facing_table)
 	delete(model.exact_movement)
 	delete(model.facing_map)
@@ -120,8 +122,16 @@ assert_discrete_state :: proc(model: ^Discrete_Model, state: Discrete_State) {
 	assert(len(state.indices) == discrete_angle_len(model))
 }
 
-offset_index :: proc(index: u16, delta: int) -> u16 {
-	return u16((int(index)+delta) & SINE_TABLE_MASK)
+
+offset_index :: proc(index: u32, delta: int, angles_count: int) -> u32 {
+	// works since delta <= angles_count
+    next := int(index)+delta
+    if next < 0 {
+        next += angles_count
+    } else if next >= angles_count {
+        next -= angles_count
+    }
+    return u32(next)
 }
 
 discrete_state_deg :: proc(state: Discrete_State, t: int, model: ^Discrete_Model) -> f64 {
@@ -133,7 +143,7 @@ discrete_state_deg :: proc(state: Discrete_State, t: int, model: ^Discrete_Model
 	return index_to_facing(state.indices[ut], model.facing_table)
 }
 
-eval_discrete_expr :: proc(expr: Compiled_Expr, state: Discrete_State, work: ^Workspace, table: ^Facing_Table = nil) -> f64 {
+eval_discrete_expr :: proc(expr: Compiled_Expr, state: Discrete_State, work: ^Workspace, table: ^Facing_Table) -> f64 {
 	n_unique := len(state.indices)
 	assert(len(expr.theta_coeff) == n_unique)
 	assert(len(expr.sin_coeff) == n_unique)
@@ -233,6 +243,8 @@ one_opt_descent :: proc(
 	current.grade = exact_grade
 	mode^ = .Polish if exact_grade.feasible else .Repair
 
+	anc := model.facing_table.angles_count
+
 	for {
 		if cancel_requested(control) {
 			return improved, true
@@ -250,7 +262,7 @@ one_opt_descent :: proc(
 			for magnitude in 1..=max_delta {
 				for sign in 0..=1 {
 					delta := sign == 0 ? magnitude : -magnitude
-					trial.indices[ut] = offset_index(old_index, delta)
+					trial.indices[ut] = offset_index(old_index, delta, anc)
 
 					exact_grading(&exact_grade, model, exact_p, trial^, exact_work)
 					if improveQ(&exact_grade, &best_grade, mode^) {
@@ -266,7 +278,7 @@ one_opt_descent :: proc(
 
 		if !best_found do return improved, false
 
-		current.state.indices[best_utick] = offset_index(current.state.indices[best_utick], best_delta)
+		current.state.indices[best_utick] = offset_index(current.state.indices[best_utick], best_delta, anc)
 		current.grade = best_grade
 		mode^ = .Polish if best_grade.feasible else .Repair
 		improved = true
@@ -280,12 +292,13 @@ exact_grade_two_opt :: #force_inline proc(
 	state: ^Discrete_State,
 	ut0, ut1: int,
 	delta: [2]int,
+	angle_counts: int,
 	work: ^Exact_Workspace,
 ) {
 	old0 := state.indices[ut0]
 	old1 := state.indices[ut1]
-	state.indices[ut0] = offset_index(old0, delta[0])
-	state.indices[ut1] = offset_index(old1, delta[1])
+	state.indices[ut0] = offset_index(old0, delta[0], angle_counts)
+	state.indices[ut1] = offset_index(old1, delta[1], angle_counts)
 
 	exact_grading(out, model, p, state^, work)
 
@@ -305,6 +318,7 @@ two_opt_descent :: #force_inline proc(
 	control: ^LS_Control,
 ) -> (cancelled: bool) {
 	ilen := discrete_angle_len(model)
+	anc := model.facing_table.angles_count
 
 	work := make_workspace(p.n)
 	defer destroy_workspace(&work)
@@ -381,7 +395,7 @@ two_opt_descent :: #force_inline proc(
 				}
 
 				if good_two_opt_candQ(&two_opt_grade, &baseline, &current.grade, p, mode^, search_mode) {
-					exact_grade_two_opt(&exact_grade, model, exact_p, &current.state, ut0, ut1, delta, exact_work)
+					exact_grade_two_opt(&exact_grade, model, exact_p, &current.state, ut0, ut1, delta, anc, exact_work)
 
 					if !exact_grade.feasible do continue
 
@@ -396,8 +410,8 @@ two_opt_descent :: #force_inline proc(
 						accept_worse = true
 					}
 
-					current.state.indices[ut0] = offset_index(current.state.indices[ut0], delta[0])
-					current.state.indices[ut1] = offset_index(current.state.indices[ut1], delta[1])
+					current.state.indices[ut0] = offset_index(current.state.indices[ut0], delta[0], anc)
+					current.state.indices[ut1] = offset_index(current.state.indices[ut1], delta[1], anc)
 					current.grade = exact_grade
 					mode^ = .Polish
 					rebuild_discrete_baseline(&baseline, model, p, current.state, &work, mode^)
@@ -414,8 +428,8 @@ two_opt_descent :: #force_inline proc(
 			}
 
 			if !accept && mode^ == .Repair && local_pair_improved {
-				current.state.indices[ut0] = offset_index(current.state.indices[ut0], local_pair_delta[0])
-				current.state.indices[ut1] = offset_index(current.state.indices[ut1], local_pair_delta[1])
+				current.state.indices[ut0] = offset_index(current.state.indices[ut0], local_pair_delta[0], anc)
+				current.state.indices[ut1] = offset_index(current.state.indices[ut1], local_pair_delta[1], anc)
 				rebuild_discrete_baseline(&baseline, model, p, current.state, &work, mode^)
 				current.grade = baseline_grade(&baseline)
 				accept = true
@@ -432,13 +446,13 @@ make_discrete_state :: proc(model: ^Discrete_Model, sol: ^Solution) -> Discrete_
 	assert(len(sol.thetas) == model.n_unique)
 	n_init_angles := 2 if model.init_v_range else 1
 	state := Discrete_State {
-		indices = make([dynamic]u16, discrete_angle_len(model)),
+		indices = make([dynamic]u32, discrete_angle_len(model)),
 	}
 	for &angle_index, i in state.indices do angle_index = nearest_facing_index(sol.thetas[i+n_init_angles], model.facing_table)
 	return state
 }
 
-perturb_discrete_state :: proc(state: ^Discrete_State, rng := context.random_generator) {
+perturb_discrete_state :: proc(state: ^Discrete_State, rng := context.random_generator, angle_counts: int) {
 	for &idx in state.indices {
 		draw := rand.int_max(10, rng)
 		delta := 0
@@ -447,7 +461,7 @@ perturb_discrete_state :: proc(state: ^Discrete_State, rng := context.random_gen
 		else if draw < 7 do delta = 0
 		else if draw < 9 do delta = 1
 		else do delta = 2
-		idx = offset_index(idx, delta)
+		idx = offset_index(idx, delta, angle_counts)
 	}
 }
 
@@ -467,6 +481,7 @@ local_search_from_state :: proc(
 ) -> Discrete_State {
 
 	ilen := discrete_angle_len(model)
+	anc := model.facing_table.angles_count
 
 	assert_discrete_state(model, state)
 	trial := clone_discrete_state(state)
@@ -474,8 +489,8 @@ local_search_from_state :: proc(
 	if search_mode == .Cooking {
 		rng_state: rand.Xoshiro256_Random_State
 		rng := rand.xoshiro256_random_generator(&rng_state)
-		perturb_discrete_state(&trial, rng)
-		perturb_discrete_state(&trial, rng)
+		perturb_discrete_state(&trial, rng, anc)
+		perturb_discrete_state(&trial, rng, anc)
 	}
 
 	// Two modes:
@@ -557,7 +572,7 @@ Discrete_Baseline :: struct {
 make_discrete_baseline :: proc(model: ^Discrete_Model, p: ^Problem) -> Discrete_Baseline {
 	return {
 		state = {
-			indices = make([dynamic]u16, discrete_angle_len(model)),
+			indices = make([dynamic]u32, discrete_angle_len(model)),
 		},
 		inequality_values = make([dynamic]f64, len(p.ineq_cons)),
 		equality_values = make([dynamic]f64, len(p.eq_cons)),
@@ -584,7 +599,7 @@ rebuild_discrete_baseline :: proc(
 	assert(len(base.equality_values) == len(p.eq_cons))
 
 	copy_discrete_state(&base.state, state)
-	update_discrete_trig_cache(work, state, model.minecraft_version, model.facing_table)
+	update_discrete_trig_cache(work, state, model.facing_table)
 
 	base.objective = eval_discrete_expr(p.objective, state, work, model.facing_table)
 	base.violation_sqr = 0
@@ -631,6 +646,8 @@ grade_two_opt :: proc(
 	assert(len(base.equality_values) == len(p.eq_cons))
 	assert(move.uticks[0] != move.uticks[1])
 
+	anc := model.facing_table.angles_count
+
 	out^ = {
 		feasible = true,
 	}
@@ -640,10 +657,10 @@ grade_two_opt :: proc(
 		assert(state_index >= 0 && state_index < len(base.state.indices))
 
 		old_idx := base.state.indices[state_index]
-		new_idx := offset_index(old_idx, move.deltas[i])
+		new_idx := offset_index(old_idx, move.deltas[i], anc)
 
-		old_s, old_c := f64(sin_index(old_idx, model.minecraft_version, model.facing_table)), f64(cos_index(old_idx, model.minecraft_version, model.facing_table))
-		new_s, new_c := f64(sin_index(new_idx, model.minecraft_version, model.facing_table)), f64(cos_index(new_idx, model.minecraft_version, model.facing_table))
+		old_s, old_c := f64(sin_index(old_idx, model.facing_table)), f64(cos_index(old_idx, model.facing_table))
+		new_s, new_c := f64(sin_index(new_idx, model.facing_table)), f64(cos_index(new_idx, model.facing_table))
 
 		move.dsin[i] = new_s - old_s
 		move.dcos[i] = new_c - old_c

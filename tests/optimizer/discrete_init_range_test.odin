@@ -10,7 +10,8 @@ discrete_indices_skip_all_initial_angles :: proc(t: ^testing.T) {
 	for mode in 0..<2 {
 		range_init := mode == 1
 		n_init_angles := 2 if range_init else 1
-		model := optimizer.Discrete_Model{n = 5, n_unique = n_init_angles+2, init_v_range = range_init}
+		model := optimizer.Discrete_Model{n = 5, n_unique = n_init_angles+2, init_v_range = range_init, facing_table = optimizer.regular_facing_table(0, .V1_8_9)}
+		defer optimizer.destroy_discrete_model(&model)
 		solution := optimizer.Solution{thetas = make([dynamic]f64, model.n_unique)}
 		solution.thetas[0] = 0.15
 		if range_init do solution.thetas[1] = 1.25
@@ -18,8 +19,8 @@ discrete_indices_skip_all_initial_angles :: proc(t: ^testing.T) {
 		solution.thetas[n_init_angles+1] = -0.7
 		state := optimizer.make_discrete_state(&model, &solution)
 		testing.expect_value(t, len(state.indices), 2)
-		testing.expect_value(t, state.indices[0], optimizer.index(f32(0.4)))
-		testing.expect_value(t, state.indices[1], optimizer.index(f32(-0.7)))
+		testing.expect_value(t, state.indices[0], optimizer.nearest_facing_index(0.4, model.facing_table))
+		testing.expect_value(t, state.indices[1], optimizer.nearest_facing_index(-0.7, model.facing_table))
 		clone := optimizer.clone_discrete_state(state)
 		optimizer.copy_discrete_state(&clone, state)
 		for angle_index, i in state.indices do testing.expect_value(t, clone.indices[i], angle_index)
@@ -30,9 +31,8 @@ discrete_indices_skip_all_initial_angles :: proc(t: ^testing.T) {
 		raw := optimizer.make_raw_expr(model.n)
 		raw.f_coeff[3] = 1
 		xs, zs: [5]f64
-		testing.expect_value(t, optimizer.eval_raw_expr(raw, state, xs[:], zs[:], &model), optimizer.index_to_facing(state.indices[1]))
+		testing.expect_value(t, optimizer.eval_raw_expr(raw, state, xs[:], zs[:], &model), optimizer.index_to_facing(state.indices[1], model.facing_table))
 		optimizer.destroy_raw_expr(&raw)
-		delete(facing_map)
 		optimizer.destroy_discrete_state(&clone)
 		optimizer.destroy_discrete_state(&state)
 		optimizer.destroy_solution(&solution)
@@ -44,7 +44,8 @@ discrete_fast_estimates_keep_initial_angles_fixed :: proc(t: ^testing.T) {
 	for mode in 0..<2 {
 		range_init := mode == 1
 		n_init_angles := 2 if range_init else 1
-		model := optimizer.Discrete_Model{n = 5, n_unique = n_init_angles+2, init_v_range = range_init}
+		model := optimizer.Discrete_Model{n = 5, n_unique = n_init_angles+2, init_v_range = range_init, facing_table = optimizer.regular_facing_table(0, .V1_8_9)}
+		defer optimizer.destroy_discrete_model(&model)
 		original := optimizer.Problem{n = model.n_unique, objective = optimizer.make_compiled_expr(model.n_unique)}
 		original.objective.constant = 0.3
 		for i in 0..<model.n_unique {
@@ -57,20 +58,20 @@ discrete_fast_estimates_keep_initial_angles_fixed :: proc(t: ^testing.T) {
 		initial := [?]f64{0.15, 1.25}
 		problem := optimizer.freeze_initial_problem(&original, initial[:n_init_angles])
 		state := optimizer.Discrete_State {
-			indices = make([dynamic]u16, 2),
+			indices = make([dynamic]u32, 2),
 		}
-		copy(state.indices[:], []u16{65535, 0})
+		copy(state.indices[:], []u32{65535, 0})
 		work := optimizer.make_workspace(problem.n)
 		baseline := optimizer.make_discrete_baseline(&model, &problem)
 		optimizer.rebuild_discrete_baseline(&baseline, &model, &problem, state, &work, .Polish)
 		thetas := make([]f64, model.n_unique)
 		copy(thetas[:n_init_angles], initial[:n_init_angles])
-		for angle_index, i in state.indices do thetas[i+n_init_angles] = optimizer.index_to_radians(angle_index)
+		for angle_index, i in state.indices do thetas[i+n_init_angles] = optimizer.index_to_radians(angle_index, model.facing_table)
 		original_work := optimizer.make_workspace(original.n)
 		optimizer.update_trig_cache(&original_work, thetas)
 		for angle_index, i in state.indices {
-			original_work.sin_cache[i+n_init_angles] = f64(optimizer.sin_index(angle_index))
-			original_work.cos_cache[i+n_init_angles] = f64(optimizer.cos_index(angle_index))
+			original_work.sin_cache[i+n_init_angles] = f64(optimizer.sin_index(angle_index, model.facing_table))
+			original_work.cos_cache[i+n_init_angles] = f64(optimizer.cos_index(angle_index, model.facing_table))
 		}
 		testing.expect(t, math.abs(baseline.objective-optimizer.eval(original.objective, thetas, &original_work)) < 1e-12)
 		for delta in optimizer.TWO_OPT_DELTAS {
@@ -78,10 +79,10 @@ discrete_fast_estimates_keep_initial_angles_fixed :: proc(t: ^testing.T) {
 			grade: optimizer.Two_Opt_Grade
 			optimizer.grade_two_opt(&grade, &baseline, &model, &problem, &move, .Polish)
 			trial := optimizer.clone_discrete_state(state)
-			trial.indices[0] = optimizer.offset_index(trial.indices[0], delta[0])
-			trial.indices[1] = optimizer.offset_index(trial.indices[1], delta[1])
-			optimizer.update_discrete_trig_cache(&work, trial)
-			value := optimizer.eval_discrete_expr(problem.objective, trial, &work)
+			trial.indices[0] = optimizer.offset_index(trial.indices[0], delta[0], model.facing_table.angles_count)
+			trial.indices[1] = optimizer.offset_index(trial.indices[1], delta[1], model.facing_table.angles_count)
+			optimizer.update_discrete_trig_cache(&work, trial, model.facing_table)
+			value := optimizer.eval_discrete_expr(problem.objective, trial, &work, model.facing_table)
 			testing.expect(t, math.abs(value-baseline.objective-grade.objective_delta) < 1e-12)
 			testing.expect(t, math.abs(value*value-grade.violation_sqr) < 1e-12)
 			optimizer.destroy_discrete_state(&trial)

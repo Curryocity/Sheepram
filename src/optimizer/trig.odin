@@ -10,17 +10,21 @@ INDEX_PER_RAD: f32 = 10430.378
 RIGHT_ANGLE: f32 = 16384.0
 
 sine_table: [SINE_TABLE_SIZE]f32
-facing_table: [SINE_TABLE_SIZE]f64
-sin_value_table: [SINE_TABLE_SIZE]f32
-cos_value_table: [SINE_TABLE_SIZE]f32
-modern_sin_value_table: [SINE_TABLE_SIZE]f32
-modern_cos_value_table: [SINE_TABLE_SIZE]f32
 
 Facing_Table :: struct {
 	midpoint: f64,
-	facings: [SINE_TABLE_SIZE]f64,
-	sines: [SINE_TABLE_SIZE]f32,
-	cosines: [SINE_TABLE_SIZE]f32,
+	angles_count: int,
+	facings: [dynamic]f64,
+	sines: [dynamic]f32,
+	cosines: [dynamic]f32,
+}
+
+destroy_facing_table :: proc(table: ^Facing_Table) {
+	if table == nil do return
+	delete(table.facings)
+	delete(table.sines)
+	delete(table.cosines)
+	table^ = {}
 }
 
 valid_facing_range :: proc(midpoint: f64) -> bool {
@@ -48,22 +52,24 @@ wrap_radians :: proc "contextless" (angle: f64, midpoint: f64 = 0) -> f64 {
 	return lower if result >= upper else result
 }
 
-make_facing_table :: proc(midpoint: f64, version: Minecraft_Version) -> ^Facing_Table {
-	if midpoint == 0 do return nil
+regular_facing_table :: proc(midpoint: f64, version: Minecraft_Version) -> ^Facing_Table {
 	assert(valid_facing_range(midpoint))
 	table := new(Facing_Table)
 	table.midpoint = midpoint
+	table.facings = make([dynamic]f64, SINE_TABLE_SIZE)
+	table.sines = make([dynamic]f32, SINE_TABLE_SIZE)
+	table.cosines = make([dynamic]f32, SINE_TABLE_SIZE)
 	for i in 0..<SINE_TABLE_SIZE {
 		facing := compute_index_facing(u16(i), midpoint, version)
 		table.facings[i] = facing
 		table.sines[i] = sine_table[int(facing_sin_index(f32(facing), version))]
 		table.cosines[i] = sine_table[int(facing_cos_index(f32(facing), version))]
 	}
+	table.angles_count = SINE_TABLE_SIZE
 	return table
 }
 
-nearest_facing_index :: proc(angle: f64, table: ^Facing_Table = nil) -> u16 {
-	if table == nil do return index(f32(angle))
+nearest_facing_index :: proc(angle: f64, table: ^Facing_Table) -> u32 {
 	facing := wrap_radians(angle, table.midpoint)*180/math.PI
 	best := 0
 	distance := math.abs(table.facings[0]-facing)
@@ -73,7 +79,7 @@ nearest_facing_index :: proc(angle: f64, table: ^Facing_Table = nil) -> u16 {
 			best, distance = i, candidate_distance
 		}
 	}
-	return u16(best)
+	return u32(best)
 }
 
 @(init)
@@ -83,20 +89,15 @@ init_sine_table :: proc "contextless" () {
 			math.sin(f64(i) * math.PI *2.0 /f64(SINE_TABLE_SIZE)),
 		)
 	}
-	for i in 0..<SINE_TABLE_SIZE {
-		facing := compute_index_facing(u16(i))
-		facing_table[i] = facing
-		sin_value_table[i] = sin(f32(facing))
-		cos_value_table[i] = cos(f32(facing))
-		rad := f32(facing)*f32(0.017453292)
-		modern_sin_value_table[i] = sine_table[int(rad*INDEX_PER_RAD)&SINE_TABLE_MASK]
-		modern_cos_value_table[i] = sine_table[int(rad*INDEX_PER_RAD+RIGHT_ANGLE)&SINE_TABLE_MASK]
-	}
 }
 
-index :: proc "contextless" (rad: f32) -> u16 {
+index :: proc "contextless" (rad: f32, angle_counts: int) -> u32 {
 	index := int(rad * INDEX_PER_RAD)
-	return u16(index & SINE_TABLE_MASK)
+	if angle_counts != SINE_TABLE_MASK {
+		return u32(index %% angle_counts)
+	}
+
+	return u32(index & SINE_TABLE_MASK)
 }
 
 sin :: proc "contextless" (deg: f32) -> f32 {
@@ -119,35 +120,30 @@ facing_cos_index :: proc "contextless" (deg: f32, version: Minecraft_Version = .
 	return u16(int(rad * INDEX_PER_RAD + RIGHT_ANGLE) & SINE_TABLE_MASK)
 }
 
-sin_index :: proc "contextless" (index: u16, version := Minecraft_Version.V1_8_9, table: ^Facing_Table = nil) -> f32 {
-	if table != nil do return table.sines[int(index)]
-	if version == .V1_21_3 do return modern_sin_value_table[int(index)]
-	return sin_value_table[int(index)]
+sin_index :: proc "contextless" (index: u32, table: ^Facing_Table) -> f32 {
+	return table.sines[int(index)]
 }
 
-cos_index :: proc "contextless" (index: u16, version := Minecraft_Version.V1_8_9, table: ^Facing_Table = nil) -> f32 {
-	if table != nil do return table.cosines[int(index)]
-	if version == .V1_21_3 do return modern_cos_value_table[int(index)]
-	return cos_value_table[int(index)]
+cos_index :: proc "contextless" (index: u32, table: ^Facing_Table) -> f32 {
+	return table.cosines[int(index)]
 }
 
-update_discrete_trig_cache :: proc(work: ^Workspace, state: Discrete_State, version := Minecraft_Version.V1_8_9, table: ^Facing_Table = nil) {
+update_discrete_trig_cache :: proc(work: ^Workspace, state: Discrete_State, table: ^Facing_Table) {
 	assert(len(work.sin_cache) == len(state.indices))
 	assert(len(work.cos_cache) == len(state.indices))
 	for index, i in state.indices {
 		ut := i
-		work.sin_cache[ut] = f64(sin_index(index, version, table))
-		work.cos_cache[ut] = f64(cos_index(index, version, table))
+		work.sin_cache[ut] = f64(sin_index(index, table))
+		work.cos_cache[ut] = f64(cos_index(index, table))
 	}
 }
 
-index_to_radians :: proc "contextless" (index: u16, table: ^Facing_Table = nil) -> f64 {
+index_to_radians :: proc "contextless" (index: u32, table: ^Facing_Table) -> f64 {
 	return index_to_facing(index, table)*math.PI/180.0
 }
 
-index_to_facing :: proc "contextless" (idx: u16, table: ^Facing_Table = nil) -> f64 {
-	if table != nil do return table.facings[int(idx)]
-	return facing_table[int(idx)]
+index_to_facing :: proc "contextless" (idx: u32, table: ^Facing_Table) -> f64 {
+	return table.facings[int(idx)]
 }
 
 compute_index_facing :: proc "contextless" (idx: u16, midpoint: f64 = 0, version: Minecraft_Version = .V1_8_9) -> f64 {
