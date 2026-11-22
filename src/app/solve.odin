@@ -479,6 +479,12 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		}
 
 		m.exact_movement = nil
+		if discrete_model.facing_table == nil {
+			opt.destroy_solution(solution)
+			free(solution)
+			set_optimizer_error(&result, "Error:\nFacing table generation failed.")
+			return result
+		}
 		copy(discrete_model.facing_map[:], model.facing_map[:])
 	}
 

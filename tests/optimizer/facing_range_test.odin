@@ -5,10 +5,29 @@ import "core:testing"
 import opt "../../src/optimizer"
 
 @(test)
+regular_facing_candidates_prefer_the_stronger_trig_pair :: proc(t: ^testing.T) {
+	for version in ([2]opt.Minecraft_Version{.V1_8_9, .V1_21_3}) {
+		idx := opt.facing_sin_index(315, version)
+		testing.expect_value(t, opt.facing_sin_index(314.995, version), idx)
+		facing, ok := opt.compute_index_facing(idx, 180, version)
+		testing.expect(t, ok)
+		testing.expect_value(t, facing, f64(315))
+	}
+}
+
+@(test)
 facing_tables_match_actual_yaw_in_each_range :: proc(t: ^testing.T) {
 	for version in ([2]opt.Minecraft_Version{.V1_8_9, .V1_21_3}) {
 		for midpoint in ([5]f64{0, 180, 37.12345, 1800, -1800}) {
 			table := opt.regular_facing_table(midpoint, version)
+			if midpoint == 37.12345 || midpoint == -1800 {
+				testing.expect(t, table == nil)
+				if table != nil {
+					opt.destroy_facing_table(table)
+					free(table)
+				}
+				continue
+			}
 			testing.expect(t, table != nil)
 			if table == nil do continue
 			testing.expect_value(t, table.angles_count, opt.SINE_TABLE_SIZE)
@@ -21,6 +40,7 @@ facing_tables_match_actual_yaw_in_each_range :: proc(t: ^testing.T) {
 				rad := yaw*f32(0.017453292) if version == .V1_21_3 else yaw*f32(math.PI)/f32(180)
 				s := int(rad*f32(10430.378))&65535
 				c := int(rad*f32(10430.378)+f32(16384))&65535
+				testing.expect_value(t, s, i)
 				testing.expect_value(t, opt.sin_index(idx, table), f32(math.sin(f64(s)*2*math.PI/65536)))
 				testing.expect_value(t, opt.cos_index(idx, table), f32(math.sin(f64(c)*2*math.PI/65536)))
 			}

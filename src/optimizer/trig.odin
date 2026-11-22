@@ -61,7 +61,12 @@ regular_facing_table :: proc(midpoint: f64, version: Minecraft_Version) -> ^Faci
 	table.sines = make([dynamic]f32, SINE_TABLE_SIZE)
 	table.cosines = make([dynamic]f32, SINE_TABLE_SIZE)
 	for i in 0..<SINE_TABLE_SIZE {
-		facing := compute_index_facing(u16(i), midpoint, version)
+		facing, ok := compute_index_facing(u16(i), midpoint, version)
+		if !ok {
+			destroy_facing_table(table)
+			free(table)
+			return nil
+		}
 		table.facings[i] = facing
 		table.sines[i] = sine_table[int(facing_sin_index(f32(facing), version))]
 		table.cosines[i] = sine_table[int(facing_cos_index(f32(facing), version))]
@@ -147,27 +152,35 @@ index_to_facing :: proc "contextless" (idx: u32, table: ^Facing_Table) -> f64 {
 	return table.facings[int(idx)]
 }
 
-compute_index_facing :: proc "contextless" (idx: u16, midpoint: f64 = 0, version: Minecraft_Version = .V1_8_9) -> f64 {
+compute_index_facing :: proc "contextless" (idx: u16, midpoint: f64 = 0, version: Minecraft_Version = .V1_8_9) -> (f64, bool) {
 	step :: 0.005
 	center := (f64(idx)+0.5) * 360.0 / f64(SINE_TABLE_SIZE)
 	center = wrap_facing(center, midpoint)
 
+	best := f64(0)
+	best_norm_sqr := f64(0)
+	found := false
+
 	base := int(math.round(center / step))
-	fallback := f64(f32(midpoint))
-	has_fallback := false
 	for radius in 0..=2 {
 		for sign in 0..=1 {
 			if radius == 0 && sign == 1 do continue
 			offset := radius if sign == 0 else -radius
-			deg := f64(base+offset) * step
-			if deg < midpoint-180 || deg >= midpoint+180 do continue
-			if f64(f32(deg)) < midpoint-180 || f64(f32(deg)) >= midpoint+180 do continue
-			if !has_fallback {
-				fallback, has_fallback = deg, true
+			deg := f64(base + offset) * step
+			if deg < midpoint - 180 || deg >= midpoint + 180 do continue
+			if f64(f32(deg)) < midpoint - 180 || f64(f32(deg)) >= midpoint + 180 do continue
+			if facing_sin_index(f32(deg), version) == idx {
+				sine := sine_table[int(idx)]
+				cosine := sine_table[int(facing_cos_index(f32(deg), version))]
+				norm_sqr := f64(sine)*f64(sine) + f64(cosine)*f64(cosine)
+				if !found || norm_sqr > best_norm_sqr {
+					found = true
+					best = deg
+					best_norm_sqr = norm_sqr
+				}
 			}
-			if facing_sin_index(f32(deg), version) == idx do return deg
 		}
 	}
 
-	return fallback
+	return best, found
 }
