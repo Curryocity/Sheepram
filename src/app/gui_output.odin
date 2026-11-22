@@ -425,6 +425,10 @@ draw_optimizer_progress :: proc(tab: ^Tab_State) {
 			total_chefs,
 		)
 	}
+	if total_chefs > 0 && job.material.discrete_search && job.material.half_angle {
+		im.SameLine()
+		im.TextDisabled("[Half Angle]")
+	}
 
 	display_facings := format_angle_list(angles[:], false, ", ", true)
 	defer delete(display_facings)
@@ -509,6 +513,10 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 			"Mode: %s",
 			"Discrete" if state.last_solution_discrete else "Continuous",
 		)
+	}
+	if state.last_solution_half_angle {
+		im.SameLine()
+		im.TextDisabled("[Half Angle]")
 	}
 	initial_vx := solution.xs[1]-solution.xs[0]
 	initial_vz := solution.zs[1]-solution.zs[0]

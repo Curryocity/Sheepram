@@ -51,6 +51,7 @@ Optimizer_Result :: struct {
 	solution:                 ^opt.Solution,
 	init_v_defaulted:         bool,
 	discrete:                 bool,
+	half_angle:               bool,
 	cooking:                  bool,
 	chefs_completed:          int,
 	chefs_total:              int,
@@ -145,6 +146,7 @@ apply_optimizer_result :: proc(state: ^Environment, result: ^Optimizer_Result) {
 	state.last_init_v_defaulted = result.init_v_defaulted
 	result.solution = nil
 	state.last_solution_discrete = result.discrete
+	state.last_solution_half_angle = result.half_angle
 	state.last_solution_cooking = result.cooking
 	state.last_solution_chefs_completed = result.chefs_completed
 	state.last_solution_chefs_total = result.chefs_total
@@ -581,6 +583,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 		opt.destroy_solution(solution)
 		solution^ = exact_solution
 		result.discrete = true
+		result.half_angle = material.half_angle
 		result.discrete_time_seconds += time.duration_seconds(time.tick_since(discrete_start))
 
 		if !tightened do break
