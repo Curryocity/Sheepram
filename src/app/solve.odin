@@ -219,7 +219,7 @@ optimize :: proc(material: ^Optimizer_Material, control: ^Optimizer_Control = ni
 	midpoint_limit := opt.REGULAR_FACING_MIDPOINT_LIMIT
 	if material.discrete_search && material.half_angle {
 		if !opt.valid_half_angle_range(material.facing_range_midpoint, material.minecraft_version) {
-			set_optimizer_error(&result, "Error:\nSelected yaw range is invalid or exceeds Minecraft's 32-bit trig index range.")
+			set_optimizer_error(&result, "Error:\nSelected yaw range exceeds Minecraft's 32-bit trig index range.")
 			return result
 		}
 	} else if !opt.valid_facing_range(material.facing_range_midpoint) || math.abs(material.facing_range_midpoint) > midpoint_limit {
