@@ -156,29 +156,40 @@ compute_index_facing :: proc "contextless" (idx: u16, midpoint: f64 = 0, version
 	step :: 0.005
 	center := (f64(idx)+0.5) * 360.0 / f64(SINE_TABLE_SIZE)
 	center = wrap_facing(center, midpoint)
+	lower, upper := midpoint-180, midpoint+180
 
 	best := f64(0)
 	best_norm_sqr := f64(0)
+	best_in_range := false
 	found := false
 
-	base := int(math.round(center / step))
-	for radius in 0..=2 {
-		for sign in 0..=1 {
-			if radius == 0 && sign == 1 do continue
-			offset := radius if sign == 0 else -radius
+	for turn in ([3]int{0, -1, 1}) {
+		cand_center := center+360*f64(turn)
+		if cand_center < lower-2*step || cand_center >= upper+2*step do continue
+		base := int(math.round(cand_center/step))
+
+		for offset in ([5]int{0, 1, -1, 2, -2}) {
 			deg := f64(base + offset) * step
-			if deg < midpoint - 180 || deg >= midpoint + 180 do continue
-			if f64(f32(deg)) < midpoint - 180 || f64(f32(deg)) >= midpoint + 180 do continue
-			if facing_sin_index(f32(deg), version) == idx {
-				sine := sine_table[int(idx)]
-				cosine := sine_table[int(facing_cos_index(f32(deg), version))]
-				norm_sqr := f64(sine)*f64(sine) + f64(cosine)*f64(cosine)
-				if !found || norm_sqr > best_norm_sqr {
-					found = true
-					best = deg
-					best_norm_sqr = norm_sqr
-				}
-			}
+			yaw := f32(deg)
+
+			if deg < lower-step || deg >= upper+step do continue
+			if f64(yaw) < lower-step || f64(yaw) >= upper+step do continue
+
+			in_range := deg >= lower && deg < upper && f64(yaw) >= lower && f64(yaw) < upper
+
+			if found && best_in_range && !in_range do continue
+			if facing_sin_index(yaw, version) != idx do continue
+
+			sine := sine_table[int(idx)]
+			cosine := sine_table[int(facing_cos_index(yaw, version))]
+			norm_sqr := f64(sine)*f64(sine) + f64(cosine)*f64(cosine)
+
+			if found && in_range == best_in_range && norm_sqr <= best_norm_sqr do continue
+
+			found = true
+			best = deg
+			best_norm_sqr = norm_sqr
+			best_in_range = in_range
 		}
 	}
 

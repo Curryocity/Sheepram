@@ -88,12 +88,6 @@ facing_and_turn_constraints_use_the_selected_range_across_solvers :: proc(t: ^te
 				}
 				if midpoint == 0 do material.cons_script = "F[1] = 179.995\nF[3] = -180\nT[2] = -359.995"
 				result := app.optimize(&material)
-				if midpoint == 37.12345 && material.discrete_search {
-					testing.expect(t, result.solution == nil)
-					testing.expect(t, strings.contains(result.error, "Facing table generation failed"))
-					app.destroy_optimizer_result(&result)
-					continue
-				}
 				testing.expect_value(t, result.error, "")
 				testing.expect(t, result.solution != nil)
 				if result.solution != nil {
@@ -137,12 +131,6 @@ shifted_ranges_preserve_continuous_initial_velocity :: proc(t: ^testing.T) {
 					z_origin_script = "Vz[0]",
 				}
 				result := app.optimize(&material)
-				if midpoint == -1800 && material.discrete_search {
-					testing.expect(t, result.solution == nil)
-					testing.expect(t, strings.contains(result.error, "Facing table generation failed"))
-					app.destroy_optimizer_result(&result)
-					continue
-				}
 				testing.expect_value(t, result.error, "")
 				testing.expect(t, result.solution != nil)
 				if result.solution != nil {
