@@ -140,7 +140,11 @@ rotate_save_environment :: proc(env: ^Environment, rotation: int) -> string {
 	turns := rotation/90
 	orientation := (turns%4+4)%4
 	midpoint := env.facing_range_midpoint+f64(rotation)
-	if !opt.valid_facing_range(midpoint) || midpoint < -opt.REGULAR_FACING_MIDPOINT_LIMIT || midpoint > opt.REGULAR_FACING_MIDPOINT_LIMIT {
+	if env.discrete_search && env.half_angle_search {
+		if !opt.valid_half_angle_range(midpoint, env.minecraft_version) {
+			return strings.clone("Rotated yaw range is invalid or exceeds Minecraft's 32-bit trig index range.")
+		}
+	} else if !opt.valid_facing_range(midpoint) || midpoint < -opt.REGULAR_FACING_MIDPOINT_LIMIT || midpoint > opt.REGULAR_FACING_MIDPOINT_LIMIT {
 		return strings.clone("Rotated yaw range midpoint must be between -1800 and 1800.")
 	}
 	if err := rotate_save_buffer(env.movement_script[:], turns, true); err != "" do return err

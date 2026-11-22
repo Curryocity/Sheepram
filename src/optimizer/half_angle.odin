@@ -8,14 +8,34 @@ Trig :: struct {
     c: int,
 }
 
+half_angle_key_bounds :: proc(midpoint: f64) -> (lb_key, ub_key: u32) {
+    lb, ub := midpoint-180, midpoint+180
+    lb_key, ub_key = f32_key(f32(lb)), f32_key(f32(ub))
+    if f64(key_f32(lb_key)) < lb do lb_key += 1
+    if f64(key_f32(ub_key)) < ub do ub_key += 1
+    return
+}
+
+valid_half_angle_range :: proc(midpoint: f64, version: Minecraft_Version) -> bool {
+    if !valid_facing_range(midpoint) do return false
+    lb_key, ub_key := half_angle_key_bounds(midpoint)
+    if lb_key >= ub_key do return false
+    // Unmasked indices are monotonic, so the endpoints cover the entire range.
+    for key in ([2]u32{lb_key, ub_key-1}) {
+        deg := key_f32(key)
+        rad := deg*f32(0.017453292) if version == .V1_21_3 else deg*f32(math.PI)/f32(180)
+        s, c := f64(rad*INDEX_PER_RAD), f64(rad*INDEX_PER_RAD+RIGHT_ANGLE)
+        if s < f64(min(i32)) || s > f64(max(i32)) || c < f64(min(i32)) || c > f64(max(i32)) do return false
+    }
+    return true
+}
+
 half_angle_facing_table :: proc(midpoint: f64, version: Minecraft_Version) -> ^Facing_Table{
+    assert(valid_half_angle_range(midpoint, version))
     m := new(Facing_Table)
     m.midpoint = midpoint
 
-    lb, ub := midpoint-180, midpoint+180
-    lb_key, ub_key := f32_key(f32(lb)), f32_key(f32(ub))
-    if f64(key_f32(lb_key)) < lb do lb_key += 1
-    if f64(key_f32(ub_key)) < ub do ub_key += 1
+    lb_key, ub_key := half_angle_key_bounds(midpoint)
 
     k := lb_key
 

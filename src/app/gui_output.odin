@@ -229,7 +229,7 @@ format_angle_list :: proc(facings: []f64, turns: bool, separator: string, full_p
 			value = facings[i+1]-value
 		}
 		if full_precision {
-			part := strconv.write_float(number_buffer[:], value, 'f', -1, 64)
+			part := strconv.write_float(number_buffer[:], value, 'f', -1, 32)
 			strings.write_string(&builder, strings.trim_prefix(part, "+"))
 		} else {
 			strings.write_string(&builder, fmt.tprintf("%.3f", value))
@@ -426,7 +426,7 @@ draw_optimizer_progress :: proc(tab: ^Tab_State) {
 		)
 	}
 
-	display_facings := format_angle_list(angles[:], false, ", ")
+	display_facings := format_angle_list(angles[:], false, ", ", true)
 	defer delete(display_facings)
 	copied_facings := format_angle_list(angles[:], false, copy_separator(tab.env.post.copy_separator), true)
 	defer delete(copied_facings)
@@ -701,9 +701,9 @@ draw_output_panel :: proc(tab: ^Tab_State, size: im.Vec2 = {0, 0}) {
 	if !state.post.include_initial_angle && len(copy_angles) > 0 {
 		copy_angles = copy_angles[1:]
 	}
-	display_facings := format_angle_list(copy_angles, false, ", ")
+	display_facings := format_angle_list(copy_angles, false, ", ", true)
 	defer delete(display_facings)
-	display_turns := format_angle_list(copy_angles, true, ", ")
+	display_turns := format_angle_list(copy_angles, true, ", ", true)
 	defer delete(display_turns)
 	copied_facings := format_angle_list(copy_angles, false, copy_separator(state.post.copy_separator), true)
 	defer delete(copied_facings)
