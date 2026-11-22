@@ -13,6 +13,7 @@ sine_table: [SINE_TABLE_SIZE]f32
 
 Facing_Table :: struct {
 	midpoint: f64,
+	half_angle: bool,
 	angles_count: int,
 	facings: [dynamic]f64,
 	sines: [dynamic]f32,

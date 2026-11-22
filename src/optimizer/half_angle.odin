@@ -34,6 +34,7 @@ half_angle_facing_table :: proc(midpoint: f64, version: Minecraft_Version) -> ^F
     assert(valid_half_angle_range(midpoint, version))
     m := new(Facing_Table)
     m.midpoint = midpoint
+    m.half_angle = true
 
     lb_key, ub_key := half_angle_key_bounds(midpoint)
 

@@ -320,6 +320,15 @@ two_opt_descent :: #force_inline proc(
 	ilen := discrete_angle_len(model)
 	anc := model.facing_table.angles_count
 
+	// 2x expansion in half angle search
+	deltas: [2*len(TWO_OPT_DELTAS)][2]int
+	for delta, i in TWO_OPT_DELTAS do deltas[i] = delta
+	delta_count := len(TWO_OPT_DELTAS)
+	if model.facing_table.half_angle {
+		for delta, i in TWO_OPT_DELTAS do deltas[delta_count+i] = {2*delta[0], 2*delta[1]}
+		delta_count *= 2
+	}
+
 	work := make_workspace(p.n)
 	defer destroy_workspace(&work)
 
@@ -379,7 +388,7 @@ two_opt_descent :: #force_inline proc(
 			}
 			local_pair_delta := [2]int{}
 
-			for delta in TWO_OPT_DELTAS {
+			for delta in deltas[:delta_count] {
 				move := Two_Opt_Move {
 					deltas = delta,
 					uticks = {ut0, ut1},
@@ -508,13 +517,14 @@ local_search_from_state :: proc(
 
 	if control != nil do control.cancel_last_check = time.tick_now()
 	search_cancelled := false
+	move_scale := 2 if model.facing_table.half_angle else 1
 
-	// 2. Exact steepest 1-opt ±1 rounds
+	// 2. Exact steepest 1-opt rounds
 	//
 	// Exact-grade every single-index neighbor and accept the best move.
 	// Repair minimizes exact violation. Polish minimizes exact objective.
 
-	_, search_cancelled = one_opt_descent(model, exact_p, &current, &mode, &trial, &exact_work, control)
+	_, search_cancelled = one_opt_descent(model, exact_p, &current, &mode, &trial, &exact_work, control, move_scale)
 
 	best := clone_discrete_cand(current)
 	defer destroy_discrete_cand(&best)
@@ -529,9 +539,9 @@ local_search_from_state :: proc(
 		search_cancelled = two_opt_descent(model, p, exact_p, &current, &best, &mode, &exact_work, search_mode, control)
 	}
 
-	// 4. Exact steepest 1-opt cleanup with ±1, ±2, and ±3 moves
+	// 4. Exact steepest 1-opt cleanup
 	if !search_cancelled {
-		_, search_cancelled = one_opt_descent(model, exact_p, &current, &mode, &trial, &exact_work, control, 3)
+		_, search_cancelled = one_opt_descent(model, exact_p, &current, &mode, &trial, &exact_work, control, 3*move_scale)
 	}
 
 	if mode == .Polish &&
